@@ -1,0 +1,67 @@
+defaults:
+  - _self_
+  - drone
+  - ppo
+  - sim
+
+headless: False
+device: "cuda:0"
+seed: 0
+
+# Total Training Length
+max_frame_num: 12e8 # max frame 
+eval_interval: 1000 # evaluate the policy for every N training steps
+save_interval: 1000
+
+# Training Environment
+env:
+  num_envs: 2 # Number of drones for training
+  max_episode_length: 2200
+  env_spacing: 8.0 
+  num_obstacles: 350
+
+env_dyn:
+  num_obstacles: 80 # set to zero if static env is needed
+  vel_range: [0.5, 1.5]
+  local_range: [5.0, 5.0, 4.5]
+
+stuck:
+  window: 40
+  progress_eps: 0.005
+  front_obstacle_distance: 1.5
+  front_angle_deg: 35.0
+  front_height: 0.75
+
+reward:
+  goal_progress:
+    goal_radius: 0.5
+    arrival_reward: 45.0
+    timeout_penalty: 30.0
+    progress_scale: 35.0
+  stall:
+    weight: 0.5
+    window: 60
+    ramp_window: 60
+    distance_threshold: 0.25
+    speed_threshold: 0.15
+    progress_eps: 0.005
+  vo:
+    weight: 1.3
+    tau: 0.75
+    horizon: 2.5
+    xy_margin: 0.3
+    z_margin: 0.3
+    reward_topk: 10
+    warmup_steps: 20000
+
+viewer:
+  eye: [0., 40., 40.]
+  lookat: [0., 2.5, 0.]
+  resolution: [960, 720]
+
+wandb:
+  project: NavRL
+  name: navigation_training
+  entity: CERLAB-UAV-RL-Navigation
+  mode: offline # online
+  run_id: #kw9xf9k9
