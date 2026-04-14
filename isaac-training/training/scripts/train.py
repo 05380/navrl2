@@ -157,10 +157,10 @@ def main(cfg):
     # checkpoint = "/home/zhefan/catkin_ws/src/navigation_runner/scripts/ckpts/checkpoint_2500.pt"
     # checkpoint = "/home/xinmingh/RLDrones/navigation/scripts/nav-ros/navigation_runner/ckpts/checkpoint_36000.pt"
     # policy.load_state_dict(torch.load(checkpoint))
-    if cfg.checkpoint is not None:
-        checkpoint_path = os.path.expanduser(cfg.checkpoint)
-        policy.load_state_dict(torch.load(checkpoint_path, map_location=cfg.device))
-        print("[NavRL]: loaded checkpoint from: ", checkpoint_path)
+    #if cfg.checkpoint is not None:
+    #    checkpoint_path = os.path.expanduser(cfg.checkpoint)
+    #    policy.load_state_dict(torch.load(checkpoint_path, map_location=cfg.device))
+    #    print("[NavRL]: loaded checkpoint from: ", checkpoint_path)
     # Episode Stats Collector
     episode_stats_keys = [
         k for k in transformed_env.observation_spec.keys(True, True) 
