@@ -656,17 +656,8 @@ class NavigationEnv(IsaacEnv):
                 vertical_inflation=self.dyn_obs_size[:, 2].unsqueeze(0) / 2.,
             ).any(dim=1, keepdim=True)
             dyn_obs_distance_2d = torch.norm(dyn_obs_rpos_expanded[..., :2], dim=2)  # Shape: (1000, 40). calculate 2d distance to each obstacle for all drones
-            dyn_obs_distance_3d = torch.norm(dyn_obs_rpos_expanded, dim=2)
-            dyn_obs_vo_metric = torch.norm(
-                dyn_obs_rpos_expanded / self._compute_vo_scale(self.dyn_obs_size).unsqueeze(0),
-                dim=2,
-            )
-            dyn_obs_vo_metric = dyn_obs_vo_metric.masked_fill(
-                dyn_obs_distance_3d > self.lidar_range,
-                float("inf"),
-            )
-            _, closest_dyn_obs_idx = torch.topk(dyn_obs_vo_metric, self.cfg.algo.feature_extractor.dyn_obs_num, dim=1, largest=False) # pick top N closest obstacle index
-            dyn_obs_range_mask = dyn_obs_distance_3d.gather(1, closest_dyn_obs_idx) > self.lidar_range
+            _, closest_dyn_obs_idx = torch.topk(dyn_obs_distance_2d, self.cfg.algo.feature_extractor.dyn_obs_num, dim=1, largest=False) # pick top N closest obstacle index for RL observation
+            dyn_obs_range_mask = dyn_obs_distance_2d.gather(1, closest_dyn_obs_idx) > self.lidar_range
 
             # relative distance of obstacles in the goal frame
             closest_dyn_obs_rpos = torch.gather(dyn_obs_rpos_expanded, 1, closest_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
@@ -711,11 +702,28 @@ class NavigationEnv(IsaacEnv):
             closest_dyn_obs_distance_reward = closest_dyn_obs_rpos.norm(dim=-1) - closest_dyn_obs_size[..., 0]/2. # for those 2D obstacle, z distance will not be considered
             closest_dyn_obs_distance_reward[dyn_obs_range_mask] = self.cfg.sensor.lidar_range
 
-            reward_dyn_obs_distance_3d = dyn_obs_distance_3d.gather(1, closest_dyn_obs_idx)
-            reward_dyn_obs_range_mask = reward_dyn_obs_distance_3d > self.vo_reward_range
-            reward_dyn_obs_rpos = closest_dyn_obs_rpos
-            reward_dyn_obs_vel = closest_dyn_obs_vel
-            reward_dyn_obs_size = closest_dyn_obs_size
+            # Keep reward candidates aligned with the observed dynamic obstacles, then
+            # re-rank only within that set using the 3D VO metric.
+            closest_dyn_obs_distance_3d = closest_dyn_obs_rpos.norm(dim=-1)
+            reward_dyn_obs_metric = torch.norm(
+                closest_dyn_obs_rpos / self._compute_vo_scale(closest_dyn_obs_size),
+                dim=2,
+            )
+            reward_dyn_obs_metric = reward_dyn_obs_metric.masked_fill(
+                dyn_obs_range_mask,
+                float("inf"),
+            )
+            reward_dyn_obs_metric = reward_dyn_obs_metric.masked_fill(
+                closest_dyn_obs_distance_3d > self.vo_reward_range,
+                float("inf"),
+            )
+            reward_topk = min(self.vo_reward_topk, reward_dyn_obs_metric.size(1))
+            _, reward_dyn_obs_idx = torch.topk(reward_dyn_obs_metric, reward_topk, dim=1, largest=False)
+            reward_dyn_obs_distance_3d = torch.gather(closest_dyn_obs_distance_3d, 1, reward_dyn_obs_idx)
+            reward_dyn_obs_range_mask = torch.gather(dyn_obs_range_mask, 1, reward_dyn_obs_idx) | (reward_dyn_obs_distance_3d > self.vo_reward_range)
+            reward_dyn_obs_rpos = torch.gather(closest_dyn_obs_rpos, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
+            reward_dyn_obs_vel = torch.gather(closest_dyn_obs_vel, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
+            reward_dyn_obs_size = torch.gather(closest_dyn_obs_size, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
             reward_vo, vo_risk, vo_warmup = self._compute_vo_reward(
                 reward_dyn_obs_rpos,
                 reward_dyn_obs_vel,
