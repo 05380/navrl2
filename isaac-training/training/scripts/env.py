@@ -61,7 +61,7 @@ class NavigationEnv(IsaacEnv):
         self.vo_xy_margin = float(vo_cfg.get("xy_margin", 0.3))
         self.vo_z_margin = float(vo_cfg.get("z_margin", 0.3))
         self.vo_reward_topk = max(1, int(vo_cfg.get("reward_topk", 10)))
-        self.vo_reward_range = max(self.lidar_range, float(max(cfg.env_dyn.local_range[0], cfg.env_dyn.local_range[1])))
+        self.vo_reward_range = max(self.lidar_range, float(max(cfg.env_dyn.local_range)))
         self.vo_warmup_steps = max(0, int(vo_cfg.get("warmup_steps", 0)))
         self.vo_step_count = 0
 
@@ -379,27 +379,37 @@ class NavigationEnv(IsaacEnv):
         reward_stall = -self.stall_reward_weight * stall_scale
         return reward_stall, stall_active
 
+    def _compute_vo_scale(self, dyn_obs_size):
+        effective_radius_xy = dyn_obs_size[..., 0].unsqueeze(-1) / 2.0 + self.vo_xy_margin
+        effective_radius_z = dyn_obs_size[..., 2].unsqueeze(-1) / 2.0 + self.vo_z_margin
+        scale = torch.cat(
+            [effective_radius_xy, effective_radius_xy, effective_radius_z],
+            dim=-1,
+        ).clamp_min(1e-6)
+        return scale
+
     def _compute_vo_reward(self, dyn_obs_rpos, dyn_obs_vel, dyn_obs_size, dyn_obs_range_mask, drone_vel):
-        drone_vel_xy = drone_vel[..., :2].expand(-1, dyn_obs_rpos.size(1), -1)
-        rel_pos_xy = dyn_obs_rpos[..., :2]
+        drone_vel_expanded = drone_vel.expand(-1, dyn_obs_rpos.size(1), -1)
         # dyn_obs_rpos is obstacle position minus drone position, so its time derivative is v_obs - v_drone.
-        rel_vel_xy = dyn_obs_vel[..., :2] - drone_vel_xy
-        effective_radius = dyn_obs_size[..., 0].unsqueeze(-1) / 2.0 + self.vo_xy_margin
-        rel_pos_z = dyn_obs_rpos[..., 2].abs().unsqueeze(-1)
-        z_overlap = rel_pos_z <= (dyn_obs_size[..., 2].unsqueeze(-1) / 2.0 + self.vo_z_margin)
+        rel_vel = dyn_obs_vel - drone_vel_expanded
 
-        rel_pos_sq = (rel_pos_xy * rel_pos_xy).sum(dim=-1, keepdim=True)
-        rel_vel_sq = (rel_vel_xy * rel_vel_xy).sum(dim=-1, keepdim=True)
-        pos_vel_dot = (rel_pos_xy * rel_vel_xy).sum(dim=-1, keepdim=True)
-        clearance = rel_pos_sq - effective_radius.square()
-        discriminant = pos_vel_dot.square() - rel_vel_sq * clearance
+        # Scale the 3D relative motion by an anisotropic safety ellipsoid.
+        scale = self._compute_vo_scale(dyn_obs_size)
 
-        valid_mask = (~dyn_obs_range_mask).unsqueeze(-1) & z_overlap
-        approaching = pos_vel_dot < 0.0
-        overlapping = clearance <= 0.0
-        discriminant_positive = discriminant > 0.0
-        moving = rel_vel_sq > 1e-6
-        ttc = (-pos_vel_dot - torch.sqrt(discriminant.clamp_min(0.0))) / rel_vel_sq.clamp_min(1e-6)
+        scaled_rel_pos = dyn_obs_rpos / scale
+        scaled_rel_vel = rel_vel / scale
+
+        quad_a = (scaled_rel_vel * scaled_rel_vel).sum(dim=-1, keepdim=True)
+        quad_b = 2.0 * (scaled_rel_pos * scaled_rel_vel).sum(dim=-1, keepdim=True)
+        quad_c = (scaled_rel_pos * scaled_rel_pos).sum(dim=-1, keepdim=True) - 1.0
+        discriminant = quad_b.square() - 4.0 * quad_a * quad_c
+
+        valid_mask = (~dyn_obs_range_mask).unsqueeze(-1)
+        approaching = quad_b < 0.0
+        overlapping = quad_c <= 0.0
+        discriminant_positive = discriminant >= 0.0
+        moving = quad_a > 1e-6
+        ttc = (-quad_b - torch.sqrt(discriminant.clamp_min(0.0))) / (2.0 * quad_a.clamp_min(1e-6))
         valid_ttc = valid_mask & approaching & discriminant_positive & moving & (~overlapping) & (ttc > 0.0) & (ttc <= self.vo_horizon)
 
         risk = torch.zeros_like(ttc)
@@ -646,8 +656,17 @@ class NavigationEnv(IsaacEnv):
                 vertical_inflation=self.dyn_obs_size[:, 2].unsqueeze(0) / 2.,
             ).any(dim=1, keepdim=True)
             dyn_obs_distance_2d = torch.norm(dyn_obs_rpos_expanded[..., :2], dim=2)  # Shape: (1000, 40). calculate 2d distance to each obstacle for all drones
-            _, closest_dyn_obs_idx = torch.topk(dyn_obs_distance_2d, self.cfg.algo.feature_extractor.dyn_obs_num, dim=1, largest=False) # pick top N closest obstacle index
-            dyn_obs_range_mask = dyn_obs_distance_2d.gather(1, closest_dyn_obs_idx) > self.lidar_range
+            dyn_obs_distance_3d = torch.norm(dyn_obs_rpos_expanded, dim=2)
+            dyn_obs_vo_metric = torch.norm(
+                dyn_obs_rpos_expanded / self._compute_vo_scale(self.dyn_obs_size).unsqueeze(0),
+                dim=2,
+            )
+            dyn_obs_vo_metric = dyn_obs_vo_metric.masked_fill(
+                dyn_obs_distance_3d > self.lidar_range,
+                float("inf"),
+            )
+            _, closest_dyn_obs_idx = torch.topk(dyn_obs_vo_metric, self.cfg.algo.feature_extractor.dyn_obs_num, dim=1, largest=False) # pick top N closest obstacle index
+            dyn_obs_range_mask = dyn_obs_distance_3d.gather(1, closest_dyn_obs_idx) > self.lidar_range
 
             # relative distance of obstacles in the goal frame
             closest_dyn_obs_rpos = torch.gather(dyn_obs_rpos_expanded, 1, closest_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
@@ -692,12 +711,11 @@ class NavigationEnv(IsaacEnv):
             closest_dyn_obs_distance_reward = closest_dyn_obs_rpos.norm(dim=-1) - closest_dyn_obs_size[..., 0]/2. # for those 2D obstacle, z distance will not be considered
             closest_dyn_obs_distance_reward[dyn_obs_range_mask] = self.cfg.sensor.lidar_range
 
-            reward_topk = min(self.vo_reward_topk, dyn_obs_distance_2d.size(1))
-            _, reward_dyn_obs_idx = torch.topk(dyn_obs_distance_2d, reward_topk, dim=1, largest=False)
-            reward_dyn_obs_range_mask = dyn_obs_distance_2d.gather(1, reward_dyn_obs_idx) > self.vo_reward_range
-            reward_dyn_obs_rpos = torch.gather(dyn_obs_rpos_expanded, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
-            reward_dyn_obs_vel = self.dyn_obs_vel[reward_dyn_obs_idx]
-            reward_dyn_obs_size = self.dyn_obs_size[reward_dyn_obs_idx]
+            reward_dyn_obs_distance_3d = dyn_obs_distance_3d.gather(1, closest_dyn_obs_idx)
+            reward_dyn_obs_range_mask = reward_dyn_obs_distance_3d > self.vo_reward_range
+            reward_dyn_obs_rpos = closest_dyn_obs_rpos
+            reward_dyn_obs_vel = closest_dyn_obs_vel
+            reward_dyn_obs_size = closest_dyn_obs_size
             reward_vo, vo_risk, vo_warmup = self._compute_vo_reward(
                 reward_dyn_obs_rpos,
                 reward_dyn_obs_vel,
@@ -752,7 +770,7 @@ class NavigationEnv(IsaacEnv):
         # -----------------Reward Calculation-----------------
         # a. penalize static obstacles only when they get too close.
         dist_static = self.lidar_range - self.lidar_scan
-        safe_margin = 1.2
+        safe_margin = 1.1
         penalty_safety_static = torch.relu(safe_margin - dist_static) / safe_margin
         penalty_safety_static = penalty_safety_static.mean(dim=(2, 3))
         
@@ -782,13 +800,13 @@ class NavigationEnv(IsaacEnv):
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_safety_dynamic * 0.8 - penalty_smooth * 0.1 - penalty_height * 0.5
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_smooth * 0.1 - penalty_height * 0.5
         self.reward = self.reward + reward_goal_progress + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision] -= 50.0
+        self.reward[collision] -= 45.0
         self.reward[below_bound] -= 20.0
         self.reward[above_bound] -= 20.0
 
