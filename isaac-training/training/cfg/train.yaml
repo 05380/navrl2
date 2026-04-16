@@ -30,7 +30,7 @@ stuck:
   progress_eps: 0.005
   front_obstacle_distance: 1.5
   front_angle_deg: 35.0
-  front_height: 0.75
+  front_height: 0.75 #
 
 reward:
   goal_progress:
