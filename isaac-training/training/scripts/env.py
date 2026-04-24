@@ -9,6 +9,7 @@ import omni.isaac.orbit.sim as sim_utils
 from omni_drones.robots.drone import MultirotorBase
 from omni.isaac.orbit.assets import AssetBaseCfg
 from omni.isaac.orbit.terrains import TerrainImporterCfg, TerrainImporter, TerrainGeneratorCfg, HfDiscreteObstaclesTerrainCfg
+from omni.isaac.orbit.terrains.height_field import hf_terrains
 from omni.isaac.orbit.utils import configclass
 from omni_drones.utils.torch import euler_to_quaternion, quat_axis
 from omni.isaac.orbit.sensors import RayCaster, RayCasterCfg, patterns
@@ -114,7 +115,7 @@ def _sample_valid_wall_center(cfg, placed_centers, max_extent):
 
 
 def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
-    meshes, origin = HfDiscreteObstaclesTerrainCfg.function(difficulty, cfg)
+    meshes, origin = hf_terrains.discrete_obstacles_terrain(difficulty, cfg)
     wall_style = int(cfg.wall_style)
     if wall_style == 0:
         return meshes, origin
