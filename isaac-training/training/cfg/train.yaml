@@ -7,6 +7,7 @@ defaults:
 headless: False
 device: "cuda:0"
 seed: 0
+checkpoint:
 
 # Total Training Length
 max_frame_num: 14e8 # max frame 
@@ -19,6 +20,16 @@ env:
   max_episode_length: 2200
   env_spacing: 8.0 
   num_obstacles: 350
+  wall_style: 0 # 0: original map, 1-2: single walls, 3-4: L walls, 5-6: U walls
+  wall:
+    length_range: [4.0, 8.0]
+    l_length_range: [3.5, 6.5]
+    u_width_range: [4.0, 7.0]
+    u_depth_range: [3.5, 6.5]
+    thickness_range: [0.35, 0.65]
+    height_range: [1.8, 3.5]
+    placement_margin: 4.0
+    min_separation: 4.0
 
 env_dyn:
   num_obstacles: 80 # set to zero if static env is needed

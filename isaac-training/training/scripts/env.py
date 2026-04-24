@@ -1,6 +1,7 @@
 import torch
 import einops
 import numpy as np
+import trimesh
 from tensordict.tensordict import TensorDict, TensorDictBase
 from torchrl.data import UnboundedContinuousTensorSpec, CompositeSpec, DiscreteTensorSpec
 from omni_drones.envs.isaac_env import IsaacEnv, AgentSpec
@@ -8,6 +9,7 @@ import omni.isaac.orbit.sim as sim_utils
 from omni_drones.robots.drone import MultirotorBase
 from omni.isaac.orbit.assets import AssetBaseCfg
 from omni.isaac.orbit.terrains import TerrainImporterCfg, TerrainImporter, TerrainGeneratorCfg, HfDiscreteObstaclesTerrainCfg
+from omni.isaac.orbit.utils import configclass
 from omni_drones.utils.torch import euler_to_quaternion, quat_axis
 from omni.isaac.orbit.sensors import RayCaster, RayCasterCfg, patterns
 from omni.isaac.core.utils.viewports import set_camera_view
@@ -17,6 +19,148 @@ import omni.isaac.orbit.sim as sim_utils
 import omni.isaac.orbit.utils.math as math_utils
 from omni.isaac.orbit.assets import RigidObject, RigidObjectCfg
 import time
+
+
+def _range_to_tuple(value):
+    return (float(value[0]), float(value[1]))
+
+
+def _sample_range(value):
+    low, high = _range_to_tuple(value)
+    return float(np.random.uniform(low, high))
+
+
+def _sample_wall_center(size, max_extent, placement_margin):
+    margin = max(float(placement_margin), 0.5 * float(max_extent) + 1.0)
+    margin_x = min(margin, float(size[0]) * 0.45)
+    margin_y = min(margin, float(size[1]) * 0.45)
+    return np.array(
+        [
+            np.random.uniform(margin_x, float(size[0]) - margin_x),
+            np.random.uniform(margin_y, float(size[1]) - margin_y),
+        ],
+        dtype=np.float32,
+    )
+
+
+def _rotation_2d(yaw):
+    c = np.cos(yaw)
+    s = np.sin(yaw)
+    return np.array([[c, -s], [s, c]], dtype=np.float32)
+
+
+def _wall_segment_mesh(center_xy, local_offset_xy, length, thickness, height, yaw, local_yaw=0.0):
+    segment_yaw = yaw + local_yaw
+    segment_xy = np.asarray(center_xy) + _rotation_2d(yaw) @ np.asarray(local_offset_xy, dtype=np.float32)
+    transform = np.eye(4)
+    transform[0:3, -1] = (float(segment_xy[0]), float(segment_xy[1]), float(height) * 0.5)
+    transform[0:3, 0:3] = np.array(
+        [
+            [np.cos(segment_yaw), -np.sin(segment_yaw), 0.0],
+            [np.sin(segment_yaw), np.cos(segment_yaw), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    return trimesh.creation.box((float(length), float(thickness), float(height)), transform=transform)
+
+
+def _add_single_wall(meshes, cfg, placed_centers):
+    length = _sample_range(cfg.wall_length_range)
+    thickness = _sample_range(cfg.wall_thickness_range)
+    height = _sample_range(cfg.wall_height_range)
+    yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
+    center = _sample_valid_wall_center(cfg, placed_centers, length + thickness)
+    meshes.append(_wall_segment_mesh(center, (0.0, 0.0), length, thickness, height, yaw))
+
+
+def _add_l_wall(meshes, cfg, placed_centers):
+    arm_x = _sample_range(cfg.wall_l_length_range)
+    arm_y = _sample_range(cfg.wall_l_length_range)
+    thickness = _sample_range(cfg.wall_thickness_range)
+    height = _sample_range(cfg.wall_height_range)
+    yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
+    signs = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
+    sign_x, sign_y = signs[int(np.random.randint(0, len(signs)))]
+    max_extent = max(arm_x, arm_y) + thickness
+    center = _sample_valid_wall_center(cfg, placed_centers, max_extent)
+    meshes.append(_wall_segment_mesh(center, (0.0, -sign_y * arm_y * 0.5), arm_x, thickness, height, yaw))
+    meshes.append(_wall_segment_mesh(center, (-sign_x * arm_x * 0.5, 0.0), arm_y, thickness, height, yaw, np.pi * 0.5))
+
+
+def _add_u_wall(meshes, cfg, placed_centers):
+    width = _sample_range(cfg.wall_u_width_range)
+    depth = _sample_range(cfg.wall_u_depth_range)
+    thickness = _sample_range(cfg.wall_thickness_range)
+    height = _sample_range(cfg.wall_height_range)
+    opening_direction = int(np.random.randint(0, 4))
+    yaw = float(np.random.uniform(0.0, 2.0 * np.pi) + opening_direction * np.pi * 0.5)
+    max_extent = max(width, depth) + thickness
+    center = _sample_valid_wall_center(cfg, placed_centers, max_extent)
+    meshes.append(_wall_segment_mesh(center, (0.0, -depth * 0.5), width + thickness, thickness, height, yaw))
+    meshes.append(_wall_segment_mesh(center, (-width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5))
+    meshes.append(_wall_segment_mesh(center, (width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5))
+
+
+def _sample_valid_wall_center(cfg, placed_centers, max_extent):
+    min_separation = max(float(cfg.wall_min_separation), float(max_extent))
+    center = _sample_wall_center(cfg.size, max_extent, cfg.wall_placement_margin)
+    for _ in range(100):
+        if all(np.linalg.norm(center - prev) >= min_separation for prev in placed_centers):
+            placed_centers.append(center)
+            return center
+        center = _sample_wall_center(cfg.size, max_extent, cfg.wall_placement_margin)
+    placed_centers.append(center)
+    return center
+
+
+def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
+    meshes, origin = HfDiscreteObstaclesTerrainCfg.function(difficulty, cfg)
+    wall_style = int(cfg.wall_style)
+    if wall_style == 0:
+        return meshes, origin
+
+    # Walls are appended to the terrain mesh so static LiDAR and collision use the same geometry.
+    if wall_style == 1:
+        wall_plan = [("single", 1)]
+    elif wall_style == 2:
+        wall_plan = [("single", 2)]
+    elif wall_style == 3:
+        wall_plan = [("l", 1)]
+    elif wall_style == 4:
+        wall_plan = [("l", 2)]
+    elif wall_style == 5:
+        wall_plan = [("u", 1)]
+    elif wall_style == 6:
+        wall_plan = [("u", 2)]
+    else:
+        raise ValueError(f"Unsupported env.wall_style={wall_style}. Expected an integer in [0, 6].")
+
+    placed_centers = []
+    for wall_type, wall_count in wall_plan:
+        for _ in range(wall_count):
+            if wall_type == "single":
+                _add_single_wall(meshes, cfg, placed_centers)
+            elif wall_type == "l":
+                _add_l_wall(meshes, cfg, placed_centers)
+            elif wall_type == "u":
+                _add_u_wall(meshes, cfg, placed_centers)
+    return meshes, origin
+
+
+@configclass
+class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
+    function = discrete_obstacles_with_curriculum_walls_terrain
+
+    wall_style: int = 0
+    wall_length_range: tuple[float, float] = (4.0, 8.0)
+    wall_l_length_range: tuple[float, float] = (3.5, 6.5)
+    wall_u_width_range: tuple[float, float] = (4.0, 7.0)
+    wall_u_depth_range: tuple[float, float] = (3.5, 6.5)
+    wall_thickness_range: tuple[float, float] = (0.35, 0.65)
+    wall_height_range: tuple[float, float] = (1.8, 3.5)
+    wall_placement_margin: float = 4.0
+    wall_min_separation: float = 4.0
+
 
 class NavigationEnv(IsaacEnv):
 
@@ -133,6 +277,7 @@ class NavigationEnv(IsaacEnv):
         cfg_ground.func("/World/defaultGroundPlane", cfg_ground, translation=(0, 0, 0.01))
 
         self.map_range = [20.0, 20.0, 4.5]
+        wall_cfg = self.cfg.env.get("wall", {})
 
         terrain_cfg = TerrainImporterCfg(
             num_envs=self.num_envs,
@@ -151,7 +296,7 @@ class NavigationEnv(IsaacEnv):
                 use_cache=False,
                 color_scheme="height",
                 sub_terrains={
-                    "obstacles": HfDiscreteObstaclesTerrainCfg(
+                    "obstacles": HfDiscreteObstaclesWithWallsTerrainCfg(
                         horizontal_scale=0.1,
                         vertical_scale=0.1,
                         border_width=0.0,
@@ -161,6 +306,15 @@ class NavigationEnv(IsaacEnv):
                         obstacle_height_range=[1.0, 1.5, 2.0, 4.0, 6.0],
                         obstacle_height_probability=[0.1, 0.15, 0.20, 0.55],
                         platform_width=0.0,
+                        wall_style=int(self.cfg.env.get("wall_style", 0)),
+                        wall_length_range=_range_to_tuple(wall_cfg.get("length_range", [4.0, 8.0])),
+                        wall_l_length_range=_range_to_tuple(wall_cfg.get("l_length_range", [3.5, 6.5])),
+                        wall_u_width_range=_range_to_tuple(wall_cfg.get("u_width_range", [4.0, 7.0])),
+                        wall_u_depth_range=_range_to_tuple(wall_cfg.get("u_depth_range", [3.5, 6.5])),
+                        wall_thickness_range=_range_to_tuple(wall_cfg.get("thickness_range", [0.35, 0.65])),
+                        wall_height_range=_range_to_tuple(wall_cfg.get("height_range", [1.8, 3.5])),
+                        wall_placement_margin=float(wall_cfg.get("placement_margin", 4.0)),
+                        wall_min_separation=float(wall_cfg.get("min_separation", 4.0)),
                     ),
                 },
             ),
