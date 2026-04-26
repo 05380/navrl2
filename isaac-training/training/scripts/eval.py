@@ -11,12 +11,6 @@ from omni.isaac.kit import SimulationApp
 from torchrl.envs.transforms import Compose, TransformedEnv
 from torchrl.envs.utils import ExplorationType
 
-from omni_drones.controllers import LeePositionController
-from omni_drones.utils.torchrl.transforms import VelController
-from ppo import PPO
-from utils import evaluate
-
-
 FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cfg")
 
 
@@ -47,7 +41,7 @@ def print_eval_metrics(eval_info):
         print("[NavRL]: eval metrics | " + " | ".join(metric_parts))
 
 
-def set_policy_eval_mode(policy: PPO):
+def set_policy_eval_mode(policy):
     # PPO.train() is overloaded for optimization, so avoid calling policy.eval().
     nn.Module.train(policy.feature_extractor, False)
     nn.Module.train(policy.actor, False)
@@ -83,6 +77,10 @@ def main(cfg):
     run.define_metric("eval/*")
 
     from env import NavigationEnv
+    from omni_drones.controllers import LeePositionController
+    from omni_drones.utils.torchrl.transforms import VelController
+    from ppo import PPO
+    from utils import evaluate
 
     env = NavigationEnv(cfg)
 
