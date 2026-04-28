@@ -30,6 +30,11 @@ env:
     height_range: [1.8, 3.5]
     placement_margin: 4.0
     min_separation: 4.0
+    obstacle_clearance: 0.4
+    sampling_attempts: 200
+    spawn_clearance_radius: 1.5
+    target_clearance_radius: 1.5
+    position_sample_attempts: 128
 
 env_dyn:
   num_obstacles: 80 # set to zero if static env is needed

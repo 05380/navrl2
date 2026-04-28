@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import einops
 import numpy as np
 import trimesh
@@ -9,7 +10,7 @@ import omni.isaac.orbit.sim as sim_utils
 from omni_drones.robots.drone import MultirotorBase
 from omni.isaac.orbit.assets import AssetBaseCfg
 from omni.isaac.orbit.terrains import TerrainImporterCfg, TerrainImporter, TerrainGeneratorCfg, HfDiscreteObstaclesTerrainCfg
-from omni.isaac.orbit.terrains.height_field import hf_terrains
+from omni.isaac.orbit.terrains.height_field.utils import convert_height_field_to_mesh
 from omni.isaac.orbit.utils import configclass
 from omni_drones.utils.torch import euler_to_quaternion, quat_axis
 from omni.isaac.orbit.sensors import RayCaster, RayCasterCfg, patterns
@@ -50,11 +51,26 @@ def _rotation_2d(yaw):
     return np.array([[c, -s], [s, c]], dtype=np.float32)
 
 
-def _wall_segment_mesh(center_xy, local_offset_xy, length, thickness, height, yaw, local_yaw=0.0):
+def _wall_segment_spec(center_xy, local_offset_xy, length, thickness, height, yaw, local_yaw=0.0):
     segment_yaw = yaw + local_yaw
     segment_xy = np.asarray(center_xy) + _rotation_2d(yaw) @ np.asarray(local_offset_xy, dtype=np.float32)
+    return {
+        "center_xy": np.asarray(segment_xy, dtype=np.float32),
+        "length": float(length),
+        "thickness": float(thickness),
+        "height": float(height),
+        "yaw": float(segment_yaw),
+    }
+
+
+def _wall_segment_mesh(segment):
+    center_xy = segment["center_xy"]
+    length = segment["length"]
+    thickness = segment["thickness"]
+    height = segment["height"]
+    segment_yaw = segment["yaw"]
     transform = np.eye(4)
-    transform[0:3, -1] = (float(segment_xy[0]), float(segment_xy[1]), float(height) * 0.5)
+    transform[0:3, -1] = (float(center_xy[0]), float(center_xy[1]), float(height) * 0.5)
     transform[0:3, 0:3] = np.array(
         [
             [np.cos(segment_yaw), -np.sin(segment_yaw), 0.0],
@@ -65,16 +81,17 @@ def _wall_segment_mesh(center_xy, local_offset_xy, length, thickness, height, ya
     return trimesh.creation.box((float(length), float(thickness), float(height)), transform=transform)
 
 
-def _add_single_wall(meshes, cfg, placed_centers):
+def _make_single_wall(center, cfg):
     length = _sample_range(cfg.wall_length_range)
     thickness = _sample_range(cfg.wall_thickness_range)
     height = _sample_range(cfg.wall_height_range)
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
-    center = _sample_valid_wall_center(cfg, placed_centers, length + thickness)
-    meshes.append(_wall_segment_mesh(center, (0.0, 0.0), length, thickness, height, yaw))
+    max_extent = length + thickness
+    segments = [_wall_segment_spec(center, (0.0, 0.0), length, thickness, height, yaw)]
+    return segments, max_extent
 
 
-def _add_l_wall(meshes, cfg, placed_centers):
+def _make_l_wall(center, cfg):
     arm_x = _sample_range(cfg.wall_l_length_range)
     arm_y = _sample_range(cfg.wall_l_length_range)
     thickness = _sample_range(cfg.wall_thickness_range)
@@ -83,12 +100,14 @@ def _add_l_wall(meshes, cfg, placed_centers):
     signs = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
     sign_x, sign_y = signs[int(np.random.randint(0, len(signs)))]
     max_extent = max(arm_x, arm_y) + thickness
-    center = _sample_valid_wall_center(cfg, placed_centers, max_extent)
-    meshes.append(_wall_segment_mesh(center, (0.0, -sign_y * arm_y * 0.5), arm_x, thickness, height, yaw))
-    meshes.append(_wall_segment_mesh(center, (-sign_x * arm_x * 0.5, 0.0), arm_y, thickness, height, yaw, np.pi * 0.5))
+    segments = [
+        _wall_segment_spec(center, (0.0, -sign_y * arm_y * 0.5), arm_x, thickness, height, yaw),
+        _wall_segment_spec(center, (-sign_x * arm_x * 0.5, 0.0), arm_y, thickness, height, yaw, np.pi * 0.5),
+    ]
+    return segments, max_extent
 
 
-def _add_u_wall(meshes, cfg, placed_centers):
+def _make_u_wall(center, cfg):
     width = _sample_range(cfg.wall_u_width_range)
     depth = _sample_range(cfg.wall_u_depth_range)
     thickness = _sample_range(cfg.wall_thickness_range)
@@ -96,10 +115,144 @@ def _add_u_wall(meshes, cfg, placed_centers):
     opening_direction = int(np.random.randint(0, 4))
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi) + opening_direction * np.pi * 0.5)
     max_extent = max(width, depth) + thickness
-    center = _sample_valid_wall_center(cfg, placed_centers, max_extent)
-    meshes.append(_wall_segment_mesh(center, (0.0, -depth * 0.5), width + thickness, thickness, height, yaw))
-    meshes.append(_wall_segment_mesh(center, (-width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5))
-    meshes.append(_wall_segment_mesh(center, (width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5))
+    segments = [
+        _wall_segment_spec(center, (0.0, -depth * 0.5), width + thickness, thickness, height, yaw),
+        _wall_segment_spec(center, (-width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5),
+        _wall_segment_spec(center, (width * 0.5, 0.0), depth, thickness, height, yaw, np.pi * 0.5),
+    ]
+    return segments, max_extent
+
+
+def _grid_coordinates(size, horizontal_scale):
+    width_pixels = int(float(size[0]) / float(horizontal_scale)) + 1
+    length_pixels = int(float(size[1]) / float(horizontal_scale)) + 1
+    x = np.linspace(0.0, float(size[0]), width_pixels, dtype=np.float32)
+    y = np.linspace(0.0, float(size[1]), length_pixels, dtype=np.float32)
+    return np.meshgrid(x, y, indexing="ij")
+
+
+def _segments_mask(grid_x, grid_y, segments, clearance=0.0):
+    mask = np.zeros_like(grid_x, dtype=bool)
+    for segment in segments:
+        center_xy = segment["center_xy"]
+        rel_x = grid_x - float(center_xy[0])
+        rel_y = grid_y - float(center_xy[1])
+        c = float(np.cos(segment["yaw"]))
+        s = float(np.sin(segment["yaw"]))
+        local_x = c * rel_x + s * rel_y
+        local_y = -s * rel_x + c * rel_y
+        half_length = 0.5 * float(segment["length"]) + float(clearance)
+        half_thickness = 0.5 * float(segment["thickness"]) + float(clearance)
+        mask |= (np.abs(local_x) <= half_length) & (np.abs(local_y) <= half_thickness)
+    return mask
+
+
+def _generate_discrete_obstacles_height_field(cfg):
+    width_pixels = int(float(cfg.size[0]) / float(cfg.horizontal_scale)) + 1
+    length_pixels = int(float(cfg.size[1]) / float(cfg.horizontal_scale)) + 1
+    obs_width_min = max(1, int(float(cfg.obstacle_width_range[0]) / float(cfg.horizontal_scale)))
+    obs_width_max = max(obs_width_min + 1, int(float(cfg.obstacle_width_range[1]) / float(cfg.horizontal_scale)))
+    platform_width = int(float(cfg.platform_width) / float(cfg.horizontal_scale))
+
+    obs_width_range = np.arange(obs_width_min, obs_width_max + 1, 4)
+    obs_length_range = np.arange(obs_width_min, obs_width_max + 1, 4)
+    obs_x_range = np.arange(0, width_pixels, 4)
+    obs_y_range = np.arange(0, length_pixels, 4)
+    obstacles_history = []
+    hf_raw = np.zeros((width_pixels, length_pixels), dtype=np.int16)
+    probability_length = len(cfg.obstacle_height_probability)
+
+    def good_distance(x, y, width, length, obstacles_hist, bad_range=(2, 10)):
+        lower_bound_pixels = bad_range[0]
+        upper_bound_pixels = bad_range[1]
+        for (xp, yp, wp, lp) in obstacles_hist:
+            dx = abs(xp - x) - width
+            dy = abs(yp - y) - length
+            if dx < 0 and dy < 0:
+                continue
+            distance = np.sqrt(dx**2 + dy**2)
+            if lower_bound_pixels <= distance <= upper_bound_pixels:
+                return False
+        return True
+
+    for _ in range(cfg.num_obstacles):
+        if cfg.obstacle_height_mode == "choice":
+            height = np.random.choice([-2, -1, 1, 2])
+        elif cfg.obstacle_height_mode == "fixed":
+            height = float(cfg.obstacle_height_range[0]) / float(cfg.vertical_scale)
+        elif cfg.obstacle_height_mode == "range":
+            random_roll = int(np.random.choice(probability_length, 1, p=cfg.obstacle_height_probability))
+            low = float(cfg.obstacle_height_range[random_roll]) / float(cfg.vertical_scale)
+            high = float(cfg.obstacle_height_range[random_roll + 1]) / float(cfg.vertical_scale)
+            height = np.random.uniform(low, high)
+        else:
+            raise ValueError(
+                f"Unknown obstacle height mode '{cfg.obstacle_height_mode}'. Must be 'choice', 'fixed' or 'range'."
+            )
+
+        attempts = 0
+        while attempts < 100000:
+            width = int(np.random.choice(obs_width_range))
+            length = int(np.random.choice(obs_length_range))
+            x_start = int(np.random.choice(obs_x_range))
+            y_start = int(np.random.choice(obs_y_range))
+            if x_start + width > width_pixels:
+                x_start = width_pixels - width
+            if y_start + length > length_pixels:
+                y_start = length_pixels - length
+            if good_distance(x_start, y_start, width, length, obstacles_history) or not obstacles_history:
+                break
+            attempts += 1
+
+        obstacles_history.append((x_start, y_start, width, length))
+        hf_raw[x_start : x_start + width, y_start : y_start + length] = int(np.rint(height))
+
+    if platform_width > 0:
+        x1 = (width_pixels - platform_width) // 2
+        x2 = (width_pixels + platform_width) // 2
+        y1 = (length_pixels - platform_width) // 2
+        y2 = (length_pixels + platform_width) // 2
+        hf_raw[x1:x2, y1:y2] = 0
+
+    return hf_raw
+
+
+def _sample_valid_wall_segments(wall_type, cfg, placed_centers, static_occupied, wall_occupied, grid_x, grid_y):
+    for _ in range(int(cfg.wall_sampling_attempts)):
+        if wall_type == "single":
+            segments_builder = _make_single_wall
+        elif wall_type == "l":
+            segments_builder = _make_l_wall
+        elif wall_type == "u":
+            segments_builder = _make_u_wall
+        else:
+            raise ValueError(f"Unknown wall type: {wall_type}")
+
+        provisional_center = _sample_wall_center(cfg.size, 0.0, cfg.wall_placement_margin)
+        segments, _ = segments_builder(provisional_center, cfg)
+        center = np.mean([segment["center_xy"] for segment in segments], axis=0)
+
+        if any(np.linalg.norm(center - prev) < float(cfg.wall_min_separation) for prev in placed_centers):
+            continue
+
+        obstacle_clearance_mask = _segments_mask(
+            grid_x, grid_y, segments, clearance=float(cfg.wall_obstacle_clearance)
+        )
+        if np.any(static_occupied & obstacle_clearance_mask):
+            continue
+
+        wall_clearance_mask = _segments_mask(grid_x, grid_y, segments, clearance=float(cfg.wall_min_separation))
+        if np.any(wall_occupied & wall_clearance_mask):
+            continue
+
+        exact_mask = _segments_mask(grid_x, grid_y, segments, clearance=0.0)
+        if not np.any(exact_mask):
+            continue
+
+        placed_centers.append(center)
+        return segments, exact_mask
+
+    return None, None
 
 
 def _sample_valid_wall_center(cfg, placed_centers, max_extent):
@@ -115,8 +268,23 @@ def _sample_valid_wall_center(cfg, placed_centers, max_extent):
 
 
 def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
-    meshes, origin = hf_terrains.discrete_obstacles_terrain(difficulty, cfg)
+    heights = _generate_discrete_obstacles_height_field(cfg)
+    vertices, triangles = convert_height_field_to_mesh(
+        heights, cfg.horizontal_scale, cfg.vertical_scale, cfg.slope_threshold
+    )
+    terrain_mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+    meshes = [terrain_mesh]
+    origin = np.array([0.5 * float(cfg.size[0]), 0.5 * float(cfg.size[1]), 0.0], dtype=np.float32)
+
+    static_occupied = heights > 0
+    wall_occupied = np.zeros_like(static_occupied, dtype=bool)
+    grid_x, grid_y = _grid_coordinates(cfg.size, cfg.horizontal_scale)
     wall_style = int(cfg.wall_style)
+
+    cfg._terrain_occupancy = static_occupied.copy()
+    cfg._terrain_size = np.array(cfg.size, dtype=np.float32)
+    cfg._terrain_resolution = float(cfg.horizontal_scale)
+
     if wall_style == 0:
         return meshes, origin
 
@@ -139,12 +307,15 @@ def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
     placed_centers = []
     for wall_type, wall_count in wall_plan:
         for _ in range(wall_count):
-            if wall_type == "single":
-                _add_single_wall(meshes, cfg, placed_centers)
-            elif wall_type == "l":
-                _add_l_wall(meshes, cfg, placed_centers)
-            elif wall_type == "u":
-                _add_u_wall(meshes, cfg, placed_centers)
+            segments, exact_mask = _sample_valid_wall_segments(
+                wall_type, cfg, placed_centers, static_occupied, wall_occupied, grid_x, grid_y
+            )
+            if segments is None:
+                continue
+            meshes.extend(_wall_segment_mesh(segment) for segment in segments)
+            wall_occupied |= exact_mask
+
+    cfg._terrain_occupancy = static_occupied | wall_occupied
     return meshes, origin
 
 
@@ -161,6 +332,8 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
     wall_height_range: tuple[float, float] = (1.8, 3.5)
     wall_placement_margin: float = 4.0
     wall_min_separation: float = 4.0
+    wall_obstacle_clearance: float = 0.4
+    wall_sampling_attempts: int = 200
 
 
 class NavigationEnv(IsaacEnv):
@@ -279,6 +452,15 @@ class NavigationEnv(IsaacEnv):
 
         self.map_range = [20.0, 20.0, 4.5]
         wall_cfg = self.cfg.env.get("wall", {})
+        self.terrain_occupancy = None
+        self.terrain_occupancy_resolution = 0.1
+        self.terrain_occupancy_size = torch.tensor(
+            [self.map_range[0] * 2.0, self.map_range[1] * 2.0], dtype=torch.float32, device=self.device
+        )
+        self.terrain_clearance_cache = {}
+        self.spawn_clearance_radius = float(wall_cfg.get("spawn_clearance_radius", 1.5))
+        self.target_clearance_radius = float(wall_cfg.get("target_clearance_radius", self.spawn_clearance_radius))
+        self.position_sample_attempts = max(1, int(wall_cfg.get("position_sample_attempts", 128)))
 
         terrain_cfg = TerrainImporterCfg(
             num_envs=self.num_envs,
@@ -316,6 +498,8 @@ class NavigationEnv(IsaacEnv):
                         wall_height_range=_range_to_tuple(wall_cfg.get("height_range", [1.8, 3.5])),
                         wall_placement_margin=float(wall_cfg.get("placement_margin", 4.0)),
                         wall_min_separation=float(wall_cfg.get("min_separation", 4.0)),
+                        wall_obstacle_clearance=float(wall_cfg.get("obstacle_clearance", 0.4)),
+                        wall_sampling_attempts=int(wall_cfg.get("sampling_attempts", 200)),
                     ),
                 },
             ),
@@ -325,6 +509,18 @@ class NavigationEnv(IsaacEnv):
             debug_vis=True,
         )
         terrain_importer = TerrainImporter(terrain_cfg)
+        obstacle_terrain_cfg = terrain_cfg.terrain_generator.sub_terrains["obstacles"]
+        terrain_occupancy = getattr(obstacle_terrain_cfg, "_terrain_occupancy", None)
+        terrain_size = getattr(obstacle_terrain_cfg, "_terrain_size", None)
+        terrain_resolution = getattr(obstacle_terrain_cfg, "_terrain_resolution", None)
+        if terrain_occupancy is not None:
+            self.terrain_occupancy = torch.as_tensor(
+                terrain_occupancy.astype(np.float32), device=self.device, dtype=torch.float32
+            )
+        if terrain_size is not None:
+            self.terrain_occupancy_size = torch.as_tensor(terrain_size[:2], device=self.device, dtype=torch.float32)
+        if terrain_resolution is not None:
+            self.terrain_occupancy_resolution = float(terrain_resolution)
 
         if (self.cfg.env_dyn.num_obstacles == 0):
             return
@@ -651,25 +847,91 @@ class NavigationEnv(IsaacEnv):
         self.stats = stats_spec.zero()
         self.info = info_spec.zero()
 
+    def _get_static_clearance_map(self, clearance_radius: float):
+        if self.terrain_occupancy is None:
+            return None
+        clearance_radius = max(float(clearance_radius), 0.0)
+        pixel_radius = int(np.ceil(clearance_radius / self.terrain_occupancy_resolution))
+        if pixel_radius not in self.terrain_clearance_cache:
+            kernel_size = 2 * pixel_radius + 1
+            occupancy = self.terrain_occupancy.unsqueeze(0).unsqueeze(0)
+            expanded = F.max_pool2d(occupancy, kernel_size=kernel_size, stride=1, padding=pixel_radius)
+            self.terrain_clearance_cache[pixel_radius] = expanded[0, 0] > 0.5
+        return self.terrain_clearance_cache[pixel_radius]
+
+    def _points_have_static_clearance(self, points_xy: torch.Tensor, clearance_radius: float):
+        clearance_map = self._get_static_clearance_map(clearance_radius)
+        if clearance_map is None:
+            return torch.ones(points_xy.shape[0], dtype=torch.bool, device=self.device)
+
+        half_size = 0.5 * self.terrain_occupancy_size
+        local_xy = points_xy + half_size.unsqueeze(0)
+        valid = (
+            (local_xy[:, 0] >= 0.0)
+            & (local_xy[:, 0] <= self.terrain_occupancy_size[0])
+            & (local_xy[:, 1] >= 0.0)
+            & (local_xy[:, 1] <= self.terrain_occupancy_size[1])
+        )
+        if not torch.any(valid).item():
+            return torch.ones(points_xy.shape[0], dtype=torch.bool, device=self.device)
+
+        map_x = clearance_map.shape[0] - 1
+        map_y = clearance_map.shape[1] - 1
+        grid_xy = torch.round(local_xy / self.terrain_occupancy_resolution).long()
+        grid_xy[:, 0] = grid_xy[:, 0].clamp_(0, map_x)
+        grid_xy[:, 1] = grid_xy[:, 1].clamp_(0, map_y)
+        occupied = clearance_map[grid_xy[:, 0], grid_xy[:, 1]]
+        return (~valid) | (~occupied)
+
+    def _sample_boundary_positions(self, count: int):
+        masks = torch.tensor(
+            [[1.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
+            dtype=torch.float,
+            device=self.device,
+        )
+        shifts = torch.tensor(
+            [[0.0, 24.0, 0.0], [0.0, -24.0, 0.0], [24.0, 0.0, 0.0], [-24.0, 0.0, 0.0]],
+            dtype=torch.float,
+            device=self.device,
+        )
+        mask_indices = torch.randint(0, masks.size(0), (count,), device=self.device)
+        selected_masks = masks[mask_indices].unsqueeze(1)
+        selected_shifts = shifts[mask_indices].unsqueeze(1)
+
+        positions = 48.0 * torch.rand(count, 1, 3, dtype=torch.float, device=self.device) - 24.0
+        heights = 0.5 + torch.rand(count, dtype=torch.float, device=self.device) * 2.0
+        positions[:, 0, 2] = heights
+        return positions * selected_masks + selected_shifts
+
+    def _sample_training_boundary_positions(self, count: int, clearance_radius: float):
+        positions = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
+        remaining = torch.arange(count, device=self.device)
+        fallback = None
+
+        for _ in range(self.position_sample_attempts):
+            if remaining.numel() == 0:
+                break
+            candidates = self._sample_boundary_positions(int(remaining.numel()))
+            fallback = candidates
+            valid = self._points_have_static_clearance(candidates[:, 0, :2], clearance_radius)
+            if not torch.any(valid).item():
+                continue
+            accepted = remaining[valid]
+            positions[accepted] = candidates[valid]
+            remaining = remaining[~valid]
+
+        if remaining.numel() > 0:
+            if fallback is None or fallback.shape[0] != remaining.numel():
+                fallback = self._sample_boundary_positions(int(remaining.numel()))
+            positions[remaining] = fallback
+        return positions
+
     
     def reset_target(self, env_ids: torch.Tensor):
         if (self.training):
-            # decide which side
-            masks = torch.tensor([[1., 0., 1.], [1., 0., 1.], [0., 1., 1.], [0., 1., 1.]], dtype=torch.float, device=self.device)
-            shifts = torch.tensor([[0., 24., 0.], [0., -24., 0.], [24., 0., 0.], [-24., 0., 0.]], dtype=torch.float, device=self.device)
-            mask_indices = np.random.randint(0, masks.size(0), size=env_ids.size(0))
-            selected_masks = masks[mask_indices].unsqueeze(1)
-            selected_shifts = shifts[mask_indices].unsqueeze(1)
-
-
-            # generate random positions
-            target_pos = 48. * torch.rand(env_ids.size(0), 1, 3, dtype=torch.float, device=self.device) + (-24.)
-            heights = 0.5 + torch.rand(env_ids.size(0), dtype=torch.float, device=self.device) * (2.5 - 0.5)
-            target_pos[:, 0, 2] = heights# height
-            target_pos = target_pos * selected_masks + selected_shifts
-            
-            # apply target pos
-            self.target_pos[env_ids] = target_pos
+            self.target_pos[env_ids] = self._sample_training_boundary_positions(
+                env_ids.size(0), self.target_clearance_radius
+            )
 
             # self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
             # self.target_pos[:, 0, 1] = 24.
@@ -684,17 +946,7 @@ class NavigationEnv(IsaacEnv):
         self.drone._reset_idx(env_ids, self.training)
         self.reset_target(env_ids)
         if (self.training):
-            masks = torch.tensor([[1., 0., 1.], [1., 0., 1.], [0., 1., 1.], [0., 1., 1.]], dtype=torch.float, device=self.device)
-            shifts = torch.tensor([[0., 24., 0.], [0., -24., 0.], [24., 0., 0.], [-24., 0., 0.]], dtype=torch.float, device=self.device)
-            mask_indices = np.random.randint(0, masks.size(0), size=env_ids.size(0))
-            selected_masks = masks[mask_indices].unsqueeze(1)
-            selected_shifts = shifts[mask_indices].unsqueeze(1)
-
-            # generate random positions
-            pos = 48. * torch.rand(env_ids.size(0), 1, 3, dtype=torch.float, device=self.device) + (-24.)
-            heights = 0.5 + torch.rand(env_ids.size(0), dtype=torch.float, device=self.device) * (2.5 - 0.5)
-            pos[:, 0, 2] = heights# height
-            pos = pos * selected_masks + selected_shifts
+            pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
             
             # pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
             # pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
