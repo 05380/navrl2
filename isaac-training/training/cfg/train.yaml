@@ -53,7 +53,7 @@ reward:
     goal_radius: 0.5
     arrival_reward: 45.0
     timeout_penalty: 30.0
-    progress_scale: 30.0
+    progress_scale: 35.0
   stall:
     weight: 0.5
     window: 60

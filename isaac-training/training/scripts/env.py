@@ -1180,12 +1180,12 @@ class NavigationEnv(IsaacEnv):
             "direction": target_dir_2d,
             "dynamic_obstacle": dyn_obs_states
         }
-
+####
 
         # -----------------Reward Calculation-----------------
         # a. penalize static obstacles only when they get too close.
         dist_static = self.lidar_range - self.lidar_scan
-        safe_margin = 1.2
+        safe_margin = 1.1
         penalty_safety_static = torch.relu(safe_margin - dist_static) / safe_margin
         penalty_safety_static = penalty_safety_static.mean(dim=(2, 3))
         
@@ -1215,13 +1215,13 @@ class NavigationEnv(IsaacEnv):
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_safety_dynamic * 0.7 - penalty_smooth * 0.1 - penalty_height * 0.5
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_smooth * 0.1 - penalty_height * 0.5
         self.reward = self.reward + reward_goal_progress + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision] -= 50.0
+        self.reward[collision] -= 45.0
         self.reward[below_bound] -= 20.0
         self.reward[above_bound] -= 20.0
 
