@@ -392,6 +392,10 @@ class NavigationEnv(IsaacEnv):
         self.goal_arrival_reward = float(goal_progress_cfg.get("arrival_reward", 5.0))
         self.goal_timeout_penalty = float(goal_progress_cfg.get("timeout_penalty", self.goal_arrival_reward))
         self.goal_progress_scale = float(goal_progress_cfg.get("progress_scale", 10.0))
+        self.blocked_backward_scale = min(
+            max(float(goal_progress_cfg.get("blocked_backward_scale", 0.25)), 0.0),
+            1.0,
+        )
         stall_reward_cfg = reward_cfg.get("stall", {})
         self.stall_reward_weight = float(stall_reward_cfg.get("weight", 0.5))
         self.stall_reward_window = max(1, int(stall_reward_cfg.get("window", self.stuck_window)))
@@ -399,6 +403,8 @@ class NavigationEnv(IsaacEnv):
         self.stall_distance_threshold = float(stall_reward_cfg.get("distance_threshold", 0.25))
         self.stall_speed_threshold = float(stall_reward_cfg.get("speed_threshold", 0.15))
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
+        escape_reward_cfg = reward_cfg.get("escape", {})
+        self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -720,8 +726,16 @@ class NavigationEnv(IsaacEnv):
             & (vertical <= self.stuck_front_height + vertical_inflation)
         )
 
-    def _compute_goal_progress_reward(self, goal_progress, reach_goal, time_limit):
-        reward_goal_progress = self.goal_progress_scale * goal_progress
+    def _compute_goal_progress_reward(self, goal_progress, reach_goal, time_limit, front_obstacle=None):
+        scaled_goal_progress = goal_progress
+        if front_obstacle is not None:
+            blocked_backward = front_obstacle & (goal_progress < 0.0) & (~reach_goal) & (~time_limit)
+            scaled_goal_progress = torch.where(
+                blocked_backward,
+                goal_progress * self.blocked_backward_scale,
+                goal_progress,
+            )
+        reward_goal_progress = self.goal_progress_scale * scaled_goal_progress
         reward_goal_progress = torch.where(
             time_limit,
             torch.full_like(reward_goal_progress, -self.goal_timeout_penalty),
@@ -733,6 +747,18 @@ class NavigationEnv(IsaacEnv):
             reward_goal_progress,
         )
         return reward_goal_progress
+
+    def _compute_escape_reward(self, previous_stuck_counter, reach_goal, time_limit):
+        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
+        reward_escape = self.escape_reward_weight * (
+            stuck_counter_drop / float(self.stuck_window)
+        ).clamp(max=1.0)
+        reward_escape = torch.where(
+            reach_goal | time_limit,
+            torch.zeros_like(reward_escape),
+            reward_escape,
+        )
+        return reward_escape
 
     def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
@@ -852,6 +878,7 @@ class NavigationEnv(IsaacEnv):
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
+            "reward_escape": UnboundedContinuousTensorSpec(1),
             "reward_stall": UnboundedContinuousTensorSpec(1),
             "stall": UnboundedContinuousTensorSpec(1),
             "stall_steps": UnboundedContinuousTensorSpec(1),
@@ -1184,20 +1211,27 @@ class NavigationEnv(IsaacEnv):
         reach_goal = goal_distance <= self.goal_radius
         time_limit = (self.progress_buf >= self.max_episode_length).unsqueeze(-1)
         goal_progress = self.prev_goal_distance - goal_distance
-        reward_goal_progress = self._compute_goal_progress_reward(goal_progress, reach_goal, time_limit)
+        front_obstacle = static_front_obstacle | dynamic_front_obstacle
+        reward_goal_progress = self._compute_goal_progress_reward(
+            goal_progress,
+            reach_goal,
+            time_limit,
+            front_obstacle,
+        )
         reward_stall, stall_active = self._compute_stall_reward(
             self.root_state[..., :3],
             self.drone.vel_w[..., :3],
             goal_progress,
             reach_goal,
         )
-        front_obstacle = static_front_obstacle | dynamic_front_obstacle
         small_progress_with_obstacle = (goal_progress <= self.stuck_progress_eps) & front_obstacle
+        previous_stuck_counter = self.stuck_counter.clone()
         self.stuck_counter = torch.where(
             small_progress_with_obstacle,
             self.stuck_counter + 1,
             torch.zeros_like(self.stuck_counter),
         )
+        reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
         stuck = self.stuck_counter >= self.stuck_window
         self.prev_goal_distance = goal_distance.clone()
             
@@ -1246,7 +1280,7 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.5 - penalty_smooth * 0.1 - penalty_height * 0.5
-        self.reward = self.reward + reward_goal_progress + reward_stall + reward_vo
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
         self.reward[collision] -= 45.0
@@ -1269,6 +1303,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
+        self.stats["reward_escape"] = reward_escape
         self.stats["reward_stall"] = reward_stall
         self.stats["stall"] = torch.maximum(self.stats["stall"], stall_active.float())
         self.stats["stall_steps"] += stall_active.float()

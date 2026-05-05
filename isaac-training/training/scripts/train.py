@@ -38,6 +38,7 @@ def print_eval_metrics(eval_info):
         "eval/stats.penalty_safety_dynamic",
         "eval/stats.reward_vel",
         "eval/stats.penalty_height",
+        "eval/stats.reward_escape",
         "eval/vo_risk_mean",
     ]
     metric_parts = []
@@ -115,6 +116,7 @@ def main(cfg):
         "train/stats.penalty_safety_dynamic",
         "train/stats.reward_vel",
         "train/stats.penalty_height",
+        "train/stats.reward_escape",
         "train/stats.reward_stall",
         "train/stats.stall",
         "train/stats.stall_steps",
@@ -131,6 +133,7 @@ def main(cfg):
         "eval/stats.penalty_safety_dynamic",
         "eval/stats.reward_vel",
         "eval/stats.penalty_height",
+        "eval/stats.reward_escape",
         "eval/stats.reward_vo",
         "eval/stats.vo_risk",
         "eval/stats.vo_warmup",

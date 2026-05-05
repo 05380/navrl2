@@ -30,6 +30,7 @@ def print_eval_metrics(eval_info):
         "eval/stats.penalty_safety_dynamic",
         "eval/stats.reward_vel",
         "eval/stats.penalty_height",
+        "eval/stats.reward_escape",
         "eval/vo_risk_mean",
     ]
     metric_parts = []
