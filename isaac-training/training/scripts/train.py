@@ -139,7 +139,7 @@ def main(cfg):
         "eval/stats.vo_warmup",
         "eval/stats.below_bound",
         "eval/stats.above_bound",
-    ]:
+    ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 
     # Navigation Training Environment
