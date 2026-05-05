@@ -27,7 +27,8 @@ env:
     u_width_range: [4.0, 7.0]
     u_depth_range: [3.5, 6.5]
     thickness_range: [0.35, 0.65]
-    height_range: [1.8, 3.5]
+    height_range: [2.0, 4.0, 6.0]
+    height_probability: [0.10, 0.90]
     placement_margin: 4.0
     min_separation: 4.0
     obstacle_clearance: 0.4

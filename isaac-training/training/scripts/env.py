@@ -32,6 +32,32 @@ def _sample_range(value):
     return float(np.random.uniform(low, high))
 
 
+def _sequence_to_tuple(value):
+    return tuple(float(item) for item in value)
+
+
+def _sample_piecewise_range(range_edges, probabilities):
+    range_edges = _sequence_to_tuple(range_edges)
+    probabilities = np.asarray(_sequence_to_tuple(probabilities), dtype=np.float64)
+    if len(range_edges) != len(probabilities) + 1:
+        raise ValueError(
+            "Piecewise range sampling expects len(range_edges) == len(probabilities) + 1, "
+            f"got {len(range_edges)} and {len(probabilities)}."
+        )
+    probability_sum = probabilities.sum()
+    if probability_sum <= 0.0:
+        raise ValueError("Piecewise range probabilities must sum to a positive value.")
+    probabilities = probabilities / probability_sum
+    interval_idx = int(np.random.choice(len(probabilities), p=probabilities))
+    return float(np.random.uniform(range_edges[interval_idx], range_edges[interval_idx + 1]))
+
+
+def _sample_wall_height(cfg):
+    if len(cfg.wall_height_range) > 2:
+        return _sample_piecewise_range(cfg.wall_height_range, cfg.wall_height_probability)
+    return _sample_range(cfg.wall_height_range)
+
+
 def _sample_wall_center(size, max_extent, placement_margin):
     margin = max(float(placement_margin), 0.5 * float(max_extent) + 1.0)
     margin_x = min(margin, float(size[0]) * 0.45)
@@ -84,7 +110,7 @@ def _wall_segment_mesh(segment):
 def _make_single_wall(center, cfg):
     length = _sample_range(cfg.wall_length_range)
     thickness = _sample_range(cfg.wall_thickness_range)
-    height = _sample_range(cfg.wall_height_range)
+    height = _sample_wall_height(cfg)
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
     max_extent = length + thickness
     segments = [_wall_segment_spec(center, (0.0, 0.0), length, thickness, height, yaw)]
@@ -95,7 +121,7 @@ def _make_l_wall(center, cfg):
     arm_x = _sample_range(cfg.wall_l_length_range)
     arm_y = _sample_range(cfg.wall_l_length_range)
     thickness = _sample_range(cfg.wall_thickness_range)
-    height = _sample_range(cfg.wall_height_range)
+    height = _sample_wall_height(cfg)
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
     signs = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
     sign_x, sign_y = signs[int(np.random.randint(0, len(signs)))]
@@ -111,7 +137,7 @@ def _make_u_wall(center, cfg):
     width = _sample_range(cfg.wall_u_width_range)
     depth = _sample_range(cfg.wall_u_depth_range)
     thickness = _sample_range(cfg.wall_thickness_range)
-    height = _sample_range(cfg.wall_height_range)
+    height = _sample_wall_height(cfg)
     opening_direction = int(np.random.randint(0, 4))
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi) + opening_direction * np.pi * 0.5)
     max_extent = max(width, depth) + thickness
@@ -329,7 +355,8 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
     wall_u_width_range: tuple[float, float] = (4.0, 7.0)
     wall_u_depth_range: tuple[float, float] = (3.5, 6.5)
     wall_thickness_range: tuple[float, float] = (0.35, 0.65)
-    wall_height_range: tuple[float, float] = (1.8, 3.5)
+    wall_height_range: tuple[float, ...] = (2.0, 4.0, 6.0)
+    wall_height_probability: tuple[float, ...] = (0.10, 0.90)
     wall_placement_margin: float = 4.0
     wall_min_separation: float = 4.0
     wall_obstacle_clearance: float = 0.4
@@ -495,7 +522,8 @@ class NavigationEnv(IsaacEnv):
                         wall_u_width_range=_range_to_tuple(wall_cfg.get("u_width_range", [4.0, 7.0])),
                         wall_u_depth_range=_range_to_tuple(wall_cfg.get("u_depth_range", [3.5, 6.5])),
                         wall_thickness_range=_range_to_tuple(wall_cfg.get("thickness_range", [0.35, 0.65])),
-                        wall_height_range=_range_to_tuple(wall_cfg.get("height_range", [1.8, 3.5])),
+                        wall_height_range=_sequence_to_tuple(wall_cfg.get("height_range", [2.0, 4.0, 6.0])),
+                        wall_height_probability=_sequence_to_tuple(wall_cfg.get("height_probability", [0.10, 0.90])),
                         wall_placement_margin=float(wall_cfg.get("placement_margin", 4.0)),
                         wall_min_separation=float(wall_cfg.get("min_separation", 4.0)),
                         wall_obstacle_clearance=float(wall_cfg.get("obstacle_clearance", 0.4)),
