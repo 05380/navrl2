@@ -58,6 +58,12 @@ def _sample_wall_height(cfg):
     return _sample_range(cfg.wall_height_range)
 
 
+def _sample_wall_length(cfg):
+    if len(cfg.wall_length_range) > 2:
+        return _sample_piecewise_range(cfg.wall_length_range, cfg.wall_length_probability)
+    return _sample_range(cfg.wall_length_range)
+
+
 def _sample_wall_center(size, max_extent, placement_margin):
     margin = max(float(placement_margin), 0.5 * float(max_extent) + 1.0)
     margin_x = min(margin, float(size[0]) * 0.45)
@@ -108,7 +114,7 @@ def _wall_segment_mesh(segment):
 
 
 def _make_single_wall(center, cfg):
-    length = _sample_range(cfg.wall_length_range)
+    length = _sample_wall_length(cfg)
     thickness = _sample_range(cfg.wall_thickness_range)
     height = _sample_wall_height(cfg)
     yaw = float(np.random.uniform(0.0, 2.0 * np.pi))
@@ -320,15 +326,17 @@ def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
     elif wall_style == 2:
         wall_plan = [("single", 2)]
     elif wall_style == 3:
-        wall_plan = [("l", 1)]
+        wall_plan = [("single", 3)]
     elif wall_style == 4:
-        wall_plan = [("l", 2)]
+        wall_plan = [("single", 2), ("l", 1)]
     elif wall_style == 5:
-        wall_plan = [("u", 1)]
+        wall_plan = [("single", 3), ("l", 1)]
     elif wall_style == 6:
-        wall_plan = [("u", 2)]
+        wall_plan = [("single", 2), ("l", 1), ("u", 1)]
+    elif wall_style == 7:
+        wall_plan = [("single", 2), ("l", 1), ("u", 2)]
     else:
-        raise ValueError(f"Unsupported env.wall_style={wall_style}. Expected an integer in [0, 6].")
+        raise ValueError(f"Unsupported env.wall_style={wall_style}. Expected an integer in [0, 7].")
 
     placed_centers = []
     for wall_type, wall_count in wall_plan:
@@ -350,9 +358,10 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
     function = discrete_obstacles_with_curriculum_walls_terrain
 
     wall_style: int = 0
-    wall_length_range: tuple[float, float] = (4.0, 8.0)
-    wall_l_length_range: tuple[float, float] = (3.5, 6.5)
-    wall_u_width_range: tuple[float, float] = (4.0, 7.0)
+    wall_length_range: tuple[float, ...] = (5.0, 7.0, 10.0, 12.0)
+    wall_length_probability: tuple[float, ...] = (0.25, 0.25, 0.50)
+    wall_l_length_range: tuple[float, float] = (8.0, 10.0)
+    wall_u_width_range: tuple[float, float] = (10.0, 12.0)
     wall_u_depth_range: tuple[float, float] = (3.5, 6.5)
     wall_thickness_range: tuple[float, float] = (0.35, 0.65)
     wall_height_range: tuple[float, ...] = (2.0, 4.0, 6.0)
@@ -360,7 +369,7 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
     wall_placement_margin: float = 4.0
     wall_min_separation: float = 4.0
     wall_obstacle_clearance: float = 0.4
-    wall_sampling_attempts: int = 200
+    wall_sampling_attempts: int = 500
 
 
 class NavigationEnv(IsaacEnv):
@@ -523,9 +532,10 @@ class NavigationEnv(IsaacEnv):
                         obstacle_height_probability=[0.1, 0.15, 0.20, 0.55],
                         platform_width=0.0,
                         wall_style=int(self.cfg.env.get("wall_style", 0)),
-                        wall_length_range=_range_to_tuple(wall_cfg.get("length_range", [4.0, 8.0])),
-                        wall_l_length_range=_range_to_tuple(wall_cfg.get("l_length_range", [3.5, 6.5])),
-                        wall_u_width_range=_range_to_tuple(wall_cfg.get("u_width_range", [4.0, 7.0])),
+                        wall_length_range=_sequence_to_tuple(wall_cfg.get("length_range", [5.0, 7.0, 10.0, 12.0])),
+                        wall_length_probability=_sequence_to_tuple(wall_cfg.get("length_probability", [0.25, 0.25, 0.50])),
+                        wall_l_length_range=_range_to_tuple(wall_cfg.get("l_length_range", [8.0, 10.0])),
+                        wall_u_width_range=_range_to_tuple(wall_cfg.get("u_width_range", [10.0, 12.0])),
                         wall_u_depth_range=_range_to_tuple(wall_cfg.get("u_depth_range", [3.5, 6.5])),
                         wall_thickness_range=_range_to_tuple(wall_cfg.get("thickness_range", [0.35, 0.65])),
                         wall_height_range=_sequence_to_tuple(wall_cfg.get("height_range", [2.0, 4.0, 6.0])),
@@ -533,7 +543,7 @@ class NavigationEnv(IsaacEnv):
                         wall_placement_margin=float(wall_cfg.get("placement_margin", 4.0)),
                         wall_min_separation=float(wall_cfg.get("min_separation", 4.0)),
                         wall_obstacle_clearance=float(wall_cfg.get("obstacle_clearance", 0.4)),
-                        wall_sampling_attempts=int(wall_cfg.get("sampling_attempts", 200)),
+                        wall_sampling_attempts=int(wall_cfg.get("sampling_attempts", 500)),
                     ),
                 },
             ),
