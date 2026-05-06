@@ -5,6 +5,7 @@
 
     <!-- PX4 -->
     <param name="rl/use_px4" value="true" />
+    <param name="rl/use_safety_shield" value="$(arg use_safety_shield)" />
 
     <!-- mapping -->
     <group if="$(arg use_prebuilt_map)">

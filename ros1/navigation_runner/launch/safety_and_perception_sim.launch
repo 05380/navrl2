@@ -2,11 +2,12 @@
     <arg name="use_px4" default="false" />
     <arg name="use_prebuilt_map" default="false" />
     <arg name="use_real_detector" default="false" />
-    <arg name="use_safety_shield" default="true" />
+    <arg name="use_safety_shield" default="false" />
     <arg name="rviz" default="true" />
     
     <!-- PX4 -->
     <param name="rl/use_px4" value="$(arg use_px4)" />
+    <param name="rl/use_safety_shield" value="$(arg use_safety_shield)" />
 
     <!-- mapping -->
     <group if="$(arg use_prebuilt_map)">

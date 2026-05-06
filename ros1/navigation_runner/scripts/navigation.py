@@ -40,8 +40,9 @@ class Navigation:
         self.has_action = False
         self.laser_points_msg = None
 
-        self.height_control = False 
+        self.height_control = True 
         self.px4_control = rospy.get_param('rl/use_px4', True)
+        self.use_safety_shield = rospy.get_param('rl/use_safety_shield', False)
 
         self.use_policy_server = False
 
@@ -355,6 +356,20 @@ class Navigation:
         except rospy.service.ServiceException as e:
             # print("[nav-ros]: no safety running!")
             return action_vel_world   
+
+    def _as_velocity_array(self, velocity):
+        velocity = np.asarray(velocity, dtype=np.float64).reshape(-1)
+        if velocity.size != 3:
+            raise ValueError(f"Expected 3D velocity, got shape {velocity.shape}")
+        return velocity
+
+    def _apply_minimal_height_guard(self, velocity_world, current_z):
+        velocity_world = self._as_velocity_array(velocity_world).copy()
+        if current_z <= 0.2 and velocity_world[2] < 0.0:
+            velocity_world[2] = 0.0
+        if current_z >= 4.0 and velocity_world[2] > 0.0:
+            velocity_world[2] = 0.0
+        return velocity_world
     
     def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
         rpos = goal - pos
@@ -503,12 +518,19 @@ class Navigation:
         vel_world = torch.tensor(rot @ vel_body, device=self.cfg.device, dtype=torch.float) # world vel
         
         # get RL action from model
-        cmd_vel_world = self.get_action(pos, vel_world, goal).squeeze(0).squeeze(0).detach().cpu().numpy()        
+        cmd_vel_world = self.get_action(pos, vel_world, goal).squeeze(0).squeeze(0).detach().cpu().numpy()
+        cmd_vel_world = self._as_velocity_array(cmd_vel_world)
         self.cmd_vel_world = cmd_vel_world.copy()
 
-        # get safe action
-        safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world)
-        # safe_cmd_vel_world = self.get_safe_action_map(vel_world, cmd_vel_world)
+        # Optional deployment safety shield. Keep policy-only execution as the
+        # default so experiments can measure the learned policy directly.
+        if self.use_safety_shield:
+            safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world)
+            # safe_cmd_vel_world = self.get_safe_action_map(vel_world, cmd_vel_world)
+        else:
+            safe_cmd_vel_world = cmd_vel_world.copy()
+        safe_cmd_vel_world = self._as_velocity_array(safe_cmd_vel_world)
+        safe_cmd_vel_world = self._apply_minimal_height_guard(safe_cmd_vel_world, pos[2].item())
         # safe_cmd_vel_world[2] = 0
         self.safe_cmd_vel_world = safe_cmd_vel_world.copy()
         quat_no_tilt = tf.transformations.quaternion_from_euler(0, 0, curr_angle)
