@@ -6,7 +6,7 @@ algo:
   actor:
     learning_rate: 5e-4
     clip_ratio: 0.1
-    action_limit: 1.0 # m/s
+    action_limit: 2.0 # m/s
   
   critic:
     learning_rate: 5e-4

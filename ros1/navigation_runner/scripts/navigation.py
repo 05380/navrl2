@@ -206,15 +206,32 @@ class Navigation:
             pos_msg.z = pos[2]
             get_obstacle = rospy.ServiceProxy("onboard_detector/get_dynamic_obstacles", GetDynamicObstacles)
             response = get_obstacle(pos_msg, distance_range)
-            total_obs_num = len(response.position)
-            for i in range(self.cfg.algo.feature_extractor.dyn_obs_num):
-                if (i < total_obs_num):
-                    pos_vec = response.position[i]
-                    vel_vec = response.velocity[i]
-                    size_vec = response.size[i]
-                    dynamic_obstacle_pos[i] = torch.tensor([pos_vec.x, pos_vec.y, pos_vec.z], dtype=torch.float, device=self.cfg.device)
-                    dynamic_obstacle_vel[i] = torch.tensor([vel_vec.x, vel_vec.y, vel_vec.z], dtype=torch.float, device=self.cfg.device)
-                    dynamic_obstacle_size[i] = torch.tensor([size_vec.x, size_vec.y, size_vec.z], dtype=torch.float, device=self.cfg.device)
+            total_obs_num = min(len(response.position), len(response.velocity), len(response.size))
+            if total_obs_num > 0:
+                all_pos = torch.tensor(
+                    [[p.x, p.y, p.z] for p in response.position[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+                all_vel = torch.tensor(
+                    [[v.x, v.y, v.z] for v in response.velocity[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+                all_size = torch.tensor(
+                    [[s.x, s.y, s.z] for s in response.size[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+
+                drone_pos = torch.tensor(pos, dtype=torch.float, device=self.cfg.device)
+                dyn_obs_distance_2d = torch.norm(all_pos[:, :2] - drone_pos[:2], dim=-1)
+                selected_num = min(self.cfg.algo.feature_extractor.dyn_obs_num, total_obs_num)
+                _, closest_dyn_obs_idx = torch.topk(dyn_obs_distance_2d, selected_num, largest=False)
+
+                dynamic_obstacle_pos[:selected_num] = all_pos[closest_dyn_obs_idx]
+                dynamic_obstacle_vel[:selected_num] = all_vel[closest_dyn_obs_idx]
+                dynamic_obstacle_size[:selected_num] = all_size[closest_dyn_obs_idx]
         except rospy.service.ServiceException as e:
             print("[nav-ros]: dynamic obstacle func err!")   
         return dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size
