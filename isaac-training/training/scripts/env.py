@@ -359,7 +359,7 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
 
     wall_style: int = 0
     wall_length_range: tuple[float, ...] = (5.0, 7.0, 10.0, 12.0)
-    wall_length_probability: tuple[float, ...] = (0.25, 0.25, 0.50)
+    wall_length_probability: tuple[float, ...] = (0.10, 0.10, 0.80)
     wall_l_length_range: tuple[float, float] = (8.0, 10.0)
     wall_u_width_range: tuple[float, float] = (10.0, 12.0)
     wall_u_depth_range: tuple[float, float] = (3.5, 6.5)
@@ -533,7 +533,7 @@ class NavigationEnv(IsaacEnv):
                         platform_width=0.0,
                         wall_style=int(self.cfg.env.get("wall_style", 0)),
                         wall_length_range=_sequence_to_tuple(wall_cfg.get("length_range", [5.0, 7.0, 10.0, 12.0])),
-                        wall_length_probability=_sequence_to_tuple(wall_cfg.get("length_probability", [0.25, 0.25, 0.50])),
+                        wall_length_probability=_sequence_to_tuple(wall_cfg.get("length_probability", [0.10, 0.10, 0.80])),
                         wall_l_length_range=_range_to_tuple(wall_cfg.get("l_length_range", [8.0, 10.0])),
                         wall_u_width_range=_range_to_tuple(wall_cfg.get("u_width_range", [10.0, 12.0])),
                         wall_u_depth_range=_range_to_tuple(wall_cfg.get("u_depth_range", [3.5, 6.5])),
