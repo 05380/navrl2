@@ -267,12 +267,6 @@ def _sample_valid_wall_segments(wall_type, cfg, placed_centers, static_occupied,
         if any(np.linalg.norm(center - prev) < float(cfg.wall_min_separation) for prev in placed_centers):
             continue
 
-        obstacle_clearance_mask = _segments_mask(
-            grid_x, grid_y, segments, clearance=float(cfg.wall_obstacle_clearance)
-        )
-        if np.any(static_occupied & obstacle_clearance_mask):
-            continue
-
         wall_clearance_mask = _segments_mask(grid_x, grid_y, segments, clearance=float(cfg.wall_min_separation))
         if np.any(wall_occupied & wall_clearance_mask):
             continue
