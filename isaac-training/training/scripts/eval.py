@@ -18,6 +18,7 @@ def print_eval_metrics(eval_info):
     metric_keys = [
         "eval/success_rate",
         "eval/collision_rate",
+        "eval/wall_collision_rate",
         "eval/below_bound_rate",
         "eval/above_bound_rate",
         "eval/deadlock_rate",
