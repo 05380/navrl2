@@ -26,6 +26,7 @@ def print_eval_metrics(eval_info):
     metric_keys = [
         "eval/success_rate",
         "eval/collision_rate",
+        "eval/wall_collision_rate",
         "eval/below_bound_rate",
         "eval/above_bound_rate",
         "eval/deadlock_rate",
@@ -95,6 +96,8 @@ def main(cfg):
         "train/vo/warmup",
         "train/below_bound_rate",
         "train/above_bound_rate",
+        "train/wall_collision_rate",
+        "eval/wall_collision_rate",
         "eval/stall_reward_mean",
         "eval/stall/reward_mean",
         "eval/stall/active_rate",
@@ -125,6 +128,7 @@ def main(cfg):
         "train/stats.vo_warmup",
         "train/stats.below_bound",
         "train/stats.above_bound",
+        "train/stats.wall_collision",
         "eval/stats.reward_stall",
         "eval/stats.stall",
         "eval/stats.stall_steps",
@@ -139,6 +143,7 @@ def main(cfg):
         "eval/stats.vo_warmup",
         "eval/stats.below_bound",
         "eval/stats.above_bound",
+        "eval/stats.wall_collision",
     ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 
@@ -196,6 +201,13 @@ def main(cfg):
         if len(episode_stats) >= transformed_env.num_envs: # evaluate once if all agents finished one episode
             stats = summarize_episode_stats(episode_stats.pop(), prefix="train")
             info.update(stats)
+            train_metric_parts = []
+            for key in ["train/collision_rate", "train/wall_collision_rate"]:
+                value = stats.get(key)
+                if value is not None:
+                    train_metric_parts.append(f"{key}={value:.4f}")
+            if train_metric_parts:
+                print("[NavRL]: train metrics | " + " | ".join(train_metric_parts))
 
         # Evaluate policy and log info
         if i % cfg.eval_interval == 0:

@@ -304,10 +304,13 @@ def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
 
     static_occupied = heights > 0
     wall_occupied = np.zeros_like(static_occupied, dtype=bool)
+    wall_height_map = np.zeros_like(heights, dtype=np.float32)
     grid_x, grid_y = _grid_coordinates(cfg.size, cfg.horizontal_scale)
     wall_style = int(cfg.wall_style)
 
     cfg._terrain_occupancy = static_occupied.copy()
+    cfg._wall_occupancy = wall_occupied.copy()
+    cfg._wall_height_map = wall_height_map.copy()
     cfg._terrain_size = np.array(cfg.size, dtype=np.float32)
     cfg._terrain_resolution = float(cfg.horizontal_scale)
 
@@ -342,8 +345,12 @@ def discrete_obstacles_with_curriculum_walls_terrain(difficulty, cfg):
                 continue
             meshes.extend(_wall_segment_mesh(segment) for segment in segments)
             wall_occupied |= exact_mask
+            wall_height = max(float(segment["height"]) for segment in segments)
+            wall_height_map[exact_mask] = np.maximum(wall_height_map[exact_mask], wall_height)
 
     cfg._terrain_occupancy = static_occupied | wall_occupied
+    cfg._wall_occupancy = wall_occupied.copy()
+    cfg._wall_height_map = wall_height_map.copy()
     return meshes, origin
 
 
@@ -489,11 +496,14 @@ class NavigationEnv(IsaacEnv):
         self.map_range = [20.0, 20.0, 4.5]
         wall_cfg = self.cfg.env.get("wall", {})
         self.terrain_occupancy = None
+        self.wall_occupancy = None
+        self.wall_height_map = None
         self.terrain_occupancy_resolution = 0.1
         self.terrain_occupancy_size = torch.tensor(
             [self.map_range[0] * 2.0, self.map_range[1] * 2.0], dtype=torch.float32, device=self.device
         )
         self.terrain_clearance_cache = {}
+        self.wall_collision_cache = {}
         self.spawn_clearance_radius = float(wall_cfg.get("spawn_clearance_radius", 1.5))
         self.target_clearance_radius = float(wall_cfg.get("target_clearance_radius", self.spawn_clearance_radius))
         self.position_sample_attempts = max(1, int(wall_cfg.get("position_sample_attempts", 128)))
@@ -549,11 +559,21 @@ class NavigationEnv(IsaacEnv):
         terrain_importer = TerrainImporter(terrain_cfg)
         obstacle_terrain_cfg = terrain_cfg.terrain_generator.sub_terrains["obstacles"]
         terrain_occupancy = getattr(obstacle_terrain_cfg, "_terrain_occupancy", None)
+        wall_occupancy = getattr(obstacle_terrain_cfg, "_wall_occupancy", None)
+        wall_height_map = getattr(obstacle_terrain_cfg, "_wall_height_map", None)
         terrain_size = getattr(obstacle_terrain_cfg, "_terrain_size", None)
         terrain_resolution = getattr(obstacle_terrain_cfg, "_terrain_resolution", None)
         if terrain_occupancy is not None:
             self.terrain_occupancy = torch.as_tensor(
                 terrain_occupancy.astype(np.float32), device=self.device, dtype=torch.float32
+            )
+        if wall_occupancy is not None:
+            self.wall_occupancy = torch.as_tensor(
+                wall_occupancy.astype(np.float32), device=self.device, dtype=torch.float32
+            )
+        if wall_height_map is not None:
+            self.wall_height_map = torch.as_tensor(
+                wall_height_map.astype(np.float32), device=self.device, dtype=torch.float32
             )
         if terrain_size is not None:
             self.terrain_occupancy_size = torch.as_tensor(terrain_size[:2], device=self.device, dtype=torch.float32)
@@ -891,6 +911,7 @@ class NavigationEnv(IsaacEnv):
             "vo_warmup": UnboundedContinuousTensorSpec(1),
             "reach_goal": UnboundedContinuousTensorSpec(1),
             "collision": UnboundedContinuousTensorSpec(1),
+            "wall_collision": UnboundedContinuousTensorSpec(1),
             "below_bound": UnboundedContinuousTensorSpec(1),
             "above_bound": UnboundedContinuousTensorSpec(1),
             "stuck": UnboundedContinuousTensorSpec(1),
@@ -941,6 +962,47 @@ class NavigationEnv(IsaacEnv):
         grid_xy[:, 1] = grid_xy[:, 1].clamp_(0, map_y)
         occupied = clearance_map[grid_xy[:, 0], grid_xy[:, 1]]
         return (~valid) | (~occupied)
+
+    def _get_wall_collision_height_map(self, clearance_radius: float):
+        if self.wall_height_map is None:
+            return None
+        clearance_radius = max(float(clearance_radius), 0.0)
+        pixel_radius = int(np.ceil(clearance_radius / self.terrain_occupancy_resolution))
+        if pixel_radius not in self.wall_collision_cache:
+            kernel_size = 2 * pixel_radius + 1
+            wall_heights = self.wall_height_map.unsqueeze(0).unsqueeze(0)
+            expanded = F.max_pool2d(wall_heights, kernel_size=kernel_size, stride=1, padding=pixel_radius)
+            self.wall_collision_cache[pixel_radius] = expanded[0, 0]
+        return self.wall_collision_cache[pixel_radius]
+
+    def _points_near_curriculum_wall(self, points_xyz: torch.Tensor, clearance_radius: float):
+        wall_height_map = self._get_wall_collision_height_map(clearance_radius)
+        if wall_height_map is None:
+            return torch.zeros(points_xyz.shape[:-1], dtype=torch.bool, device=self.device)
+
+        original_shape = points_xyz.shape[:-1]
+        points_flat = points_xyz.reshape(-1, 3)
+        half_size = 0.5 * self.terrain_occupancy_size
+        local_xy = points_flat[:, :2] + half_size.unsqueeze(0)
+        valid = (
+            (local_xy[:, 0] >= 0.0)
+            & (local_xy[:, 0] <= self.terrain_occupancy_size[0])
+            & (local_xy[:, 1] >= 0.0)
+            & (local_xy[:, 1] <= self.terrain_occupancy_size[1])
+        )
+
+        map_x = wall_height_map.shape[0] - 1
+        map_y = wall_height_map.shape[1] - 1
+        grid_xy = torch.round(local_xy / self.terrain_occupancy_resolution).long()
+        grid_xy[:, 0] = grid_xy[:, 0].clamp_(0, map_x)
+        grid_xy[:, 1] = grid_xy[:, 1].clamp_(0, map_y)
+
+        wall_height = torch.zeros(points_flat.shape[0], dtype=torch.float32, device=self.device)
+        if torch.any(valid).item():
+            wall_height[valid] = wall_height_map[grid_xy[valid, 0], grid_xy[valid, 1]]
+        near_wall_xy = wall_height > 0.0
+        below_wall_top = points_flat[:, 2] <= (wall_height + float(clearance_radius))
+        return (valid & near_wall_xy & below_wall_top).reshape(original_shape)
 
     def _sample_boundary_positions(self, count: int):
         masks = torch.tensor(
@@ -1275,6 +1337,7 @@ class NavigationEnv(IsaacEnv):
 
         # f. Collision condition with its penalty
         static_collision = einops.reduce(self.lidar_scan, "n 1 w h -> n 1", "max") >  (self.lidar_range - 0.3) # 0.3 collision radius
+        wall_collision = static_collision & self._points_near_curriculum_wall(self.root_state[..., :3], clearance_radius=0.3)
         collision = static_collision | dynamic_collision
         below_bound = self.drone.pos[..., 2] < 0.2
         above_bound = self.drone.pos[..., 2] > 4.
@@ -1316,6 +1379,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["vo_warmup"] = vo_warmup
         self.stats["reach_goal"] = reach_goal.float()
         self.stats["collision"] = collision.float()
+        self.stats["wall_collision"] = wall_collision.float()
         self.stats["below_bound"] = below_bound.float()
         self.stats["above_bound"] = above_bound.float()
         self.stats["stuck"] = torch.maximum(self.stats["stuck"], stuck.float())

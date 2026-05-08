@@ -187,6 +187,7 @@ def summarize_episode_stats(stats, prefix: str):
 
     reach_goal = flat_stats.get("reach_goal")
     collision = flat_stats.get("collision")
+    wall_collision = flat_stats.get("wall_collision")
     below_bound = flat_stats.get("below_bound")
     above_bound = flat_stats.get("above_bound")
     truncated = flat_stats.get("truncated")
@@ -203,6 +204,7 @@ def summarize_episode_stats(stats, prefix: str):
     success_mask = None
     failure_mask = None
     collision_mask = None
+    wall_collision_mask = None
     time_limit_mask = None
     deadlock_mask = None
 
@@ -221,6 +223,16 @@ def summarize_episode_stats(stats, prefix: str):
         collision_rate = mean_rate(collision_mask)
         info[f"{prefix}/collision_rate"] = collision_rate
         info[f"{prefix}/rates/collision"] = collision_rate
+
+    if wall_collision is not None:
+        wall_collision_mask = wall_collision >= 0.5
+        wall_collision_rate = mean_rate(wall_collision_mask)
+        info[f"{prefix}/wall_collision_rate"] = wall_collision_rate
+        info[f"{prefix}/rates/wall_collision"] = wall_collision_rate
+        if collision_mask is not None:
+            info[f"{prefix}/conditioned/wall_collision_given_collision"] = conditional_rate(
+                wall_collision_mask, collision_mask
+            )
 
     if below_bound is not None:
         below_bound_mask = below_bound >= 0.5
