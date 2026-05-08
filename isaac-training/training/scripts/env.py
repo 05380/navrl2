@@ -425,6 +425,18 @@ class NavigationEnv(IsaacEnv):
         self.vo_reward_range = max(self.lidar_range, float(max(cfg.env_dyn.local_range)))
         self.vo_warmup_steps = max(0, int(vo_cfg.get("warmup_steps", 0)))
         self.vo_step_count = 0
+        noise_cfg = cfg.get("observation_noise", {})
+        self.obs_noise_enabled = bool(noise_cfg.get("enabled", False))
+        self.obs_noise_train_only = bool(noise_cfg.get("train_only", True))
+        lidar_noise_cfg = noise_cfg.get("lidar", {})
+        self.lidar_noise_std = max(float(lidar_noise_cfg.get("std", 0.0)), 0.0)
+        self.lidar_dropout_prob = min(max(float(lidar_noise_cfg.get("dropout_prob", 0.0)), 0.0), 1.0)
+        self.lidar_scale_std = max(float(lidar_noise_cfg.get("scale_std", 0.0)), 0.0)
+        dyn_obs_noise_cfg = noise_cfg.get("dynamic_obstacle", {})
+        self.dyn_obs_pos_noise_std = max(float(dyn_obs_noise_cfg.get("position_std", 0.0)), 0.0)
+        self.dyn_obs_vel_noise_std = max(float(dyn_obs_noise_cfg.get("velocity_std", 0.0)), 0.0)
+        self.dyn_obs_size_noise_std = max(float(dyn_obs_noise_cfg.get("size_std", 0.0)), 0.0)
+        self.dyn_obs_dropout_prob = min(max(float(dyn_obs_noise_cfg.get("dropout_prob", 0.0)), 0.0), 1.0)
 
         super().__init__(cfg, cfg.headless)
         
@@ -1004,6 +1016,63 @@ class NavigationEnv(IsaacEnv):
         below_wall_top = points_flat[:, 2] <= (wall_height + float(clearance_radius))
         return (valid & near_wall_xy & below_wall_top).reshape(original_shape)
 
+    def _observation_noise_active(self):
+        if not self.obs_noise_enabled:
+            return False
+        return (not self.obs_noise_train_only) or bool(getattr(self, "training", True))
+
+    def _apply_lidar_observation_noise(self, lidar_scan: torch.Tensor):
+        if not self._observation_noise_active():
+            return lidar_scan
+
+        noisy_scan = lidar_scan.clone()
+        if self.lidar_scale_std > 0.0:
+            scale = 1.0 + torch.randn(
+                (*noisy_scan.shape[:2], 1, 1),
+                dtype=noisy_scan.dtype,
+                device=noisy_scan.device,
+            ) * self.lidar_scale_std
+            noisy_scan = noisy_scan * scale
+        if self.lidar_noise_std > 0.0:
+            noisy_scan = noisy_scan + torch.randn_like(noisy_scan) * self.lidar_noise_std
+        if self.lidar_dropout_prob > 0.0:
+            dropout_mask = torch.rand_like(noisy_scan) < self.lidar_dropout_prob
+            noisy_scan = torch.where(dropout_mask, torch.zeros_like(noisy_scan), noisy_scan)
+        return noisy_scan.clamp_(0.0, self.lidar_range)
+
+    def _apply_dynamic_obstacle_observation_noise(
+        self,
+        dyn_obs_rpos: torch.Tensor,
+        dyn_obs_vel: torch.Tensor,
+        dyn_obs_size: torch.Tensor,
+        dyn_obs_range_mask: torch.Tensor,
+    ):
+        if not self._observation_noise_active():
+            return dyn_obs_rpos, dyn_obs_vel, dyn_obs_size, dyn_obs_range_mask
+
+        noisy_rpos = dyn_obs_rpos.clone()
+        noisy_vel = dyn_obs_vel.clone()
+        noisy_size = dyn_obs_size.clone()
+        noisy_range_mask = dyn_obs_range_mask.clone()
+        tall_obstacle = dyn_obs_size[..., 2] > self.max_obs_3d_height
+        three_d_noise_mask = (~tall_obstacle).unsqueeze(-1).to(dtype=noisy_rpos.dtype)
+
+        if self.dyn_obs_pos_noise_std > 0.0:
+            pos_noise = torch.randn_like(noisy_rpos) * self.dyn_obs_pos_noise_std
+            pos_noise[..., 2:] = pos_noise[..., 2:] * three_d_noise_mask
+            noisy_rpos = noisy_rpos + pos_noise
+        if self.dyn_obs_vel_noise_std > 0.0:
+            vel_noise = torch.randn_like(noisy_vel) * self.dyn_obs_vel_noise_std
+            vel_noise[..., 2:] = vel_noise[..., 2:] * three_d_noise_mask
+            noisy_vel = noisy_vel + vel_noise
+        if self.dyn_obs_size_noise_std > 0.0:
+            noisy_size = (noisy_size + torch.randn_like(noisy_size) * self.dyn_obs_size_noise_std).clamp_min(0.05)
+        if self.dyn_obs_dropout_prob > 0.0:
+            dropout_mask = torch.rand_like(noisy_range_mask.float()) < self.dyn_obs_dropout_prob
+            noisy_range_mask = noisy_range_mask | dropout_mask
+
+        return noisy_rpos, noisy_vel, noisy_size, noisy_range_mask
+
     def _sample_boundary_positions(self, count: int):
         masks = torch.tensor(
             [[1.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
@@ -1120,12 +1189,13 @@ class NavigationEnv(IsaacEnv):
 
         # >>>>>>>>>>>>The relevant code starts from here<<<<<<<<<<<<
         # -----------Network Input I: LiDAR range data--------------
-        self.lidar_scan = self.lidar_range - (
+        self.lidar_scan_clean = self.lidar_range - (
             (self.lidar.data.ray_hits_w - self.lidar.data.pos_w.unsqueeze(1))
             .norm(dim=-1)
             .clamp_max(self.lidar_range)
             .reshape(self.num_envs, 1, *self.lidar_resolution)
         ) # lidar scan store the data that is range - distance and it is in lidar's local frame
+        self.lidar_scan = self._apply_lidar_observation_noise(self.lidar_scan_clean)
 
         # Optional render for LiDAR
         if self._should_render(0):
@@ -1189,32 +1259,50 @@ class NavigationEnv(IsaacEnv):
 
             # relative distance of obstacles in the goal frame
             closest_dyn_obs_rpos = torch.gather(dyn_obs_rpos_expanded, 1, closest_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
-            closest_dyn_obs_rpos_g = vec_to_new_frame(closest_dyn_obs_rpos, target_dir_2d) 
-            closest_dyn_obs_rpos_g[dyn_obs_range_mask] = 0. # exclude out of range obstacles
-            closest_dyn_obs_distance = closest_dyn_obs_rpos.norm(dim=-1, keepdim=True)
-            closest_dyn_obs_distance_2d = closest_dyn_obs_rpos_g[..., :2].norm(dim=-1, keepdim=True)
-            closest_dyn_obs_distance_z = closest_dyn_obs_rpos_g[..., 2].unsqueeze(-1)
-            closest_dyn_obs_rpos_gn = closest_dyn_obs_rpos_g / closest_dyn_obs_distance.clamp(1e-6)
 
             # b. Velocity in the goal frame for the dynamic obstacles
             closest_dyn_obs_vel = self.dyn_obs_vel[closest_dyn_obs_idx]
-            closest_dyn_obs_vel[dyn_obs_range_mask] = 0.
-            closest_dyn_obs_vel_g = vec_to_new_frame(closest_dyn_obs_vel, target_dir_2d) 
 
             # c. Size of dynamic obstacles in category
             closest_dyn_obs_size = self.dyn_obs_size[closest_dyn_obs_idx] # the acutal size
-
             closest_dyn_obs_width = closest_dyn_obs_size[..., 0].unsqueeze(-1)
-            closest_dyn_obs_width_category = closest_dyn_obs_width / self.dyn_obs_width_res - 1. # convert to category: [0, 1, 2, 3]
-            closest_dyn_obs_width_category[dyn_obs_range_mask] = 0.
-
             closest_dyn_obs_height = closest_dyn_obs_size[..., 2].unsqueeze(-1)
-            closest_dyn_obs_height_category = torch.where(closest_dyn_obs_height > self.max_obs_3d_height, torch.tensor(0.0), closest_dyn_obs_height)
-            closest_dyn_obs_height_category[dyn_obs_range_mask] = 0.
+
+            observed_dyn_obs_rpos, observed_dyn_obs_vel, observed_dyn_obs_size, observed_dyn_obs_range_mask = (
+                self._apply_dynamic_obstacle_observation_noise(
+                    closest_dyn_obs_rpos,
+                    closest_dyn_obs_vel,
+                    closest_dyn_obs_size,
+                    dyn_obs_range_mask,
+                )
+            )
+            observed_dyn_obs_rpos_g = vec_to_new_frame(observed_dyn_obs_rpos, target_dir_2d)
+            observed_dyn_obs_rpos_g[observed_dyn_obs_range_mask] = 0. # exclude out of range or dropped obstacles
+            observed_dyn_obs_distance = observed_dyn_obs_rpos.norm(dim=-1, keepdim=True)
+            observed_dyn_obs_distance_2d = observed_dyn_obs_rpos_g[..., :2].norm(dim=-1, keepdim=True)
+            observed_dyn_obs_distance_z = observed_dyn_obs_rpos_g[..., 2].unsqueeze(-1)
+            observed_dyn_obs_rpos_gn = observed_dyn_obs_rpos_g / observed_dyn_obs_distance.clamp(1e-6)
+
+            observed_dyn_obs_vel[observed_dyn_obs_range_mask] = 0.
+            observed_dyn_obs_vel_g = vec_to_new_frame(observed_dyn_obs_vel, target_dir_2d)
+
+            observed_dyn_obs_width = observed_dyn_obs_size[..., 0].unsqueeze(-1)
+            closest_dyn_obs_width_category = (observed_dyn_obs_width / self.dyn_obs_width_res - 1.).clamp(0., 3.) # convert to category: [0, 1, 2, 3]
+            closest_dyn_obs_width_category[observed_dyn_obs_range_mask] = 0.
+
+            observed_dyn_obs_height = observed_dyn_obs_size[..., 2].unsqueeze(-1)
+            closest_dyn_obs_height_category = torch.where(
+                observed_dyn_obs_height > self.max_obs_3d_height,
+                torch.zeros_like(observed_dyn_obs_height),
+                observed_dyn_obs_height,
+            )
+            closest_dyn_obs_height_category[observed_dyn_obs_range_mask] = 0.
 
             # concatenate all for dynamic obstacles
             # dyn_obs_states = torch.cat([closest_dyn_obs_rpos_g, closest_dyn_obs_vel_g, closest_dyn_obs_width_category, closest_dyn_obs_height_category], dim=-1).unsqueeze(1)
-            dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, closest_dyn_obs_width_category, closest_dyn_obs_height_category], dim=-1).unsqueeze(1)
+            dyn_obs_states = torch.cat([observed_dyn_obs_rpos_gn, observed_dyn_obs_distance_2d, observed_dyn_obs_distance_z, observed_dyn_obs_vel_g, closest_dyn_obs_width_category, closest_dyn_obs_height_category], dim=-1).unsqueeze(1)
+
+            closest_dyn_obs_vel[dyn_obs_range_mask] = 0.
 
             # check dynamic obstacle collision for later reward
             closest_dyn_obs_distance_2d_collsion = closest_dyn_obs_rpos[..., :2].norm(dim=-1, keepdim=True)
@@ -1312,7 +1400,7 @@ class NavigationEnv(IsaacEnv):
 
         # -----------------Reward Calculation-----------------
         # a. penalize static obstacles only when they get too close.
-        dist_static = self.lidar_range - self.lidar_scan
+        dist_static = self.lidar_range - self.lidar_scan_clean
         safe_margin = 1.1
         penalty_safety_static = torch.relu(safe_margin - dist_static) / safe_margin
         penalty_safety_static = penalty_safety_static.mean(dim=(2, 3))
@@ -1336,7 +1424,7 @@ class NavigationEnv(IsaacEnv):
 
 
         # f. Collision condition with its penalty
-        static_collision = einops.reduce(self.lidar_scan, "n 1 w h -> n 1", "max") >  (self.lidar_range - 0.3) # 0.3 collision radius
+        static_collision = einops.reduce(self.lidar_scan_clean, "n 1 w h -> n 1", "max") >  (self.lidar_range - 0.3) # 0.3 collision radius
         wall_collision = static_collision & self._points_near_curriculum_wall(self.root_state[..., :3], clearance_radius=0.3)
         collision = static_collision | dynamic_collision
         below_bound = self.drone.pos[..., 2] < 0.2

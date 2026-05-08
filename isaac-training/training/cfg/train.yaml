@@ -43,6 +43,19 @@ env_dyn:
   vel_range: [0.5, 1.5]
   local_range: [5.0, 5.0, 4.5]
 
+observation_noise:
+  enabled: true
+  train_only: true
+  lidar:
+    std: 0.03
+    dropout_prob: 0.03
+    scale_std: 0.02
+  dynamic_obstacle:
+    position_std: 0.10
+    velocity_std: 0.10
+    size_std: 0.05
+    dropout_prob: 0.10
+
 stuck:
   window: 40
   progress_eps: 0.005
