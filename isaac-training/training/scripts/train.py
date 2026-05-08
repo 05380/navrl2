@@ -206,7 +206,7 @@ def main(cfg):
                 value = stats.get(key)
                 if value is not None:
                     train_metric_parts.append(f"{key}={value:.4f}")
-            if train_metric_parts:
+            if train_metric_parts and i % cfg.eval_interval == 0:
                 print("[NavRL]: train metrics | " + " | ".join(train_metric_parts))
 
         # Evaluate policy and log info
