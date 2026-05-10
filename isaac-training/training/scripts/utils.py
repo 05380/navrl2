@@ -351,10 +351,19 @@ def evaluate(
     policy,
     cfg,
     seed: int=0, 
-    exploration_type: ExplorationType=ExplorationType.MEAN
+    exploration_type: ExplorationType=ExplorationType.MEAN,
+    prefix: str="eval",
+    eval_task_mode: str=None,
 ):
+    base_env = getattr(env, "base_env", env)
+    prev_task_mode = getattr(base_env, "eval_task_mode", None)
+    prev_training = getattr(base_env, "training", None)
 
     env.enable_render(True)
+    if eval_task_mode is not None and hasattr(base_env, "set_eval_task_mode"):
+        base_env.set_eval_task_mode(eval_task_mode)
+    if hasattr(base_env, "eval"):
+        base_env.eval()
     env.eval()
     env.set_seed(seed)
 
@@ -369,10 +378,6 @@ def evaluate(
             break_when_any_done=False,
             return_contiguous=False,
         )
-    # base_env.enable_render(not cfg.headless)
-    env.enable_render(not cfg.headless)
-    env.reset()
-    
     done = trajs.get(("next", "done")) 
     first_done = torch.argmax(done.long(), dim=1).cpu() # idx of first done will be return for each trajs
 
@@ -385,16 +390,29 @@ def evaluate(
         for k, v in trajs[("next", "stats")].cpu().items()
     }
 
-    info = summarize_episode_stats(traj_stats, prefix="eval")
+    info = summarize_episode_stats(traj_stats, prefix=prefix)
 
     # log video
-    info["recording"] = wandb.Video(
+    recording = wandb.Video(
         render_callback.get_video_array(axes="t c h w"), 
         fps=0.5 / (cfg.sim.dt * cfg.sim.substeps), 
         format="mp4"
     )
-    env.train()
-    # env.reset()
+    info[f"{prefix}/recording"] = recording
+    if prefix == "eval":
+        info["recording"] = recording
+
+    env.enable_render(not cfg.headless)
+    if prev_task_mode is not None and hasattr(base_env, "set_eval_task_mode"):
+        base_env.set_eval_task_mode(prev_task_mode)
+    if prev_training is not None:
+        if hasattr(base_env, "train"):
+            base_env.train(prev_training)
+        if hasattr(env, "train"):
+            env.train(prev_training)
+    else:
+        env.train()
+    env.reset()
 
     return info
 

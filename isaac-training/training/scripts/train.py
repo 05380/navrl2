@@ -22,25 +22,25 @@ from torchrl.envs.utils import ExplorationType
 FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cfg")
 
 
-def print_eval_metrics(eval_info):
+def print_eval_metrics(eval_info, prefix="eval", label="eval"):
     metric_keys = [
-        "eval/success_rate",
-        "eval/collision_rate",
-        "eval/wall_collision_rate",
-        "eval/below_bound_rate",
-        "eval/above_bound_rate",
-        "eval/deadlock_rate",
-        "eval/time_limit_rate",
-        "eval/stall_rate",
-        "eval/stats.return",
-        "eval/stats.episode_len",
-        "eval/stats.reward_goal_progress",
-        "eval/stats.penalty_safety_static",
-        "eval/stats.penalty_safety_dynamic",
-        "eval/stats.reward_vel",
-        "eval/stats.penalty_height",
-        "eval/stats.reward_escape",
-        "eval/vo_risk_mean",
+        f"{prefix}/success_rate",
+        f"{prefix}/collision_rate",
+        f"{prefix}/wall_collision_rate",
+        f"{prefix}/below_bound_rate",
+        f"{prefix}/above_bound_rate",
+        f"{prefix}/deadlock_rate",
+        f"{prefix}/time_limit_rate",
+        f"{prefix}/stall_rate",
+        f"{prefix}/stats.return",
+        f"{prefix}/stats.episode_len",
+        f"{prefix}/stats.reward_goal_progress",
+        f"{prefix}/stats.penalty_safety_static",
+        f"{prefix}/stats.penalty_safety_dynamic",
+        f"{prefix}/stats.reward_vel",
+        f"{prefix}/stats.penalty_height",
+        f"{prefix}/stats.reward_escape",
+        f"{prefix}/vo_risk_mean",
     ]
     metric_parts = []
     for key in metric_keys:
@@ -48,7 +48,7 @@ def print_eval_metrics(eval_info):
         if value is not None:
             metric_parts.append(f"{key}={value:.4f}")
     if metric_parts:
-        print("[NavRL]: eval metrics | " + " | ".join(metric_parts))
+        print(f"[NavRL]: {label} metrics | " + " | ".join(metric_parts))
 
 
 @hydra.main(config_path=FILE_PATH, config_name="train", version_base=None)
@@ -79,6 +79,8 @@ def main(cfg):
         )
 
     run.define_metric("env_frames")
+    run.define_metric("eval/*", step_metric="env_frames")
+    run.define_metric("eval_random_crossing/*", step_metric="env_frames")
     for metric_name in [
         "train/stall_reward_mean",
         "train/stall/reward_mean",
@@ -212,20 +214,33 @@ def main(cfg):
         # Evaluate policy and log info
         if i % cfg.eval_interval == 0:
             print("[NavRL]: start evaluating policy at training step: ", i)
-            env.enable_render(True)
-            env.eval()
             eval_info = evaluate(
                 env=transformed_env, 
                 policy=policy,
                 seed=cfg.seed, 
                 cfg=cfg,
-                exploration_type=ExplorationType.MEAN
+                exploration_type=ExplorationType.MEAN,
+                prefix="eval",
+                eval_task_mode="standard",
             )
-            env.enable_render(not cfg.headless)
-            env.train()
-            env.reset()
             info.update(eval_info)
-            print_eval_metrics(eval_info)
+            print_eval_metrics(eval_info, prefix="eval", label="standard_eval")
+
+            random_crossing_eval_info = evaluate(
+                env=transformed_env,
+                policy=policy,
+                seed=cfg.seed,
+                cfg=cfg,
+                exploration_type=ExplorationType.MEAN,
+                prefix="eval_random_crossing",
+                eval_task_mode="random_crossing",
+            )
+            info.update(random_crossing_eval_info)
+            print_eval_metrics(
+                random_crossing_eval_info,
+                prefix="eval_random_crossing",
+                label="random_crossing_eval",
+            )
             print("\n[NavRL]: evaluation done.")
         
         # Update wand info

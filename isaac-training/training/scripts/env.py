@@ -476,6 +476,7 @@ class NavigationEnv(IsaacEnv):
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
+            self.eval_task_mode = "standard"
             # self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
             # self.target_pos[:, 0, 1] = 24.
             # self.target_pos[:, 0, 2] = 2.     
@@ -1093,6 +1094,39 @@ class NavigationEnv(IsaacEnv):
         positions[:, 0, 2] = heights
         return positions * selected_masks + selected_shifts
 
+    def _boundary_side_indices(self, positions: torch.Tensor):
+        xy = positions[:, 0, :2]
+        abs_xy = xy.abs()
+        side_indices = torch.zeros(xy.shape[0], dtype=torch.long, device=self.device)
+        x_dominant = abs_xy[:, 0] > abs_xy[:, 1]
+        side_indices[x_dominant & (xy[:, 0] > 0.0)] = 2
+        side_indices[x_dominant & (xy[:, 0] <= 0.0)] = 3
+        side_indices[(~x_dominant) & (xy[:, 1] > 0.0)] = 0
+        side_indices[(~x_dominant) & (xy[:, 1] <= 0.0)] = 1
+        return side_indices
+
+    def _sample_boundary_positions_excluding_sides(self, excluded_sides: torch.Tensor):
+        count = int(excluded_sides.numel())
+        masks = torch.tensor(
+            [[1.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
+            dtype=torch.float,
+            device=self.device,
+        )
+        shifts = torch.tensor(
+            [[0.0, 24.0, 0.0], [0.0, -24.0, 0.0], [24.0, 0.0, 0.0], [-24.0, 0.0, 0.0]],
+            dtype=torch.float,
+            device=self.device,
+        )
+        side_offsets = torch.randint(0, 3, (count,), device=self.device)
+        side_indices = side_offsets + (side_offsets >= excluded_sides.long()).long()
+        selected_masks = masks[side_indices].unsqueeze(1)
+        selected_shifts = shifts[side_indices].unsqueeze(1)
+
+        positions = 48.0 * torch.rand(count, 1, 3, dtype=torch.float, device=self.device) - 24.0
+        heights = 0.5 + torch.rand(count, dtype=torch.float, device=self.device) * 2.0
+        positions[:, 0, 2] = heights
+        return positions * selected_masks + selected_shifts
+
     def _sample_training_boundary_positions(self, count: int, clearance_radius: float):
         positions = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
         remaining = torch.arange(count, device=self.device)
@@ -1116,6 +1150,36 @@ class NavigationEnv(IsaacEnv):
             positions[remaining] = fallback
         return positions
 
+    def _sample_training_target_positions(self, start_pos: torch.Tensor, clearance_radius: float):
+        count = start_pos.shape[0]
+        excluded_sides = self._boundary_side_indices(start_pos)
+        positions = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
+        remaining = torch.arange(count, device=self.device)
+        fallback = None
+
+        for _ in range(self.position_sample_attempts):
+            if remaining.numel() == 0:
+                break
+            candidates = self._sample_boundary_positions_excluding_sides(excluded_sides[remaining])
+            fallback = candidates
+            valid = self._points_have_static_clearance(candidates[:, 0, :2], clearance_radius)
+            if not torch.any(valid).item():
+                continue
+            accepted = remaining[valid]
+            positions[accepted] = candidates[valid]
+            remaining = remaining[~valid]
+
+        if remaining.numel() > 0:
+            if fallback is None or fallback.shape[0] != remaining.numel():
+                fallback = self._sample_boundary_positions_excluding_sides(excluded_sides[remaining])
+            positions[remaining] = fallback
+        return positions
+
+    def set_eval_task_mode(self, mode: str):
+        if mode not in ("standard", "random_crossing"):
+            raise ValueError(f"Unknown eval task mode: {mode}")
+        self.eval_task_mode = mode
+
     
     def reset_target(self, env_ids: torch.Tensor):
         if (self.training):
@@ -1134,19 +1198,24 @@ class NavigationEnv(IsaacEnv):
 
     def _reset_idx(self, env_ids: torch.Tensor):
         self.drone._reset_idx(env_ids, self.training)
-        self.reset_target(env_ids)
         if (self.training):
             pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
-            
+            self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
+
             # pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
             # pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
             # pos[:, 0, 1] = -24.
             # pos[:, 0, 2] = 2.
         else:
-            pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
-            pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
-            pos[:, 0, 1] = 24.
-            pos[:, 0, 2] = 2.
+            if self.eval_task_mode == "random_crossing":
+                pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
+                self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
+            else:
+                self.reset_target(env_ids)
+                pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
+                pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
+                pos[:, 0, 1] = 24.
+                pos[:, 0, 2] = 2.
         
         # Coordinate change: after reset, the drone's target direction should be changed
         self.target_dir[env_ids] = self.target_pos[env_ids] - pos
