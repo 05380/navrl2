@@ -345,6 +345,20 @@ def summarize_episode_stats(stats, prefix: str):
 
     return info
 
+
+def resolve_eval_style(cfg):
+    style = cfg.get("eval_style", "random_crossing_eval") if hasattr(cfg, "get") else "random_crossing_eval"
+    style = str(style)
+
+    if style in ("standard_eval", "standard"):
+        return "standard", "standard_eval"
+    if style in ("random_crossing_eval", "random_crossing"):
+        return "random_crossing", "random_crossing_eval"
+    raise ValueError(
+        f"Unknown eval_style={style}. Expected 'random_crossing_eval' or 'standard_eval'."
+    )
+
+
 @torch.no_grad()
 def evaluate(
     env,

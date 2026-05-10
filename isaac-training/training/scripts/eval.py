@@ -77,13 +77,12 @@ def main(cfg):
         id=wandb.util.generate_id(),
     )
     run.define_metric("eval/*")
-    run.define_metric("eval_random_crossing/*")
 
     from env import NavigationEnv
     from omni_drones.controllers import LeePositionController
     from omni_drones.utils.torchrl.transforms import VelController
     from ppo import PPO
-    from utils import evaluate
+    from utils import evaluate, resolve_eval_style
 
     env = NavigationEnv(cfg)
 
@@ -100,6 +99,7 @@ def main(cfg):
         print("[NavRL]: no checkpoint provided, evaluating randomly initialized policy.")
     set_policy_eval_mode(policy)
 
+    eval_task_mode, eval_label = resolve_eval_style(cfg)
     eval_info = evaluate(
         env=transformed_env,
         policy=policy,
@@ -107,23 +107,12 @@ def main(cfg):
         cfg=cfg,
         exploration_type=ExplorationType.MEAN,
         prefix="eval",
-        eval_task_mode="standard",
+        eval_task_mode=eval_task_mode,
     )
-    random_crossing_eval_info = evaluate(
-        env=transformed_env,
-        policy=policy,
-        seed=cfg.seed,
-        cfg=cfg,
-        exploration_type=ExplorationType.MEAN,
-        prefix="eval_random_crossing",
-        eval_task_mode="random_crossing",
-    )
-    eval_info.update(random_crossing_eval_info)
     eval_info["checkpoint"] = checkpoint_path or ""
 
     run.log(eval_info)
-    print_eval_metrics(eval_info, prefix="eval", label="standard_eval")
-    print_eval_metrics(eval_info, prefix="eval_random_crossing", label="random_crossing_eval")
+    print_eval_metrics(eval_info, prefix="eval", label=eval_label)
 
     wandb.finish()
     sim_app.close()
