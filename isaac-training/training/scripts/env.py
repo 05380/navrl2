@@ -476,6 +476,11 @@ class NavigationEnv(IsaacEnv):
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
+            self.train_task_mode = str(self.cfg.get("train_style", "random_crossing_eval"))
+            if self.train_task_mode not in ("random_crossing_eval", "random_crossing", "random"):
+                raise ValueError(
+                    f"Unknown train_style={self.train_task_mode}. Expected 'random_crossing_eval' or 'random'."
+                )
             self.eval_task_mode = "random_crossing"
             # self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
             # self.target_pos[:, 0, 1] = 24.
@@ -1200,7 +1205,12 @@ class NavigationEnv(IsaacEnv):
         self.drone._reset_idx(env_ids, self.training)
         if (self.training):
             pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
-            self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
+            if self.train_task_mode == "random":
+                self.target_pos[env_ids] = self._sample_training_boundary_positions(
+                    env_ids.size(0), self.target_clearance_radius
+                )
+            else:
+                self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
 
             # pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
             # pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.

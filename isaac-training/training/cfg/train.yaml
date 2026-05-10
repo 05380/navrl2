@@ -9,6 +9,7 @@ device: "cuda:0"
 seed: 0
 checkpoint:
 eval_style: random_crossing_eval # random_crossing_eval or standard_eval
+train_style: random_crossing_eval # random_crossing_eval keeps target off the start side; random samples start and target independently
 
 # Total Training Length
 max_frame_num: 14e8 # max frame 
