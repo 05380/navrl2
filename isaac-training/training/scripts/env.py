@@ -366,7 +366,7 @@ class HfDiscreteObstaclesWithWallsTerrainCfg(HfDiscreteObstaclesTerrainCfg):
     wall_u_depth_range: tuple[float, float] = (3.5, 6.5)
     wall_thickness_range: tuple[float, float] = (0.35, 0.65)
     wall_height_range: tuple[float, ...] = (2.0, 4.0, 6.0)
-    wall_height_probability: tuple[float, ...] = (0.10, 0.90)
+    wall_height_probability: tuple[float, ...] = (0.0, 1.0)
     wall_placement_margin: float = 4.0
     wall_min_separation: float = 4.0
     wall_obstacle_clearance: float = 0.4
@@ -561,7 +561,7 @@ class NavigationEnv(IsaacEnv):
                         wall_u_depth_range=_range_to_tuple(wall_cfg.get("u_depth_range", [3.5, 6.5])),
                         wall_thickness_range=_range_to_tuple(wall_cfg.get("thickness_range", [0.35, 0.65])),
                         wall_height_range=_sequence_to_tuple(wall_cfg.get("height_range", [2.0, 4.0, 6.0])),
-                        wall_height_probability=_sequence_to_tuple(wall_cfg.get("height_probability", [0.10, 0.90])),
+                        wall_height_probability=_sequence_to_tuple(wall_cfg.get("height_probability", [0.0, 1.0])),
                         wall_placement_margin=float(wall_cfg.get("placement_margin", 4.0)),
                         wall_min_separation=float(wall_cfg.get("min_separation", 4.0)),
                         wall_obstacle_clearance=float(wall_cfg.get("obstacle_clearance", 0.4)),
