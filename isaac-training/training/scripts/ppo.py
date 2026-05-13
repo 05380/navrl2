@@ -8,70 +8,6 @@ from torchrl.modules import ProbabilisticActor
 from torchrl.envs.transforms import CatTensors
 from utils import ValueNorm, make_mlp, IndependentNormal, Actor, GAE, make_batch, IndependentBeta, BetaActor, vec_to_world
 
-
-class LidarTransformerEncoder(nn.Module):
-    def __init__(
-        self,
-        horizontal_tokens=36,
-        vertical_beams=4,
-        d_model=64,
-        nhead=4,
-        num_layers=2,
-        dim_feedforward=128,
-        output_dim=128,
-        dropout=0.0,
-    ):
-        super().__init__()
-        self.horizontal_tokens = horizontal_tokens
-        self.vertical_beams = vertical_beams
-        self.input_proj = nn.Linear(vertical_beams, d_model)
-        self.pos_embedding = nn.Parameter(torch.zeros(1, horizontal_tokens, d_model))
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.output_proj = nn.Sequential(
-            nn.LayerNorm(d_model),
-            nn.Linear(d_model, output_dim),
-            nn.LayerNorm(output_dim),
-        )
-        nn.init.trunc_normal_(self.pos_embedding, std=0.02)
-
-    def forward(self, lidar):
-        if lidar.ndim < 4:
-            raise ValueError(f"Expected LiDAR input with shape (..., C, H, V), got {tuple(lidar.shape)}")
-
-        batch_shape = lidar.shape[:-3]
-        channels, horizontal_tokens, vertical_beams = lidar.shape[-3:]
-        lidar = lidar.reshape(-1, channels, horizontal_tokens, vertical_beams)
-
-        if channels != 1:
-            lidar = lidar.mean(dim=1)
-        else:
-            lidar = lidar.squeeze(1)
-
-        if horizontal_tokens != self.horizontal_tokens or vertical_beams != self.vertical_beams:
-            raise ValueError(
-                "LiDAR Transformer expects "
-                f"({self.horizontal_tokens}, {self.vertical_beams}) rays, "
-                f"got ({horizontal_tokens}, {vertical_beams})."
-            )
-
-        tokens = self.input_proj(lidar)
-        tokens = tokens + self.pos_embedding
-        tokens = self.encoder(tokens)
-        feature = tokens.mean(dim=1)
-        feature = self.output_proj(feature)
-        return feature.reshape(*batch_shape, -1)
-
-
-
 class PPO(TensorDictModuleBase):
     def __init__(self, cfg, observation_spec, action_spec, device):
         super().__init__()
@@ -79,17 +15,13 @@ class PPO(TensorDictModuleBase):
         self.device = device
 
         
-        # Feature extractor for LiDAR: each horizontal ray is treated as a token
-        # whose features are the vertical beam responses.
-        feature_extractor_network = LidarTransformerEncoder(
-            horizontal_tokens=36,
-            vertical_beams=4,
-            d_model=64,
-            nhead=4,
-            num_layers=2,
-            dim_feedforward=128,
-            output_dim=128,
-            dropout=0.0,
+        # Feature extractor for LiDAR
+        feature_extractor_network = nn.Sequential(
+            nn.LazyConv2d(out_channels=4, kernel_size=[5, 3], padding=[2, 1]), nn.ELU(),
+            nn.LazyConv2d(out_channels=16, kernel_size=[5, 3], stride=[2, 1], padding=[2, 1]), nn.ELU(),
+            nn.LazyConv2d(out_channels=16, kernel_size=[5, 3], stride=[2, 2], padding=[2, 1]), nn.ELU(),
+            Rearrange("n c w h -> n (c w h)"),
+            nn.LazyLinear(128), nn.LayerNorm(128),
         ).to(self.device)
         
         # Dynamic obstacle information extractor
