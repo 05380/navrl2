@@ -1185,6 +1185,19 @@ class NavigationEnv(IsaacEnv):
             raise ValueError(f"Unknown eval task mode: {mode}")
         self.eval_task_mode = mode
 
+    def _set_standard_eval_task(self, env_ids: torch.Tensor):
+        # Keep standard_eval identical to the fixed evaluation setup used in f8ab9f3:
+        # starts sweep across y=24, targets sweep across y=-24, both at z=2.
+        self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs, device=self.device) * 32.
+        self.target_pos[:, 0, 1] = -24.
+        self.target_pos[:, 0, 2] = 2.
+
+        pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
+        pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
+        pos[:, 0, 1] = 24.
+        pos[:, 0, 2] = 2.
+        return pos
+
     
     def reset_target(self, env_ids: torch.Tensor):
         if (self.training):
@@ -1221,11 +1234,7 @@ class NavigationEnv(IsaacEnv):
                 pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
                 self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
             else:
-                self.reset_target(env_ids)
-                pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
-                pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
-                pos[:, 0, 1] = 24.
-                pos[:, 0, 2] = 2.
+                pos = self._set_standard_eval_task(env_ids)
         
         # Coordinate change: after reset, the drone's target direction should be changed
         self.target_dir[env_ids] = self.target_pos[env_ids] - pos
