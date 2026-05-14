@@ -1186,16 +1186,13 @@ class NavigationEnv(IsaacEnv):
         self.eval_task_mode = mode
 
     def _set_standard_eval_task(self, env_ids: torch.Tensor):
-        # Keep standard_eval identical to the fixed evaluation setup used in f8ab9f3:
-        # starts sweep across y=24, targets sweep across y=-24, both at z=2.
-        self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs, device=self.device) * 32.
-        self.target_pos[:, 0, 1] = -24.
-        self.target_pos[:, 0, 2] = 2.
-
-        pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
-        pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
-        pos[:, 0, 1] = 24.
-        pos[:, 0, 2] = 2.
+        # In standard_eval, sample start and target independently on the four map edges.
+        # This keeps the random four-edge setup available without the non-same-side
+        # constraint used by random_crossing_eval.
+        pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
+        self.target_pos[env_ids] = self._sample_training_boundary_positions(
+            env_ids.size(0), self.target_clearance_radius
+        )
         return pos
 
     
