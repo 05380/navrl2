@@ -27,6 +27,7 @@ class Navigation:
     def __init__(self, cfg):
         self.cfg = cfg
         self.lidar_hbeams = int(360/self.cfg.sensor.lidar_hres)
+        self.lidar_history_len = max(1, int(self.cfg.algo.feature_extractor.get("lidar_history", 1)))
         self.raypoints = []
         self.dynamic_obstacles = []
         self.robot_size = 0.3 # radius
@@ -39,6 +40,15 @@ class Navigation:
         self.stable_times = 0
         self.has_action = False
         self.laser_points_msg = None
+        self.lidar_scan_history = torch.zeros(
+            1,
+            self.lidar_history_len,
+            self.lidar_hbeams,
+            self.cfg.sensor.lidar_vbeams,
+            dtype=torch.float,
+            device=self.cfg.device,
+        )
+        self.lidar_history_initialized = False
 
         self.height_control = True 
         self.px4_control = rospy.get_param('rl/use_px4', True)
@@ -91,7 +101,7 @@ class Navigation:
             "agents": CompositeSpec({
                 "observation": CompositeSpec({
                     "state": UnboundedContinuousTensorSpec((observation_dim,), device=self.cfg.device), 
-                    "lidar": UnboundedContinuousTensorSpec((1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams), device=self.cfg.device),
+                    "lidar": UnboundedContinuousTensorSpec((self.lidar_history_len, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams), device=self.cfg.device),
                     "direction": UnboundedContinuousTensorSpec((1, 3), device=self.cfg.device),
                     "dynamic_obstacle": UnboundedContinuousTensorSpec((1, self.cfg.algo.feature_extractor.dyn_obs_num, num_dim_each_dyn_obs_state), device=self.cfg.device),
                 }),
@@ -284,6 +294,7 @@ class Navigation:
 
         self.goal_received = True
         self.stable_times = 0
+        self.lidar_history_initialized = False
 
     def quaternion_to_rotation_matrix(self, quaternion):
         # w, x, y, z = quaternion
@@ -301,6 +312,21 @@ class Navigation:
             [2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx)],
             [2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy)]
         ])        
+
+    def update_lidar_history(self, lidar_scan):
+        current_scan = lidar_scan.squeeze(1)
+        if not self.lidar_history_initialized:
+            self.lidar_scan_history[:] = current_scan.unsqueeze(1).expand(
+                -1,
+                self.lidar_history_len,
+                -1,
+                -1,
+            )
+            self.lidar_history_initialized = True
+        else:
+            self.lidar_scan_history = torch.roll(self.lidar_scan_history, shifts=-1, dims=1)
+            self.lidar_scan_history[:, -1] = current_scan
+        return self.lidar_scan_history
     
     def check_obstacle(self, lidar_scan, dyn_obs_states):
         # return true if there is obstacles in the range
@@ -411,6 +437,7 @@ class Navigation:
         lidar_scan = torch.tensor(self.raypoints, device=self.cfg.device)
         lidar_scan = (lidar_scan - pos).norm(dim=-1).clamp_max(self.cfg.sensor.lidar_range).reshape(1, 1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams)
         lidar_scan = self.cfg.sensor.lidar_range - lidar_scan
+        lidar_history = self.update_lidar_history(lidar_scan)
 
 
         # dynamic obstacle states
@@ -447,7 +474,7 @@ class Navigation:
             "agents": TensorDict({
                 "observation": TensorDict({
                     "state": drone_state,
-                    "lidar": lidar_scan,
+                    "lidar": lidar_history,
                     "direction": target_dir_2d,
                     "dynamic_obstacle": dyn_obs_states
                 })

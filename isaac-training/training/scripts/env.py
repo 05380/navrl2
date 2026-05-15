@@ -390,6 +390,7 @@ class NavigationEnv(IsaacEnv):
         self.lidar_vbeams = cfg.sensor.lidar_vbeams
         self.lidar_hres = cfg.sensor.lidar_hres
         self.lidar_hbeams = int(360/self.lidar_hres)
+        self.lidar_history_len = max(1, int(cfg.algo.feature_extractor.get("lidar_history", 1)))
         stuck_cfg = cfg.get("stuck", {})
         self.stuck_window = max(1, int(stuck_cfg.get("window", 40)))
         self.stuck_progress_eps = float(stuck_cfg.get("progress_eps", 0.005))
@@ -462,6 +463,14 @@ class NavigationEnv(IsaacEnv):
         self.lidar = RayCaster(ray_caster_cfg)
         self.lidar._initialize_impl()
         self.lidar_resolution = (self.lidar_hbeams, self.lidar_vbeams) 
+        self.lidar_scan_history = torch.zeros(
+            self.num_envs,
+            self.lidar_history_len,
+            *self.lidar_resolution,
+            dtype=torch.float,
+            device=self.device,
+        )
+        self.lidar_history_reset_mask = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
         
         # start and target 
         with torch.device(self.device):
@@ -882,7 +891,7 @@ class NavigationEnv(IsaacEnv):
             "agents": CompositeSpec({
                 "observation": CompositeSpec({
                     "state": UnboundedContinuousTensorSpec((observation_dim,), device=self.device), 
-                    "lidar": UnboundedContinuousTensorSpec((1, self.lidar_hbeams, self.lidar_vbeams), device=self.device),
+                    "lidar": UnboundedContinuousTensorSpec((self.lidar_history_len, self.lidar_hbeams, self.lidar_vbeams), device=self.device),
                     "direction": UnboundedContinuousTensorSpec((1, 3), device=self.device),
                     "dynamic_obstacle": UnboundedContinuousTensorSpec((1, self.cfg.algo.feature_extractor.dyn_obs_num, num_dim_each_dyn_obs_state), device=self.device),
                 }),
@@ -1045,6 +1054,22 @@ class NavigationEnv(IsaacEnv):
             dropout_mask = torch.rand_like(noisy_scan) < self.lidar_dropout_prob
             noisy_scan = torch.where(dropout_mask, torch.zeros_like(noisy_scan), noisy_scan)
         return noisy_scan.clamp_(0.0, self.lidar_range)
+
+    def _update_lidar_history(self, lidar_scan: torch.Tensor):
+        current_scan = lidar_scan.squeeze(1)
+        self.lidar_scan_history = torch.roll(self.lidar_scan_history, shifts=-1, dims=1)
+        self.lidar_scan_history[:, -1] = current_scan
+
+        if torch.any(self.lidar_history_reset_mask).item():
+            reset_mask = self.lidar_history_reset_mask
+            self.lidar_scan_history[reset_mask] = current_scan[reset_mask].unsqueeze(1).expand(
+                -1,
+                self.lidar_history_len,
+                -1,
+                -1,
+            )
+            self.lidar_history_reset_mask[reset_mask] = False
+        return self.lidar_scan_history
 
     def _apply_dynamic_obstacle_observation_noise(
         self,
@@ -1251,6 +1276,8 @@ class NavigationEnv(IsaacEnv):
         self.stuck_counter[env_ids] = 0
         self.stall_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
+        if hasattr(self, "lidar_history_reset_mask"):
+            self.lidar_history_reset_mask[env_ids] = True
         self.height_range[env_ids, 0, 0] = torch.min(pos[:, 0, 2], self.target_pos[env_ids, 0, 2])
         self.height_range[env_ids, 0, 1] = torch.max(pos[:, 0, 2], self.target_pos[env_ids, 0, 2])
 
@@ -1281,6 +1308,7 @@ class NavigationEnv(IsaacEnv):
             .reshape(self.num_envs, 1, *self.lidar_resolution)
         ) # lidar scan store the data that is range - distance and it is in lidar's local frame
         self.lidar_scan = self._apply_lidar_observation_noise(self.lidar_scan_clean)
+        self.lidar_scan_history_obs = self._update_lidar_history(self.lidar_scan)
 
         # Optional render for LiDAR
         if self._should_render(0):
@@ -1477,7 +1505,7 @@ class NavigationEnv(IsaacEnv):
         # -----------------Network Input Final--------------
         obs = {
             "state": drone_state,
-            "lidar": self.lidar_scan,
+            "lidar": self.lidar_scan_history_obs,
             "direction": target_dir_2d,
             "dynamic_obstacle": dyn_obs_states
         }

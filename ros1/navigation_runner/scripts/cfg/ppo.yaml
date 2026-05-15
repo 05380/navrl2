@@ -2,6 +2,9 @@ algo:
   feature_extractor:
     learning_rate: 5e-4
     dyn_obs_num: 5
+    lidar_history: 5
+    lidar_frame_feature_dim: 64
+    lidar_temporal_heads: 4
   
   actor:
     learning_rate: 5e-4
