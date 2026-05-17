@@ -416,6 +416,17 @@ class NavigationEnv(IsaacEnv):
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
+        detour_reward_cfg = reward_cfg.get("detour", {})
+        self.detour_reward_enabled = bool(detour_reward_cfg.get("enabled", True))
+        self.detour_reward_weight = float(detour_reward_cfg.get("weight", 1.0))
+        self.detour_lateral_weight = float(detour_reward_cfg.get("lateral_weight", 0.10))
+        self.detour_backward_weight = float(detour_reward_cfg.get("backward_weight", 0.08))
+        self.detour_clearance_weight = float(detour_reward_cfg.get("clearance_weight", 0.15))
+        self.detour_escape_weight = float(detour_reward_cfg.get("escape_weight", 1.0))
+        self.detour_progress_eps = float(detour_reward_cfg.get("progress_eps", self.stuck_progress_eps))
+        self.detour_lateral_speed_scale = max(float(detour_reward_cfg.get("lateral_speed_scale", 1.0)), 1e-6)
+        self.detour_backward_speed_scale = max(float(detour_reward_cfg.get("backward_speed_scale", 1.0)), 1e-6)
+        self.detour_clearance_delta_scale = max(float(detour_reward_cfg.get("clearance_delta_scale", 0.5)), 1e-6)
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -482,6 +493,7 @@ class NavigationEnv(IsaacEnv):
             self.height_range = torch.zeros(self.num_envs, 1, 2)
             self.prev_drone_vel_w = torch.zeros(self.num_envs, 1 , 3)
             self.prev_goal_distance = torch.zeros(self.num_envs, 1)
+            self.prev_front_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
@@ -811,6 +823,55 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_escape
 
+    def _compute_detour_reward(
+        self,
+        front_obstacle,
+        goal_progress,
+        vel_g,
+        front_clearance,
+        previous_front_clearance,
+        previous_stuck_counter,
+        reach_goal,
+        time_limit,
+    ):
+        zeros = torch.zeros_like(goal_progress)
+        if not self.detour_reward_enabled:
+            return zeros, torch.zeros_like(goal_progress, dtype=torch.bool), zeros
+
+        low_progress = goal_progress <= self.detour_progress_eps
+        detour_active = front_obstacle & low_progress & (~reach_goal) & (~time_limit)
+
+        lateral_speed = vel_g[..., 1].abs()
+        backward_speed = (-vel_g[..., 0]).clamp(min=0.0)
+        clearance_gain = (front_clearance - previous_front_clearance).clamp(min=0.0)
+        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
+
+        lateral_reward = self.detour_lateral_weight * (
+            lateral_speed / self.detour_lateral_speed_scale
+        ).clamp(max=1.0)
+        backward_reward = self.detour_backward_weight * (
+            backward_speed / self.detour_backward_speed_scale
+        ).clamp(max=1.0)
+        clearance_reward = self.detour_clearance_weight * (
+            clearance_gain / self.detour_clearance_delta_scale
+        ).clamp(max=1.0)
+        escape_reward = self.detour_escape_weight * (
+            stuck_counter_drop / float(self.stuck_window)
+        ).clamp(max=1.0)
+
+        reward_detour = torch.where(
+            detour_active,
+            lateral_reward + backward_reward + clearance_reward,
+            zeros,
+        )
+        reward_detour = reward_detour + torch.where(
+            reach_goal | time_limit,
+            zeros,
+            escape_reward,
+        )
+        reward_detour = self.detour_reward_weight * reward_detour
+        return reward_detour, detour_active, clearance_gain
+
     def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
         stall_speed = current_vel.norm(dim=-1)
@@ -930,6 +991,10 @@ class NavigationEnv(IsaacEnv):
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
+            "reward_detour": UnboundedContinuousTensorSpec(1),
+            "detour": UnboundedContinuousTensorSpec(1),
+            "detour_steps": UnboundedContinuousTensorSpec(1),
+            "detour_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_stall": UnboundedContinuousTensorSpec(1),
             "stall": UnboundedContinuousTensorSpec(1),
             "stall_steps": UnboundedContinuousTensorSpec(1),
@@ -1273,6 +1338,7 @@ class NavigationEnv(IsaacEnv):
         self.prev_drone_vel_w[env_ids] = 0.
         init_goal_distance = (self.target_pos[env_ids] - pos).norm(dim=-1)
         self.prev_goal_distance[env_ids] = init_goal_distance
+        self.prev_front_clearance[env_ids] = self.lidar_range
         self.stuck_counter[env_ids] = 0
         self.stall_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
@@ -1343,7 +1409,15 @@ class NavigationEnv(IsaacEnv):
 
         lidar_hit_rpos_w = self.lidar.data.ray_hits_w - self.lidar.data.pos_w.unsqueeze(1)
         lidar_hit_rpos_g = vec_to_new_frame(lidar_hit_rpos_w, stuck_dir_2d)
-        static_front_obstacle = self._in_stuck_front_region(lidar_hit_rpos_g).any(dim=1, keepdim=True)
+        static_front_mask = self._in_stuck_front_region(lidar_hit_rpos_g)
+        static_front_obstacle = static_front_mask.any(dim=1, keepdim=True)
+        lidar_hit_distance = lidar_hit_rpos_w.norm(dim=-1)
+        front_clearance_values = torch.where(
+            static_front_mask,
+            lidar_hit_distance,
+            torch.full_like(lidar_hit_distance, self.lidar_range),
+        )
+        front_clearance = front_clearance_values.min(dim=1, keepdim=True).values.clamp(max=self.lidar_range)
         
         # c. velocity in the goal frame
         vel_w = self.root_state[..., 7:10] # world vel
@@ -1499,6 +1573,16 @@ class NavigationEnv(IsaacEnv):
             torch.zeros_like(self.stuck_counter),
         )
         reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
+        reward_detour, detour_active, detour_clearance_gain = self._compute_detour_reward(
+            front_obstacle,
+            goal_progress,
+            vel_g,
+            front_clearance,
+            self.prev_front_clearance,
+            previous_stuck_counter,
+            reach_goal,
+            time_limit,
+        )
         stuck = self.stuck_counter >= self.stuck_window
         self.prev_goal_distance = goal_distance.clone()
             
@@ -1548,7 +1632,7 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_detour + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
         self.reward[collision] -= 45.0
@@ -1561,6 +1645,7 @@ class NavigationEnv(IsaacEnv):
 
         # update previous velocity for smoothness calculation in the next ieteration
         self.prev_drone_vel_w = self.drone.vel_w[..., :3].clone()
+        self.prev_front_clearance = front_clearance.clone()
 
         # # -----------------Training Stats-----------------
         self.stats["return"] += self.reward
@@ -1572,6 +1657,10 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape
+        self.stats["reward_detour"] = reward_detour
+        self.stats["detour"] = torch.maximum(self.stats["detour"], detour_active.float())
+        self.stats["detour_steps"] += detour_active.float()
+        self.stats["detour_clearance_gain"] = detour_clearance_gain
         self.stats["reward_stall"] = reward_stall
         self.stats["stall"] = torch.maximum(self.stats["stall"], stall_active.float())
         self.stats["stall_steps"] += stall_active.float()

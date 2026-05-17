@@ -74,6 +74,17 @@ reward:
     blocked_backward_scale: 0.25
   escape:
     weight: 2.0
+  detour:
+    enabled: true
+    weight: 1.0
+    lateral_weight: 0.10
+    backward_weight: 0.08
+    clearance_weight: 0.15
+    escape_weight: 1.0
+    progress_eps: 0.005
+    lateral_speed_scale: 1.0
+    backward_speed_scale: 1.0
+    clearance_delta_scale: 0.5
   stall:
     weight: 1.0
     window: 60
