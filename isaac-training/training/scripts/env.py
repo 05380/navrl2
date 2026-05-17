@@ -416,17 +416,14 @@ class NavigationEnv(IsaacEnv):
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
-        detour_reward_cfg = reward_cfg.get("detour", {})
-        self.detour_reward_enabled = bool(detour_reward_cfg.get("enabled", True))
-        self.detour_reward_weight = float(detour_reward_cfg.get("weight", 1.0))
-        self.detour_lateral_weight = float(detour_reward_cfg.get("lateral_weight", 0.10))
-        self.detour_backward_weight = float(detour_reward_cfg.get("backward_weight", 0.08))
-        self.detour_clearance_weight = float(detour_reward_cfg.get("clearance_weight", 0.15))
-        self.detour_escape_weight = float(detour_reward_cfg.get("escape_weight", 1.0))
-        self.detour_progress_eps = float(detour_reward_cfg.get("progress_eps", self.stuck_progress_eps))
-        self.detour_lateral_speed_scale = max(float(detour_reward_cfg.get("lateral_speed_scale", 1.0)), 1e-6)
-        self.detour_backward_speed_scale = max(float(detour_reward_cfg.get("backward_speed_scale", 1.0)), 1e-6)
-        self.detour_clearance_delta_scale = max(float(detour_reward_cfg.get("clearance_delta_scale", 0.5)), 1e-6)
+        self.escape_stuck_drop_weight = float(escape_reward_cfg.get("stuck_drop_weight", 1.0))
+        self.escape_lateral_weight = float(escape_reward_cfg.get("lateral_weight", 0.0))
+        self.escape_backward_weight = float(escape_reward_cfg.get("backward_weight", 0.0))
+        self.escape_clearance_weight = float(escape_reward_cfg.get("clearance_weight", 0.0))
+        self.escape_progress_eps = float(escape_reward_cfg.get("progress_eps", self.stuck_progress_eps))
+        self.escape_lateral_speed_scale = max(float(escape_reward_cfg.get("lateral_speed_scale", 1.0)), 1e-6)
+        self.escape_backward_speed_scale = max(float(escape_reward_cfg.get("backward_speed_scale", 1.0)), 1e-6)
+        self.escape_clearance_delta_scale = max(float(escape_reward_cfg.get("clearance_delta_scale", 0.5)), 1e-6)
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -811,66 +808,46 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_goal_progress
 
-    def _compute_escape_reward(self, previous_stuck_counter, reach_goal, time_limit):
-        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
-        reward_escape = self.escape_reward_weight * (
-            stuck_counter_drop / float(self.stuck_window)
-        ).clamp(max=1.0)
-        reward_escape = torch.where(
-            reach_goal | time_limit,
-            torch.zeros_like(reward_escape),
-            reward_escape,
-        )
-        return reward_escape
-
-    def _compute_detour_reward(
+    def _compute_escape_reward(
         self,
+        previous_stuck_counter,
         front_obstacle,
         goal_progress,
         vel_g,
         front_clearance,
         previous_front_clearance,
-        previous_stuck_counter,
         reach_goal,
         time_limit,
     ):
         zeros = torch.zeros_like(goal_progress)
-        if not self.detour_reward_enabled:
-            return zeros, torch.zeros_like(goal_progress, dtype=torch.bool), zeros
-
-        low_progress = goal_progress <= self.detour_progress_eps
-        detour_active = front_obstacle & low_progress & (~reach_goal) & (~time_limit)
+        terminal = reach_goal | time_limit
+        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
+        drop_reward = self.escape_stuck_drop_weight * (
+            stuck_counter_drop / float(self.stuck_window)
+        ).clamp(max=1.0)
+        escape_active = front_obstacle & (goal_progress <= self.escape_progress_eps) & (~terminal)
 
         lateral_speed = vel_g[..., 1].abs()
         backward_speed = (-vel_g[..., 0]).clamp(min=0.0)
         clearance_gain = (front_clearance - previous_front_clearance).clamp(min=0.0)
-        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
 
-        lateral_reward = self.detour_lateral_weight * (
-            lateral_speed / self.detour_lateral_speed_scale
+        lateral_reward = self.escape_lateral_weight * (
+            lateral_speed / self.escape_lateral_speed_scale
         ).clamp(max=1.0)
-        backward_reward = self.detour_backward_weight * (
-            backward_speed / self.detour_backward_speed_scale
+        backward_reward = self.escape_backward_weight * (
+            backward_speed / self.escape_backward_speed_scale
         ).clamp(max=1.0)
-        clearance_reward = self.detour_clearance_weight * (
-            clearance_gain / self.detour_clearance_delta_scale
-        ).clamp(max=1.0)
-        escape_reward = self.detour_escape_weight * (
-            stuck_counter_drop / float(self.stuck_window)
+        clearance_reward = self.escape_clearance_weight * (
+            clearance_gain / self.escape_clearance_delta_scale
         ).clamp(max=1.0)
 
-        reward_detour = torch.where(
-            detour_active,
+        shaping_reward = torch.where(
+            escape_active,
             lateral_reward + backward_reward + clearance_reward,
             zeros,
         )
-        reward_detour = reward_detour + torch.where(
-            reach_goal | time_limit,
-            zeros,
-            escape_reward,
-        )
-        reward_detour = self.detour_reward_weight * reward_detour
-        return reward_detour, detour_active, clearance_gain
+        reward_escape = self.escape_reward_weight * torch.where(terminal, zeros, drop_reward + shaping_reward)
+        return reward_escape
 
     def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
@@ -991,10 +968,6 @@ class NavigationEnv(IsaacEnv):
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
-            "reward_detour": UnboundedContinuousTensorSpec(1),
-            "detour": UnboundedContinuousTensorSpec(1),
-            "detour_steps": UnboundedContinuousTensorSpec(1),
-            "detour_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_stall": UnboundedContinuousTensorSpec(1),
             "stall": UnboundedContinuousTensorSpec(1),
             "stall_steps": UnboundedContinuousTensorSpec(1),
@@ -1572,14 +1545,13 @@ class NavigationEnv(IsaacEnv):
             self.stuck_counter + 1,
             torch.zeros_like(self.stuck_counter),
         )
-        reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
-        reward_detour, detour_active, detour_clearance_gain = self._compute_detour_reward(
+        reward_escape = self._compute_escape_reward(
+            previous_stuck_counter,
             front_obstacle,
             goal_progress,
             vel_g,
             front_clearance,
             self.prev_front_clearance,
-            previous_stuck_counter,
             reach_goal,
             time_limit,
         )
@@ -1632,7 +1604,7 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_detour + reward_stall + reward_vo
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
         self.reward[collision] -= 45.0
@@ -1657,10 +1629,6 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape
-        self.stats["reward_detour"] = reward_detour
-        self.stats["detour"] = torch.maximum(self.stats["detour"], detour_active.float())
-        self.stats["detour_steps"] += detour_active.float()
-        self.stats["detour_clearance_gain"] = detour_clearance_gain
         self.stats["reward_stall"] = reward_stall
         self.stats["stall"] = torch.maximum(self.stats["stall"], stall_active.float())
         self.stats["stall_steps"] += stall_active.float()

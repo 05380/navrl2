@@ -32,7 +32,6 @@ def print_eval_metrics(eval_info, prefix="eval", label="eval"):
         f"{prefix}/stats.reward_vel",
         f"{prefix}/stats.penalty_height",
         f"{prefix}/stats.reward_escape",
-        f"{prefix}/stats.reward_detour",
         f"{prefix}/vo_risk_mean",
     ]
     metric_parts = []
