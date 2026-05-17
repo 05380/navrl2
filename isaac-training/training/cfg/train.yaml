@@ -71,9 +71,9 @@ reward:
     arrival_reward: 45.0
     timeout_penalty: 45.0
     progress_scale: 35.0
-    blocked_backward_scale: 0.25
+    blocked_backward_scale: 0.0
   escape:
-    weight: 1.0
+    weight: 1.5
     stuck_drop_weight: 2.0
     lateral_weight: 0.10
     backward_weight: 0.05
