@@ -414,6 +414,21 @@ class NavigationEnv(IsaacEnv):
         self.stall_distance_threshold = float(stall_reward_cfg.get("distance_threshold", 0.25))
         self.stall_speed_threshold = float(stall_reward_cfg.get("speed_threshold", 0.15))
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
+        self.ineffective_motion_weight = float(
+            stall_reward_cfg.get("ineffective_motion_weight", 0.5 * self.stall_reward_weight)
+        )
+        self.ineffective_motion_window = max(
+            1,
+            int(stall_reward_cfg.get("ineffective_motion_window", self.stall_reward_window)),
+        )
+        self.ineffective_motion_ramp_window = max(
+            1,
+            int(stall_reward_cfg.get("ineffective_motion_ramp_window", self.ineffective_motion_window)),
+        )
+        self.ineffective_motion_speed_threshold = float(
+            stall_reward_cfg.get("ineffective_motion_speed_threshold", self.stall_speed_threshold)
+        )
+        self.ineffective_clearance_eps = float(stall_reward_cfg.get("ineffective_clearance_eps", 0.02))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
         self.escape_stuck_drop_weight = float(escape_reward_cfg.get("stuck_drop_weight", 1.0))
@@ -493,6 +508,7 @@ class NavigationEnv(IsaacEnv):
             self.prev_front_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
+            self.ineffective_motion_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
             self.train_task_mode = str(self.cfg.get("train_style", "random_crossing_eval"))
             if self.train_task_mode not in ("random_crossing_eval", "random_crossing", "random"):
@@ -849,7 +865,16 @@ class NavigationEnv(IsaacEnv):
         reward_escape = self.escape_reward_weight * torch.where(terminal, zeros, drop_reward + shaping_reward)
         return reward_escape
 
-    def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
+    def _compute_stall_reward(
+        self,
+        current_pos,
+        current_vel,
+        goal_progress,
+        front_obstacle,
+        front_clearance,
+        previous_front_clearance,
+        reach_goal,
+    ):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
         stall_speed = current_vel.norm(dim=-1)
         low_progress = goal_progress.abs() <= self.stall_progress_threshold
@@ -867,10 +892,32 @@ class NavigationEnv(IsaacEnv):
             current_pos.clone(),
         )
 
-        stall_active = self.stall_counter >= self.stall_reward_window
+        clearance_gain = front_clearance - previous_front_clearance
+        ineffective_motion_candidate = (
+            front_obstacle
+            & (goal_progress <= self.stall_progress_threshold)
+            & (stall_speed > self.ineffective_motion_speed_threshold)
+            & (clearance_gain <= self.ineffective_clearance_eps)
+            & (~reach_goal)
+        )
+        self.ineffective_motion_counter = torch.where(
+            ineffective_motion_candidate,
+            self.ineffective_motion_counter + 1,
+            torch.zeros_like(self.ineffective_motion_counter),
+        )
+
+        low_motion_active = self.stall_counter >= self.stall_reward_window
         stall_excess = (self.stall_counter - self.stall_reward_window).clamp(min=0).float()
         stall_scale = (stall_excess / float(self.stall_reward_ramp_window)).clamp(max=1.0)
-        reward_stall = -self.stall_reward_weight * stall_scale
+        low_motion_reward = -self.stall_reward_weight * stall_scale
+
+        ineffective_motion_active = self.ineffective_motion_counter >= self.ineffective_motion_window
+        ineffective_excess = (self.ineffective_motion_counter - self.ineffective_motion_window).clamp(min=0).float()
+        ineffective_scale = (ineffective_excess / float(self.ineffective_motion_ramp_window)).clamp(max=1.0)
+        ineffective_motion_reward = -self.ineffective_motion_weight * ineffective_scale
+
+        stall_active = low_motion_active | ineffective_motion_active
+        reward_stall = low_motion_reward + ineffective_motion_reward
         return reward_stall, stall_active
 
     def _compute_vo_scale(self, dyn_obs_size):
@@ -1314,6 +1361,7 @@ class NavigationEnv(IsaacEnv):
         self.prev_front_clearance[env_ids] = self.lidar_range
         self.stuck_counter[env_ids] = 0
         self.stall_counter[env_ids] = 0
+        self.ineffective_motion_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
         if hasattr(self, "lidar_history_reset_mask"):
             self.lidar_history_reset_mask[env_ids] = True
@@ -1536,6 +1584,9 @@ class NavigationEnv(IsaacEnv):
             self.root_state[..., :3],
             self.drone.vel_w[..., :3],
             goal_progress,
+            front_obstacle,
+            front_clearance,
+            self.prev_front_clearance,
             reach_goal,
         )
         small_progress_with_obstacle = (goal_progress <= self.stuck_progress_eps) & front_obstacle
