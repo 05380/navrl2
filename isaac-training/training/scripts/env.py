@@ -1658,7 +1658,7 @@ class NavigationEnv(IsaacEnv):
         self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision] -= 45.0
+        self.reward[collision] -= 48.0
         self.reward[below_bound] -= 20.0
         self.reward[above_bound] -= 20.0
 
