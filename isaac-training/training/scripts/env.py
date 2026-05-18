@@ -1009,6 +1009,10 @@ class NavigationEnv(IsaacEnv):
             "return": UnboundedContinuousTensorSpec(1),
             "episode_len": UnboundedContinuousTensorSpec(1),
             "goal_distance": UnboundedContinuousTensorSpec(1),
+            "goal_progress": UnboundedContinuousTensorSpec(1),
+            "front_obstacle": UnboundedContinuousTensorSpec(1),
+            "front_clearance": UnboundedContinuousTensorSpec(1),
+            "front_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
@@ -1027,6 +1031,7 @@ class NavigationEnv(IsaacEnv):
             "below_bound": UnboundedContinuousTensorSpec(1),
             "above_bound": UnboundedContinuousTensorSpec(1),
             "stuck": UnboundedContinuousTensorSpec(1),
+            "stuck_active": UnboundedContinuousTensorSpec(1),
             "stuck_steps": UnboundedContinuousTensorSpec(1),
             "truncated": UnboundedContinuousTensorSpec(1),
         }).expand(self.num_envs).to(self.device)
@@ -1607,6 +1612,7 @@ class NavigationEnv(IsaacEnv):
             time_limit,
         )
         stuck = self.stuck_counter >= self.stuck_window
+        front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()
             
         # -----------------Network Input Final--------------
@@ -1674,6 +1680,10 @@ class NavigationEnv(IsaacEnv):
         self.stats["return"] += self.reward
         self.stats["episode_len"][:] = self.progress_buf.unsqueeze(1)
         self.stats["goal_distance"] = goal_distance
+        self.stats["goal_progress"] = goal_progress
+        self.stats["front_obstacle"] = front_obstacle.float()
+        self.stats["front_clearance"] = front_clearance
+        self.stats["front_clearance_gain"] = front_clearance_gain
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
@@ -1692,6 +1702,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["below_bound"] = below_bound.float()
         self.stats["above_bound"] = above_bound.float()
         self.stats["stuck"] = torch.maximum(self.stats["stuck"], stuck.float())
+        self.stats["stuck_active"] = stuck.float()
         self.stats["stuck_steps"] += stuck.float()
         self.stats["truncated"] = self.truncated.float()
 

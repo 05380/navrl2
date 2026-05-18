@@ -145,6 +145,12 @@ def main(cfg):
         "eval/stats.below_bound",
         "eval/stats.above_bound",
         "eval/stats.wall_collision",
+        "auxiliary_loss",
+        "auxiliary_goal_progress_loss",
+        "auxiliary_front_clearance_gain_loss",
+        "auxiliary_stuck_loss",
+        "auxiliary_wall_collision_loss",
+        "auxiliary_collision_loss",
     ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 
@@ -165,7 +171,14 @@ def main(cfg):
 
     if cfg.get("checkpoint", None) is not None:
         checkpoint_path = os.path.expanduser(str(cfg.checkpoint))
-        policy.load_state_dict(torch.load(checkpoint_path, map_location=cfg.device))
+        checkpoint_state = torch.load(checkpoint_path, map_location=cfg.device)
+        missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)
+        if missing_keys or unexpected_keys:
+            print("[NavRL]: checkpoint loaded with non-strict key match.")
+            if missing_keys:
+                print("[NavRL]: missing keys:", missing_keys)
+            if unexpected_keys:
+                print("[NavRL]: unexpected keys:", unexpected_keys)
         print("[NavRL]: loaded checkpoint from: ", checkpoint_path)
 
     # Episode Stats Collector
