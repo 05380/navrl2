@@ -71,29 +71,16 @@ reward:
     arrival_reward: 45.0
     timeout_penalty: 45.0
     progress_scale: 35.0
-    blocked_backward_scale: 0.1
+    blocked_backward_scale: 0.25
   escape:
-    weight: 3.0
-    stuck_drop_weight: 2.0
-    lateral_weight: 0.10
-    backward_weight: 0.05
-    clearance_weight: 0.15
-    progress_eps: 0.005
-    lateral_speed_scale: 1.0
-    backward_speed_scale: 1.0
-    clearance_delta_scale: 0.5
+    weight: 2.0
   stall:
-    weight: 1.5
+    weight: 1.0
     window: 60
     ramp_window: 60
     distance_threshold: 0.25
     speed_threshold: 0.15
     progress_eps: 0.005
-    ineffective_motion_weight: 0.5
-    ineffective_motion_window: 60
-    ineffective_motion_ramp_window: 60
-    ineffective_motion_speed_threshold: 0.15
-    ineffective_clearance_eps: 0.02
   vo:
     weight: 1.3
     tau: 0.75

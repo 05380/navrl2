@@ -414,31 +414,8 @@ class NavigationEnv(IsaacEnv):
         self.stall_distance_threshold = float(stall_reward_cfg.get("distance_threshold", 0.25))
         self.stall_speed_threshold = float(stall_reward_cfg.get("speed_threshold", 0.15))
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
-        self.ineffective_motion_weight = float(
-            stall_reward_cfg.get("ineffective_motion_weight", 0.5 * self.stall_reward_weight)
-        )
-        self.ineffective_motion_window = max(
-            1,
-            int(stall_reward_cfg.get("ineffective_motion_window", self.stall_reward_window)),
-        )
-        self.ineffective_motion_ramp_window = max(
-            1,
-            int(stall_reward_cfg.get("ineffective_motion_ramp_window", self.ineffective_motion_window)),
-        )
-        self.ineffective_motion_speed_threshold = float(
-            stall_reward_cfg.get("ineffective_motion_speed_threshold", self.stall_speed_threshold)
-        )
-        self.ineffective_clearance_eps = float(stall_reward_cfg.get("ineffective_clearance_eps", 0.02))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
-        self.escape_stuck_drop_weight = float(escape_reward_cfg.get("stuck_drop_weight", 1.0))
-        self.escape_lateral_weight = float(escape_reward_cfg.get("lateral_weight", 0.0))
-        self.escape_backward_weight = float(escape_reward_cfg.get("backward_weight", 0.0))
-        self.escape_clearance_weight = float(escape_reward_cfg.get("clearance_weight", 0.0))
-        self.escape_progress_eps = float(escape_reward_cfg.get("progress_eps", self.stuck_progress_eps))
-        self.escape_lateral_speed_scale = max(float(escape_reward_cfg.get("lateral_speed_scale", 1.0)), 1e-6)
-        self.escape_backward_speed_scale = max(float(escape_reward_cfg.get("backward_speed_scale", 1.0)), 1e-6)
-        self.escape_clearance_delta_scale = max(float(escape_reward_cfg.get("clearance_delta_scale", 0.5)), 1e-6)
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -505,10 +482,8 @@ class NavigationEnv(IsaacEnv):
             self.height_range = torch.zeros(self.num_envs, 1, 2)
             self.prev_drone_vel_w = torch.zeros(self.num_envs, 1 , 3)
             self.prev_goal_distance = torch.zeros(self.num_envs, 1)
-            self.prev_front_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
-            self.ineffective_motion_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
             self.train_task_mode = str(self.cfg.get("train_style", "random_crossing_eval"))
             if self.train_task_mode not in ("random_crossing_eval", "random_crossing", "random"):
@@ -824,57 +799,19 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_goal_progress
 
-    def _compute_escape_reward(
-        self,
-        previous_stuck_counter,
-        front_obstacle,
-        goal_progress,
-        vel_g,
-        front_clearance,
-        previous_front_clearance,
-        reach_goal,
-        time_limit,
-    ):
-        zeros = torch.zeros_like(goal_progress)
-        terminal = reach_goal | time_limit
+    def _compute_escape_reward(self, previous_stuck_counter, reach_goal, time_limit):
         stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
-        drop_reward = self.escape_stuck_drop_weight * (
+        reward_escape = self.escape_reward_weight * (
             stuck_counter_drop / float(self.stuck_window)
         ).clamp(max=1.0)
-        escape_active = front_obstacle & (goal_progress <= self.escape_progress_eps) & (~terminal)
-
-        lateral_speed = vel_g[..., 1].abs()
-        backward_speed = (-vel_g[..., 0]).clamp(min=0.0)
-        clearance_gain = (front_clearance - previous_front_clearance).clamp(min=0.0)
-
-        lateral_reward = self.escape_lateral_weight * (
-            lateral_speed / self.escape_lateral_speed_scale
-        ).clamp(max=1.0)
-        backward_reward = self.escape_backward_weight * (
-            backward_speed / self.escape_backward_speed_scale
-        ).clamp(max=1.0)
-        clearance_reward = self.escape_clearance_weight * (
-            clearance_gain / self.escape_clearance_delta_scale
-        ).clamp(max=1.0)
-
-        shaping_reward = torch.where(
-            escape_active,
-            lateral_reward + backward_reward + clearance_reward,
-            zeros,
+        reward_escape = torch.where(
+            reach_goal | time_limit,
+            torch.zeros_like(reward_escape),
+            reward_escape,
         )
-        reward_escape = self.escape_reward_weight * torch.where(terminal, zeros, drop_reward + shaping_reward)
         return reward_escape
 
-    def _compute_stall_reward(
-        self,
-        current_pos,
-        current_vel,
-        goal_progress,
-        front_obstacle,
-        front_clearance,
-        previous_front_clearance,
-        reach_goal,
-    ):
+    def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
         stall_speed = current_vel.norm(dim=-1)
         low_progress = goal_progress.abs() <= self.stall_progress_threshold
@@ -892,32 +829,10 @@ class NavigationEnv(IsaacEnv):
             current_pos.clone(),
         )
 
-        clearance_gain = front_clearance - previous_front_clearance
-        ineffective_motion_candidate = (
-            front_obstacle
-            & (goal_progress <= self.stall_progress_threshold)
-            & (stall_speed > self.ineffective_motion_speed_threshold)
-            & (clearance_gain <= self.ineffective_clearance_eps)
-            & (~reach_goal)
-        )
-        self.ineffective_motion_counter = torch.where(
-            ineffective_motion_candidate,
-            self.ineffective_motion_counter + 1,
-            torch.zeros_like(self.ineffective_motion_counter),
-        )
-
-        low_motion_active = self.stall_counter >= self.stall_reward_window
+        stall_active = self.stall_counter >= self.stall_reward_window
         stall_excess = (self.stall_counter - self.stall_reward_window).clamp(min=0).float()
         stall_scale = (stall_excess / float(self.stall_reward_ramp_window)).clamp(max=1.0)
-        low_motion_reward = -self.stall_reward_weight * stall_scale
-
-        ineffective_motion_active = self.ineffective_motion_counter >= self.ineffective_motion_window
-        ineffective_excess = (self.ineffective_motion_counter - self.ineffective_motion_window).clamp(min=0).float()
-        ineffective_scale = (ineffective_excess / float(self.ineffective_motion_ramp_window)).clamp(max=1.0)
-        ineffective_motion_reward = -self.ineffective_motion_weight * ineffective_scale
-
-        stall_active = low_motion_active | ineffective_motion_active
-        reward_stall = low_motion_reward + ineffective_motion_reward
+        reward_stall = -self.stall_reward_weight * stall_scale
         return reward_stall, stall_active
 
     def _compute_vo_scale(self, dyn_obs_size):
@@ -1009,10 +924,6 @@ class NavigationEnv(IsaacEnv):
             "return": UnboundedContinuousTensorSpec(1),
             "episode_len": UnboundedContinuousTensorSpec(1),
             "goal_distance": UnboundedContinuousTensorSpec(1),
-            "goal_progress": UnboundedContinuousTensorSpec(1),
-            "front_obstacle": UnboundedContinuousTensorSpec(1),
-            "front_clearance": UnboundedContinuousTensorSpec(1),
-            "front_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
@@ -1031,7 +942,6 @@ class NavigationEnv(IsaacEnv):
             "below_bound": UnboundedContinuousTensorSpec(1),
             "above_bound": UnboundedContinuousTensorSpec(1),
             "stuck": UnboundedContinuousTensorSpec(1),
-            "stuck_active": UnboundedContinuousTensorSpec(1),
             "stuck_steps": UnboundedContinuousTensorSpec(1),
             "truncated": UnboundedContinuousTensorSpec(1),
         }).expand(self.num_envs).to(self.device)
@@ -1363,10 +1273,8 @@ class NavigationEnv(IsaacEnv):
         self.prev_drone_vel_w[env_ids] = 0.
         init_goal_distance = (self.target_pos[env_ids] - pos).norm(dim=-1)
         self.prev_goal_distance[env_ids] = init_goal_distance
-        self.prev_front_clearance[env_ids] = self.lidar_range
         self.stuck_counter[env_ids] = 0
         self.stall_counter[env_ids] = 0
-        self.ineffective_motion_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
         if hasattr(self, "lidar_history_reset_mask"):
             self.lidar_history_reset_mask[env_ids] = True
@@ -1435,15 +1343,7 @@ class NavigationEnv(IsaacEnv):
 
         lidar_hit_rpos_w = self.lidar.data.ray_hits_w - self.lidar.data.pos_w.unsqueeze(1)
         lidar_hit_rpos_g = vec_to_new_frame(lidar_hit_rpos_w, stuck_dir_2d)
-        static_front_mask = self._in_stuck_front_region(lidar_hit_rpos_g)
-        static_front_obstacle = static_front_mask.any(dim=1, keepdim=True)
-        lidar_hit_distance = lidar_hit_rpos_w.norm(dim=-1)
-        front_clearance_values = torch.where(
-            static_front_mask,
-            lidar_hit_distance,
-            torch.full_like(lidar_hit_distance, self.lidar_range),
-        )
-        front_clearance = front_clearance_values.min(dim=1, keepdim=True).values.clamp(max=self.lidar_range)
+        static_front_obstacle = self._in_stuck_front_region(lidar_hit_rpos_g).any(dim=1, keepdim=True)
         
         # c. velocity in the goal frame
         vel_w = self.root_state[..., 7:10] # world vel
@@ -1589,9 +1489,6 @@ class NavigationEnv(IsaacEnv):
             self.root_state[..., :3],
             self.drone.vel_w[..., :3],
             goal_progress,
-            front_obstacle,
-            front_clearance,
-            self.prev_front_clearance,
             reach_goal,
         )
         small_progress_with_obstacle = (goal_progress <= self.stuck_progress_eps) & front_obstacle
@@ -1601,18 +1498,8 @@ class NavigationEnv(IsaacEnv):
             self.stuck_counter + 1,
             torch.zeros_like(self.stuck_counter),
         )
-        reward_escape = self._compute_escape_reward(
-            previous_stuck_counter,
-            front_obstacle,
-            goal_progress,
-            vel_g,
-            front_clearance,
-            self.prev_front_clearance,
-            reach_goal,
-            time_limit,
-        )
+        reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
         stuck = self.stuck_counter >= self.stuck_window
-        front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()
             
         # -----------------Network Input Final--------------
@@ -1664,7 +1551,7 @@ class NavigationEnv(IsaacEnv):
         self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision] -= 48.0
+        self.reward[collision] -= 45.0
         self.reward[below_bound] -= 20.0
         self.reward[above_bound] -= 20.0
 
@@ -1674,16 +1561,11 @@ class NavigationEnv(IsaacEnv):
 
         # update previous velocity for smoothness calculation in the next ieteration
         self.prev_drone_vel_w = self.drone.vel_w[..., :3].clone()
-        self.prev_front_clearance = front_clearance.clone()
 
         # # -----------------Training Stats-----------------
         self.stats["return"] += self.reward
         self.stats["episode_len"][:] = self.progress_buf.unsqueeze(1)
         self.stats["goal_distance"] = goal_distance
-        self.stats["goal_progress"] = goal_progress
-        self.stats["front_obstacle"] = front_obstacle.float()
-        self.stats["front_clearance"] = front_clearance
-        self.stats["front_clearance_gain"] = front_clearance_gain
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
@@ -1702,7 +1584,6 @@ class NavigationEnv(IsaacEnv):
         self.stats["below_bound"] = below_bound.float()
         self.stats["above_bound"] = above_bound.float()
         self.stats["stuck"] = torch.maximum(self.stats["stuck"], stuck.float())
-        self.stats["stuck_active"] = stuck.float()
         self.stats["stuck_steps"] += stuck.float()
         self.stats["truncated"] = self.truncated.float()
 
