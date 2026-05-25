@@ -93,7 +93,14 @@ def main(cfg):
 
     policy = PPO(cfg.algo, transformed_env.observation_spec, transformed_env.action_spec, cfg.device)
     if checkpoint_path is not None:
-        policy.load_state_dict(torch.load(checkpoint_path, map_location=cfg.device))
+        checkpoint_state = torch.load(checkpoint_path, map_location=cfg.device)
+        missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)
+        if missing_keys or unexpected_keys:
+            print("[NavRL]: checkpoint loaded with non-strict key match.")
+            if missing_keys:
+                print("[NavRL]: missing keys:", missing_keys)
+            if unexpected_keys:
+                print("[NavRL]: unexpected keys:", unexpected_keys)
         print("[NavRL]: loaded checkpoint from:", checkpoint_path)
     else:
         print("[NavRL]: no checkpoint provided, evaluating randomly initialized policy.")

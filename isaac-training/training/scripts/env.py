@@ -473,6 +473,7 @@ class NavigationEnv(IsaacEnv):
             self.height_range = torch.zeros(self.num_envs, 1, 2)
             self.prev_drone_vel_w = torch.zeros(self.num_envs, 1 , 3)
             self.prev_goal_distance = torch.zeros(self.num_envs, 1)
+            self.prev_front_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
@@ -915,6 +916,10 @@ class NavigationEnv(IsaacEnv):
             "return": UnboundedContinuousTensorSpec(1),
             "episode_len": UnboundedContinuousTensorSpec(1),
             "goal_distance": UnboundedContinuousTensorSpec(1),
+            "goal_progress": UnboundedContinuousTensorSpec(1),
+            "front_obstacle": UnboundedContinuousTensorSpec(1),
+            "front_clearance": UnboundedContinuousTensorSpec(1),
+            "front_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
@@ -933,6 +938,7 @@ class NavigationEnv(IsaacEnv):
             "below_bound": UnboundedContinuousTensorSpec(1),
             "above_bound": UnboundedContinuousTensorSpec(1),
             "stuck": UnboundedContinuousTensorSpec(1),
+            "stuck_active": UnboundedContinuousTensorSpec(1),
             "stuck_steps": UnboundedContinuousTensorSpec(1),
             "truncated": UnboundedContinuousTensorSpec(1),
         }).expand(self.num_envs).to(self.device)
@@ -1248,6 +1254,7 @@ class NavigationEnv(IsaacEnv):
         self.prev_drone_vel_w[env_ids] = 0.
         init_goal_distance = (self.target_pos[env_ids] - pos).norm(dim=-1)
         self.prev_goal_distance[env_ids] = init_goal_distance
+        self.prev_front_clearance[env_ids] = self.lidar_range
         self.stuck_counter[env_ids] = 0
         self.stall_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
@@ -1315,7 +1322,15 @@ class NavigationEnv(IsaacEnv):
 
         lidar_hit_rpos_w = self.lidar.data.ray_hits_w - self.lidar.data.pos_w.unsqueeze(1)
         lidar_hit_rpos_g = vec_to_new_frame(lidar_hit_rpos_w, stuck_dir_2d)
-        static_front_obstacle = self._in_stuck_front_region(lidar_hit_rpos_g).any(dim=1, keepdim=True)
+        static_front_mask = self._in_stuck_front_region(lidar_hit_rpos_g)
+        static_front_obstacle = static_front_mask.any(dim=1, keepdim=True)
+        lidar_hit_distance = lidar_hit_rpos_w.norm(dim=-1)
+        front_clearance_values = torch.where(
+            static_front_mask,
+            lidar_hit_distance,
+            torch.full_like(lidar_hit_distance, self.lidar_range),
+        )
+        front_clearance = front_clearance_values.min(dim=1, keepdim=True).values.clamp(max=self.lidar_range)
         
         # c. velocity in the goal frame
         vel_w = self.root_state[..., 7:10] # world vel
@@ -1472,6 +1487,7 @@ class NavigationEnv(IsaacEnv):
         )
         reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
         stuck = self.stuck_counter >= self.stuck_window
+        front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()
             
         # -----------------Network Input Final--------------
@@ -1533,11 +1549,16 @@ class NavigationEnv(IsaacEnv):
 
         # update previous velocity for smoothness calculation in the next ieteration
         self.prev_drone_vel_w = self.drone.vel_w[..., :3].clone()
+        self.prev_front_clearance = front_clearance.clone()
 
         # # -----------------Training Stats-----------------
         self.stats["return"] += self.reward
         self.stats["episode_len"][:] = self.progress_buf.unsqueeze(1)
         self.stats["goal_distance"] = goal_distance
+        self.stats["goal_progress"] = goal_progress
+        self.stats["front_obstacle"] = front_obstacle.float()
+        self.stats["front_clearance"] = front_clearance
+        self.stats["front_clearance_gain"] = front_clearance_gain
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
@@ -1556,6 +1577,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["below_bound"] = below_bound.float()
         self.stats["above_bound"] = above_bound.float()
         self.stats["stuck"] = torch.maximum(self.stats["stuck"], stuck.float())
+        self.stats["stuck_active"] = stuck.float()
         self.stats["stuck_steps"] += stuck.float()
         self.stats["truncated"] = self.truncated.float()
 

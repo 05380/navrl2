@@ -110,7 +110,14 @@ class Navigation:
         file_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ckpts")
         checkpoint = "navrl_checkpoint.pt"
 
-        policy.load_state_dict(torch.load(os.path.join(file_dir, checkpoint), map_location=self.cfg.device))
+        checkpoint_state = torch.load(os.path.join(file_dir, checkpoint), map_location=self.cfg.device)
+        missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)
+        if missing_keys or unexpected_keys:
+            print("[nav-ros]: checkpoint loaded with non-strict key match.")
+            if missing_keys:
+                print("[nav-ros]: missing keys:", missing_keys)
+            if unexpected_keys:
+                print("[nav-ros]: unexpected keys:", unexpected_keys)
         return policy
 
     def takeoff(self):

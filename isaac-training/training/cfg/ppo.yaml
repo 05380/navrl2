@@ -2,6 +2,15 @@ algo:
   feature_extractor:
     learning_rate: 5e-4
     dyn_obs_num: 5
+    auxiliary:
+      enabled: true
+      loss_weight: 0.05
+      hidden_dim: 128
+      goal_progress_weight: 1.0
+      front_clearance_gain_weight: 1.0
+      stuck_weight: 0.5
+      wall_collision_weight: 1.0
+      collision_weight: 1.0
   
   actor:
     learning_rate: 5e-4

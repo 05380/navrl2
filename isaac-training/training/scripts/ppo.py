@@ -13,6 +13,7 @@ class PPO(TensorDictModuleBase):
         super().__init__()
         self.cfg = cfg
         self.device = device
+        self.n_agents, self.action_dim = action_spec.shape
 
         
         # Feature extractor for LiDAR
@@ -38,8 +39,26 @@ class PPO(TensorDictModuleBase):
             TensorDictModule(make_mlp([256, 256]), ["_feature"], ["_feature"]),
         ).to(self.device)
 
+        auxiliary_cfg = cfg.feature_extractor.get("auxiliary", {})
+        self.auxiliary_enabled = bool(auxiliary_cfg.get("enabled", False))
+        self.auxiliary_loss_weight = float(auxiliary_cfg.get("loss_weight", 0.0))
+        self.auxiliary_goal_progress_weight = float(auxiliary_cfg.get("goal_progress_weight", 1.0))
+        self.auxiliary_front_clearance_gain_weight = float(auxiliary_cfg.get("front_clearance_gain_weight", 1.0))
+        self.auxiliary_stuck_weight = float(auxiliary_cfg.get("stuck_weight", 1.0))
+        self.auxiliary_wall_collision_weight = float(auxiliary_cfg.get("wall_collision_weight", 1.0))
+        self.auxiliary_collision_weight = float(auxiliary_cfg.get("collision_weight", 1.0))
+        if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
+            auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
+            self.auxiliary_predictor = nn.Sequential(
+                nn.Linear(256 + self.action_dim, auxiliary_hidden_dim),
+                nn.ELU(),
+                nn.LayerNorm(auxiliary_hidden_dim),
+                nn.Linear(auxiliary_hidden_dim, 5),
+            ).to(self.device)
+        else:
+            self.auxiliary_predictor = None
+
         # Actor etwork
-        self.n_agents, self.action_dim = action_spec.shape
         self.actor = ProbabilisticActor(
             TensorDictModule(BetaActor(self.action_dim), ["_feature"], ["alpha", "beta"]),
             in_keys=["alpha", "beta"],
@@ -59,7 +78,10 @@ class PPO(TensorDictModuleBase):
         self.critic_loss_fn = nn.HuberLoss(delta=10) # huberloss (L1+L2): https://pytorch.org/docs/stable/generated/torch.nn.HuberLoss.html
 
         # Optimizer
-        self.feature_extractor_optim = torch.optim.Adam(self.feature_extractor.parameters(), lr=cfg.feature_extractor.learning_rate)
+        feature_extractor_params = list(self.feature_extractor.parameters())
+        if self.auxiliary_predictor is not None:
+            feature_extractor_params += list(self.auxiliary_predictor.parameters())
+        self.feature_extractor_optim = torch.optim.Adam(feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor.learning_rate)
         self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.actor.learning_rate)
 
@@ -77,6 +99,8 @@ class PPO(TensorDictModuleBase):
                 nn.init.constant_(module.bias, 0.)
         self.actor.apply(init_)
         self.critic.apply(init_)
+        if self.auxiliary_predictor is not None:
+            self._init_auxiliary_predictor()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -88,6 +112,75 @@ class PPO(TensorDictModuleBase):
         actions_world = vec_to_world(actions, tensordict["agents", "observation", "direction"])
         tensordict["agents", "action"] = actions_world
         return tensordict
+
+    def _init_auxiliary_predictor(self):
+        for module in self.auxiliary_predictor.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.constant_(module.bias, 0.0)
+        output_layer = self.auxiliary_predictor[-1]
+        nn.init.zeros_(output_layer.weight)
+        nn.init.zeros_(output_layer.bias)
+
+    @staticmethod
+    def _symlog(x):
+        return torch.sign(x) * torch.log1p(x.abs())
+
+    def _auxiliary_input(self, tensordict):
+        features = tensordict["_feature"]
+        action = tensordict[("agents", "action_normalized")]
+        action = action.reshape(*features.shape[:-1], -1)
+        return torch.cat([features, action], dim=-1)
+
+    def _compute_auxiliary_loss(self, tensordict):
+        if self.auxiliary_predictor is None:
+            zero = tensordict["_feature"].sum() * 0.0
+            return zero, TensorDict({
+                "auxiliary_loss": zero.detach(),
+                "auxiliary_goal_progress_loss": zero.detach(),
+                "auxiliary_front_clearance_gain_loss": zero.detach(),
+                "auxiliary_stuck_loss": zero.detach(),
+                "auxiliary_wall_collision_loss": zero.detach(),
+                "auxiliary_collision_loss": zero.detach(),
+            }, [])
+
+        predictions = self.auxiliary_predictor(self._auxiliary_input(tensordict))
+        pred_goal_progress = predictions[..., 0:1]
+        pred_front_clearance_gain = predictions[..., 1:2]
+        pred_stuck = predictions[..., 2:3]
+        pred_wall_collision = predictions[..., 3:4]
+        pred_collision = predictions[..., 4:5]
+
+        next_stats = tensordict["next", "stats"]
+        target_goal_progress = self._symlog(next_stats["goal_progress"].detach())
+        target_front_clearance_gain = self._symlog(next_stats["front_clearance_gain"].detach())
+        target_stuck = next_stats["stuck_active"].detach().clamp(0.0, 1.0)
+        target_wall_collision = next_stats["wall_collision"].detach().clamp(0.0, 1.0)
+        target_collision = next_stats["collision"].detach().clamp(0.0, 1.0)
+
+        goal_progress_loss = F.smooth_l1_loss(pred_goal_progress, target_goal_progress)
+        front_clearance_gain_loss = F.smooth_l1_loss(pred_front_clearance_gain, target_front_clearance_gain)
+        stuck_loss = F.binary_cross_entropy_with_logits(pred_stuck, target_stuck)
+        wall_collision_loss = F.binary_cross_entropy_with_logits(pred_wall_collision, target_wall_collision)
+        collision_loss = F.binary_cross_entropy_with_logits(pred_collision, target_collision)
+
+        raw_auxiliary_loss = (
+            self.auxiliary_goal_progress_weight * goal_progress_loss
+            + self.auxiliary_front_clearance_gain_weight * front_clearance_gain_loss
+            + self.auxiliary_stuck_weight * stuck_loss
+            + self.auxiliary_wall_collision_weight * wall_collision_loss
+            + self.auxiliary_collision_weight * collision_loss
+        )
+        auxiliary_loss = self.auxiliary_loss_weight * raw_auxiliary_loss
+
+        return auxiliary_loss, TensorDict({
+            "auxiliary_loss": auxiliary_loss.detach(),
+            "auxiliary_goal_progress_loss": goal_progress_loss.detach(),
+            "auxiliary_front_clearance_gain_loss": front_clearance_gain_loss.detach(),
+            "auxiliary_stuck_loss": stuck_loss.detach(),
+            "auxiliary_wall_collision_loss": wall_collision_loss.detach(),
+            "auxiliary_collision_loss": collision_loss.detach(),
+        }, [])
 
     def train(self, tensordict):
         # tensordict: (num_env, num_frames, dim), batchsize = num_env * num_frames
@@ -150,9 +243,10 @@ class PPO(TensorDictModuleBase):
         critic_loss_clipped = self.critic_loss_fn(ret, value_clipped)
         critic_loss_original = self.critic_loss_fn(ret, value)
         critic_loss = torch.max(critic_loss_clipped, critic_loss_original)
+        auxiliary_loss, auxiliary_info = self._compute_auxiliary_loss(tensordict)
 
         # Total Loss
-        loss = entropy_loss + actor_loss + critic_loss
+        loss = entropy_loss + actor_loss + critic_loss + auxiliary_loss
 
         # Optimize
         self.feature_extractor_optim.zero_grad()
@@ -166,11 +260,13 @@ class PPO(TensorDictModuleBase):
         self.actor_optim.step()
         self.critic_optim.step()
         explained_var = 1 - F.mse_loss(value, ret) / ret.var()
-        return TensorDict({
+        info = TensorDict({
             "actor_loss": actor_loss,
             "critic_loss": critic_loss,
             "entropy": entropy_loss,
             "actor_grad_norm": actor_grad_norm,
             "critic_grad_norm": critic_grad_norm,
-            "explained_var": explained_var
+            "explained_var": explained_var,
         }, [])
+        info.update(auxiliary_info)
+        return info

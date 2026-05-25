@@ -14,6 +14,7 @@ class PPO(TensorDictModuleBase):
         super().__init__()
         self.cfg = cfg
         self.device = device
+        self.n_agents, self.action_dim = action_spec.shape
 
         
         # Feature extractor for LiDAR
@@ -39,8 +40,21 @@ class PPO(TensorDictModuleBase):
             TensorDictModule(make_mlp([256, 256]), ["_feature"], ["_feature"]),
         ).to(self.device)
 
+        auxiliary_cfg = cfg.feature_extractor.get("auxiliary", {})
+        self.auxiliary_enabled = bool(auxiliary_cfg.get("enabled", False))
+        self.auxiliary_loss_weight = float(auxiliary_cfg.get("loss_weight", 0.0))
+        if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
+            auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
+            self.auxiliary_predictor = nn.Sequential(
+                nn.Linear(256 + self.action_dim, auxiliary_hidden_dim),
+                nn.ELU(),
+                nn.LayerNorm(auxiliary_hidden_dim),
+                nn.Linear(auxiliary_hidden_dim, 5),
+            ).to(self.device)
+        else:
+            self.auxiliary_predictor = None
+
         # Actor etwork
-        self.n_agents, self.action_dim = action_spec.shape
         self.actor = ProbabilisticActor(
             TensorDictModule(BetaActor(self.action_dim), ["_feature"], ["alpha", "beta"]),
             in_keys=["alpha", "beta"],
@@ -78,6 +92,8 @@ class PPO(TensorDictModuleBase):
                 nn.init.constant_(module.bias, 0.)
         self.actor.apply(init_)
         self.critic.apply(init_)
+        if self.auxiliary_predictor is not None:
+            self._init_auxiliary_predictor()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -89,3 +105,12 @@ class PPO(TensorDictModuleBase):
         actions_world = vec_to_world(actions, tensordict["agents", "observation", "direction"])
         tensordict["agents", "action"] = actions_world
         return tensordict
+
+    def _init_auxiliary_predictor(self):
+        for module in self.auxiliary_predictor.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.constant_(module.bias, 0.0)
+        output_layer = self.auxiliary_predictor[-1]
+        nn.init.zeros_(output_layer.weight)
+        nn.init.zeros_(output_layer.bias)
