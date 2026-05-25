@@ -40,6 +40,7 @@ def print_eval_metrics(eval_info, prefix="eval", label="eval"):
         f"{prefix}/stats.reward_vel",
         f"{prefix}/stats.penalty_height",
         f"{prefix}/stats.reward_escape",
+        f"{prefix}/stats.penalty_deadlock",
         f"{prefix}/vo_risk_mean",
     ]
     metric_parts = []
@@ -121,6 +122,7 @@ def main(cfg):
         "train/stats.reward_vel",
         "train/stats.penalty_height",
         "train/stats.reward_escape",
+        "train/stats.penalty_deadlock",
         "train/stats.reward_stall",
         "train/stats.stall",
         "train/stats.stall_steps",
@@ -139,6 +141,7 @@ def main(cfg):
         "eval/stats.reward_vel",
         "eval/stats.penalty_height",
         "eval/stats.reward_escape",
+        "eval/stats.penalty_deadlock",
         "eval/stats.reward_vo",
         "eval/stats.vo_risk",
         "eval/stats.vo_warmup",

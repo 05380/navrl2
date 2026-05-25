@@ -415,6 +415,17 @@ class NavigationEnv(IsaacEnv):
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
+        deadlock_reward_cfg = reward_cfg.get("deadlock", {})
+        self.deadlock_penalty_weight = float(deadlock_reward_cfg.get("weight", 0.0))
+        self.deadlock_penalty_start_window = min(
+            max(0, int(deadlock_reward_cfg.get("start_window", self.stuck_window // 2))),
+            self.stuck_window,
+        )
+        default_deadlock_ramp = max(1, self.stuck_window - self.deadlock_penalty_start_window)
+        self.deadlock_penalty_ramp_window = max(
+            1,
+            int(deadlock_reward_cfg.get("ramp_window", default_deadlock_ramp)),
+        )
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -803,6 +814,18 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_escape
 
+    def _compute_deadlock_penalty(self, reach_goal):
+        penalty_scale = (
+            (self.stuck_counter - self.deadlock_penalty_start_window).clamp(min=0).float()
+            / float(self.deadlock_penalty_ramp_window)
+        ).clamp(max=1.0)
+        penalty_deadlock = self.deadlock_penalty_weight * penalty_scale
+        return torch.where(
+            reach_goal,
+            torch.zeros_like(penalty_deadlock),
+            penalty_deadlock,
+        )
+
     def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
         stall_speed = current_vel.norm(dim=-1)
@@ -926,6 +949,7 @@ class NavigationEnv(IsaacEnv):
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
+            "penalty_deadlock": UnboundedContinuousTensorSpec(1),
             "reward_stall": UnboundedContinuousTensorSpec(1),
             "stall": UnboundedContinuousTensorSpec(1),
             "stall_steps": UnboundedContinuousTensorSpec(1),
@@ -1487,6 +1511,7 @@ class NavigationEnv(IsaacEnv):
         )
         reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
         stuck = self.stuck_counter >= self.stuck_window
+        penalty_deadlock = self._compute_deadlock_penalty(reach_goal)
         front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()
             
@@ -1536,7 +1561,7 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo - penalty_deadlock
 
         # Terminal penalties make failure modes explicitly costly.
         self.reward[collision] -= 45.0
@@ -1565,6 +1590,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape
+        self.stats["penalty_deadlock"] = penalty_deadlock
         self.stats["reward_stall"] = reward_stall
         self.stats["stall"] = torch.maximum(self.stats["stall"], stall_active.float())
         self.stats["stall_steps"] += stall_active.float()

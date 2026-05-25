@@ -74,6 +74,10 @@ reward:
     blocked_backward_scale: 0.25
   escape:
     weight: 2.0
+  deadlock:
+    weight: 2.0
+    start_window: 20
+    ramp_window: 20
   stall:
     weight: 1.0
     window: 60
