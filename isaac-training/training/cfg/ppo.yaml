@@ -4,13 +4,16 @@ algo:
     dyn_obs_num: 5
     auxiliary:
       enabled: true
-      loss_weight: 0.05
+      loss_weight: 0.1
       hidden_dim: 128
+      future_horizons: [3, 5]
       goal_progress_weight: 1.0
       front_clearance_gain_weight: 1.0
-      stuck_weight: 0.5
+      stuck_weight: 1.0
       wall_collision_weight: 1.0
       collision_weight: 1.0
+      future_collision_weight: 1.0
+      future_stuck_weight: 1.0
   
   actor:
     learning_rate: 5e-4

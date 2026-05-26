@@ -78,6 +78,13 @@ reward:
     weight: 2.0
     start_window: 20
     ramp_window: 20
+  height:
+    weight: 0.7
+    tolerance: 0.4
+  terminal:
+    collision_penalty: 48.0
+    below_bound_penalty: 30.0
+    above_bound_penalty: 20.0
   stall:
     weight: 1.0
     window: 60
