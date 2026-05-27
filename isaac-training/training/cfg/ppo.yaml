@@ -10,7 +10,7 @@ algo:
       goal_progress_weight: 1.0
       front_clearance_gain_weight: 1.0
       stuck_weight: 1.0
-      wall_collision_weight: 1.0
+      wall_collision_weight: 1.5
       collision_weight: 1.0
       future_collision_weight: 1.0
       future_stuck_weight: 1.0

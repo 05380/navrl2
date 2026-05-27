@@ -1565,9 +1565,9 @@ class NavigationEnv(IsaacEnv):
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
         else:
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
         self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo - penalty_deadlock
 
         # Terminal penalties make failure modes explicitly costly.

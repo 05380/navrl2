@@ -73,7 +73,7 @@ reward:
     progress_scale: 35.0
     blocked_backward_scale: 0.25
   escape:
-    weight: 2.5
+    weight: 3.0
   deadlock:
     weight: 2.0
     start_window: 20
@@ -82,11 +82,11 @@ reward:
     weight: 0.7
     tolerance: 0.4
   terminal:
-    collision_penalty: 48.0
+    collision_penalty: 50.0
     below_bound_penalty: 30.0
     above_bound_penalty: 20.0
   stall:
-    weight: 1.0
+    weight: 1.4
     window: 60
     ramp_window: 60
     distance_threshold: 0.25
