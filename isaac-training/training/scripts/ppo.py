@@ -159,7 +159,7 @@ class PPO(TensorDictModuleBase):
         return target.float()
 
     def _add_multi_step_auxiliary_targets(self, tensordict):
-        if not self.auxiliary_future_horizons:
+        if self.auxiliary_predictor is None or not self.auxiliary_future_horizons:
             return
 
         next_stats = tensordict["next", "stats"]
