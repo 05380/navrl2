@@ -415,28 +415,6 @@ class NavigationEnv(IsaacEnv):
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
-        deadlock_reward_cfg = reward_cfg.get("deadlock", {})
-        self.deadlock_penalty_weight = float(deadlock_reward_cfg.get("weight", 0.0))
-        self.deadlock_penalty_start_window = min(
-            max(0, int(deadlock_reward_cfg.get("start_window", self.stuck_window // 2))),
-            self.stuck_window,
-        )
-        default_deadlock_ramp = max(1, self.stuck_window - self.deadlock_penalty_start_window)
-        self.deadlock_penalty_ramp_window = max(
-            1,
-            int(deadlock_reward_cfg.get("ramp_window", default_deadlock_ramp)),
-        )
-        height_reward_cfg = reward_cfg.get("height", {})
-        self.height_penalty_weight = float(height_reward_cfg.get("weight", 0.5))
-        self.height_penalty_tolerance = float(height_reward_cfg.get("tolerance", 0.4))
-        terminal_reward_cfg = reward_cfg.get("terminal", {})
-        self.collision_penalty = float(terminal_reward_cfg.get("collision_penalty", 48.0))
-        self.wall_collision_penalty = float(terminal_reward_cfg.get("wall_collision_penalty", self.collision_penalty))
-        self.below_bound_penalty = float(terminal_reward_cfg.get("below_bound_penalty", 20.0))
-        self.above_bound_penalty = float(terminal_reward_cfg.get("above_bound_penalty", 20.0))
-        wall_reward_cfg = reward_cfg.get("wall", {})
-        self.wall_proximity_weight = float(wall_reward_cfg.get("proximity_weight", 0.0))
-        self.wall_proximity_radius = float(wall_reward_cfg.get("proximity_radius", 0.8))
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -825,18 +803,6 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_escape
 
-    def _compute_deadlock_penalty(self, reach_goal):
-        penalty_scale = (
-            (self.stuck_counter - self.deadlock_penalty_start_window).clamp(min=0).float()
-            / float(self.deadlock_penalty_ramp_window)
-        ).clamp(max=1.0)
-        penalty_deadlock = self.deadlock_penalty_weight * penalty_scale
-        return torch.where(
-            reach_goal,
-            torch.zeros_like(penalty_deadlock),
-            penalty_deadlock,
-        )
-
     def _compute_stall_reward(self, current_pos, current_vel, goal_progress, reach_goal):
         stall_displacement = (current_pos[..., :2] - self.stall_anchor_pos[..., :2]).norm(dim=-1)
         stall_speed = current_vel.norm(dim=-1)
@@ -957,11 +923,9 @@ class NavigationEnv(IsaacEnv):
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
-            "penalty_wall_proximity": UnboundedContinuousTensorSpec(1),
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
-            "penalty_deadlock": UnboundedContinuousTensorSpec(1),
             "reward_stall": UnboundedContinuousTensorSpec(1),
             "stall": UnboundedContinuousTensorSpec(1),
             "stall_steps": UnboundedContinuousTensorSpec(1),
@@ -1523,7 +1487,6 @@ class NavigationEnv(IsaacEnv):
         )
         reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
         stuck = self.stuck_counter >= self.stuck_window
-        penalty_deadlock = self._compute_deadlock_penalty(reach_goal)
         front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()
             
@@ -1558,33 +1521,27 @@ class NavigationEnv(IsaacEnv):
         # e. softly keep altitude close to the goal altitude.
         target_z = self.target_pos[..., 2]
         z_error = self.drone.pos[..., 2] - target_z
-        penalty_height = torch.relu(z_error.abs() - self.height_penalty_tolerance).square()
+        penalty_height = torch.relu(z_error.abs() - 0.4).square()
 
 
         # f. Collision condition with its penalty
         static_collision = einops.reduce(self.lidar_scan_clean, "n 1 w h -> n 1", "max") >  (self.lidar_range - 0.3) # 0.3 collision radius
         wall_collision = static_collision & self._points_near_curriculum_wall(self.root_state[..., :3], clearance_radius=0.3)
-        wall_proximity = self._points_near_curriculum_wall(
-            self.root_state[..., :3],
-            clearance_radius=self.wall_proximity_radius,
-        )
-        penalty_wall_proximity = self.wall_proximity_weight * wall_proximity.float()
         collision = static_collision | dynamic_collision
         below_bound = self.drone.pos[..., 2] < 0.2
         above_bound = self.drone.pos[..., 2] > 4.
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo - penalty_deadlock - penalty_wall_proximity
+            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision & (~wall_collision)] -= self.collision_penalty
-        self.reward[wall_collision] -= self.wall_collision_penalty
-        self.reward[below_bound] -= self.below_bound_penalty
-        self.reward[above_bound] -= self.above_bound_penalty
+        self.reward[collision] -= 45.0
+        self.reward[below_bound] -= 20.0
+        self.reward[above_bound] -= 20.0
 
         # Terminate Conditions
         self.terminated = reach_goal | below_bound | above_bound | collision
@@ -1605,11 +1562,9 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
-        self.stats["penalty_wall_proximity"] = penalty_wall_proximity
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape
-        self.stats["penalty_deadlock"] = penalty_deadlock
         self.stats["reward_stall"] = reward_stall
         self.stats["stall"] = torch.maximum(self.stats["stall"], stall_active.float())
         self.stats["stall_steps"] += stall_active.float()

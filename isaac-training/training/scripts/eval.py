@@ -29,11 +29,9 @@ def print_eval_metrics(eval_info, prefix="eval", label="eval"):
         f"{prefix}/stats.reward_goal_progress",
         f"{prefix}/stats.penalty_safety_static",
         f"{prefix}/stats.penalty_safety_dynamic",
-        f"{prefix}/stats.penalty_wall_proximity",
         f"{prefix}/stats.reward_vel",
         f"{prefix}/stats.penalty_height",
         f"{prefix}/stats.reward_escape",
-        f"{prefix}/stats.penalty_deadlock",
         f"{prefix}/vo_risk_mean",
     ]
     metric_parts = []
