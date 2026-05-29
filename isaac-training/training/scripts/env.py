@@ -431,8 +431,12 @@ class NavigationEnv(IsaacEnv):
         self.height_penalty_tolerance = float(height_reward_cfg.get("tolerance", 0.4))
         terminal_reward_cfg = reward_cfg.get("terminal", {})
         self.collision_penalty = float(terminal_reward_cfg.get("collision_penalty", 48.0))
+        self.wall_collision_penalty = float(terminal_reward_cfg.get("wall_collision_penalty", self.collision_penalty))
         self.below_bound_penalty = float(terminal_reward_cfg.get("below_bound_penalty", 20.0))
         self.above_bound_penalty = float(terminal_reward_cfg.get("above_bound_penalty", 20.0))
+        wall_reward_cfg = reward_cfg.get("wall", {})
+        self.wall_proximity_weight = float(wall_reward_cfg.get("proximity_weight", 0.0))
+        self.wall_proximity_radius = float(wall_reward_cfg.get("proximity_radius", 0.8))
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -953,6 +957,7 @@ class NavigationEnv(IsaacEnv):
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
             "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
+            "penalty_wall_proximity": UnboundedContinuousTensorSpec(1),
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
@@ -1559,6 +1564,11 @@ class NavigationEnv(IsaacEnv):
         # f. Collision condition with its penalty
         static_collision = einops.reduce(self.lidar_scan_clean, "n 1 w h -> n 1", "max") >  (self.lidar_range - 0.3) # 0.3 collision radius
         wall_collision = static_collision & self._points_near_curriculum_wall(self.root_state[..., :3], clearance_radius=0.3)
+        wall_proximity = self._points_near_curriculum_wall(
+            self.root_state[..., :3],
+            clearance_radius=self.wall_proximity_radius,
+        )
+        penalty_wall_proximity = self.wall_proximity_weight * wall_proximity.float()
         collision = static_collision | dynamic_collision
         below_bound = self.drone.pos[..., 2] < 0.2
         above_bound = self.drone.pos[..., 2] > 4.
@@ -1568,10 +1578,11 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.7 - penalty_smooth * 0.1 - penalty_height * self.height_penalty_weight
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo - penalty_deadlock
+        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo - penalty_deadlock - penalty_wall_proximity
 
         # Terminal penalties make failure modes explicitly costly.
-        self.reward[collision] -= self.collision_penalty
+        self.reward[collision & (~wall_collision)] -= self.collision_penalty
+        self.reward[wall_collision] -= self.wall_collision_penalty
         self.reward[below_bound] -= self.below_bound_penalty
         self.reward[above_bound] -= self.above_bound_penalty
 
@@ -1594,6 +1605,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static
         self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
+        self.stats["penalty_wall_proximity"] = penalty_wall_proximity
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape

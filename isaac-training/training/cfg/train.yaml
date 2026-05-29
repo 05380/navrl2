@@ -83,10 +83,14 @@ reward:
     tolerance: 0.4
   terminal:
     collision_penalty: 50.0
+    wall_collision_penalty: 70.0
     below_bound_penalty: 30.0
     above_bound_penalty: 20.0
+  wall:
+    proximity_weight: 0.6
+    proximity_radius: 0.8
   stall:
-    weight: 1.4
+    weight: 1.2
     window: 60
     ramp_window: 60
     distance_threshold: 0.25
