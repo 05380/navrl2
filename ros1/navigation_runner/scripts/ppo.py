@@ -43,12 +43,14 @@ class PPO(TensorDictModuleBase):
         auxiliary_cfg = cfg.feature_extractor.get("auxiliary", {})
         self.auxiliary_enabled = bool(auxiliary_cfg.get("enabled", False))
         self.auxiliary_loss_weight = float(auxiliary_cfg.get("loss_weight", 0.0))
-        self.auxiliary_future_horizons = [
-            int(horizon)
-            for horizon in auxiliary_cfg.get("future_horizons", [])
-            if int(horizon) > 1
-        ]
-        self.auxiliary_output_dim = 5 + 2 * len(self.auxiliary_future_horizons)
+        self.auxiliary_future_horizons = []
+        for horizon in auxiliary_cfg.get("future_horizons", [1]):
+            horizon = int(horizon)
+            if horizon >= 1 and horizon not in self.auxiliary_future_horizons:
+                self.auxiliary_future_horizons.append(horizon)
+        if self.auxiliary_enabled and not self.auxiliary_future_horizons:
+            self.auxiliary_future_horizons = [1]
+        self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
             self.auxiliary_predictor = nn.Sequential(

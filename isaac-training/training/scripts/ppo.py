@@ -42,19 +42,18 @@ class PPO(TensorDictModuleBase):
         auxiliary_cfg = cfg.feature_extractor.get("auxiliary", {})
         self.auxiliary_enabled = bool(auxiliary_cfg.get("enabled", False))
         self.auxiliary_loss_weight = float(auxiliary_cfg.get("loss_weight", 0.0))
-        self.auxiliary_goal_progress_weight = float(auxiliary_cfg.get("goal_progress_weight", 1.0))
-        self.auxiliary_front_clearance_gain_weight = float(auxiliary_cfg.get("front_clearance_gain_weight", 1.0))
-        self.auxiliary_stuck_weight = float(auxiliary_cfg.get("stuck_weight", 1.0))
-        self.auxiliary_wall_collision_weight = float(auxiliary_cfg.get("wall_collision_weight", 1.0))
-        self.auxiliary_collision_weight = float(auxiliary_cfg.get("collision_weight", 1.0))
-        self.auxiliary_future_horizons = [
-            int(horizon)
-            for horizon in auxiliary_cfg.get("future_horizons", [])
-            if int(horizon) > 1
-        ]
+        self.auxiliary_future_horizons = []
+        for horizon in auxiliary_cfg.get("future_horizons", [1]):
+            horizon = int(horizon)
+            if horizon >= 1 and horizon not in self.auxiliary_future_horizons:
+                self.auxiliary_future_horizons.append(horizon)
+        if self.auxiliary_enabled and not self.auxiliary_future_horizons:
+            self.auxiliary_future_horizons = [1]
         self.auxiliary_future_collision_weight = float(auxiliary_cfg.get("future_collision_weight", 1.0))
         self.auxiliary_future_stuck_weight = float(auxiliary_cfg.get("future_stuck_weight", 1.0))
-        self.auxiliary_output_dim = 5 + 2 * len(self.auxiliary_future_horizons)
+        self.auxiliary_future_clearance_weight = float(auxiliary_cfg.get("future_clearance_weight", 1.0))
+        self.auxiliary_future_progress_weight = float(auxiliary_cfg.get("future_progress_weight", 1.0))
+        self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
             self.auxiliary_predictor = nn.Sequential(
@@ -158,6 +157,41 @@ class PPO(TensorDictModuleBase):
             target = target | (shifted_signal & valid_for_offset)
         return target.float()
 
+    def _multi_step_sum(self, signal, done, horizon):
+        target = torch.zeros_like(signal)
+        valid_for_offset = torch.ones_like(done, dtype=torch.bool)
+        done_bool = done.bool()
+
+        for offset in range(horizon):
+            shifted_signal = torch.zeros_like(signal)
+            if offset == 0:
+                shifted_signal = signal
+            else:
+                prev_done = torch.ones_like(done_bool)
+                prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
+                valid_for_offset = valid_for_offset & (~prev_done)
+                shifted_signal[:, :-offset] = signal[:, offset:]
+            target = target + torch.where(valid_for_offset, shifted_signal, torch.zeros_like(shifted_signal))
+        return target
+
+    def _multi_step_min(self, signal, done, horizon):
+        fill_value = signal.detach().max()
+        target = torch.full_like(signal, fill_value)
+        valid_for_offset = torch.ones_like(done, dtype=torch.bool)
+        done_bool = done.bool()
+
+        for offset in range(horizon):
+            shifted_signal = torch.full_like(signal, fill_value)
+            if offset == 0:
+                shifted_signal = signal
+            else:
+                prev_done = torch.ones_like(done_bool)
+                prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
+                valid_for_offset = valid_for_offset & (~prev_done)
+                shifted_signal[:, :-offset] = signal[:, offset:]
+            target = torch.minimum(target, torch.where(valid_for_offset, shifted_signal, torch.full_like(signal, fill_value)))
+        return target
+
     def _add_multi_step_auxiliary_targets(self, tensordict):
         if self.auxiliary_predictor is None or not self.auxiliary_future_horizons:
             return
@@ -165,94 +199,75 @@ class PPO(TensorDictModuleBase):
         next_stats = tensordict["next", "stats"]
         collision = next_stats["collision"].detach().squeeze(-1)
         stuck = next_stats["stuck_active"].detach().squeeze(-1)
+        front_clearance = next_stats["front_clearance"].detach().squeeze(-1)
+        goal_progress = next_stats["goal_progress"].detach().squeeze(-1)
         done = tensordict["next", "done"].detach().squeeze(-1)
 
         future_collision = []
         future_stuck = []
+        future_clearance = []
+        future_progress = []
         for horizon in self.auxiliary_future_horizons:
             future_collision.append(self._future_within_horizon(collision, done, horizon))
             future_stuck.append(self._future_within_horizon(stuck, done, horizon))
+            future_clearance.append(self._multi_step_min(front_clearance, done, horizon))
+            future_progress.append(self._multi_step_sum(goal_progress, done, horizon))
 
         tensordict.set("_aux_future_collision", torch.stack(future_collision, dim=-1))
         tensordict.set("_aux_future_stuck", torch.stack(future_stuck, dim=-1))
+        tensordict.set("_aux_future_clearance", torch.stack(future_clearance, dim=-1))
+        tensordict.set("_aux_future_progress", torch.stack(future_progress, dim=-1))
 
     def _compute_auxiliary_loss(self, tensordict):
         if self.auxiliary_predictor is None:
             zero = tensordict["_feature"].sum() * 0.0
             return zero, TensorDict({
                 "auxiliary_loss": zero.detach(),
-                "auxiliary_goal_progress_loss": zero.detach(),
-                "auxiliary_front_clearance_gain_loss": zero.detach(),
-                "auxiliary_stuck_loss": zero.detach(),
-                "auxiliary_wall_collision_loss": zero.detach(),
-                "auxiliary_collision_loss": zero.detach(),
+                "auxiliary_future_progress_loss": zero.detach(),
+                "auxiliary_future_clearance_loss": zero.detach(),
                 "auxiliary_future_collision_loss": zero.detach(),
                 "auxiliary_future_stuck_loss": zero.detach(),
             }, [])
 
         predictions = self.auxiliary_predictor(self._auxiliary_input(tensordict))
-        pred_goal_progress = predictions[..., 0:1]
-        pred_front_clearance_gain = predictions[..., 1:2]
-        pred_stuck = predictions[..., 2:3]
-        pred_wall_collision = predictions[..., 3:4]
-        pred_collision = predictions[..., 4:5]
-        if self.auxiliary_future_horizons:
-            future_predictions = predictions[..., 5:].reshape(
-                *predictions.shape[:-1],
-                len(self.auxiliary_future_horizons),
-                2,
-            )
-            pred_future_collision = future_predictions[..., 0]
-            pred_future_stuck = future_predictions[..., 1]
-        else:
-            pred_future_collision = None
-            pred_future_stuck = None
+        future_predictions = predictions.reshape(
+            *predictions.shape[:-1],
+            len(self.auxiliary_future_horizons),
+            4,
+        )
+        pred_future_collision = future_predictions[..., 0]
+        pred_future_stuck = future_predictions[..., 1]
+        pred_future_clearance = future_predictions[..., 2]
+        pred_future_progress = future_predictions[..., 3]
 
-        next_stats = tensordict["next", "stats"]
-        target_goal_progress = self._symlog(next_stats["goal_progress"].detach())
-        target_front_clearance_gain = self._symlog(next_stats["front_clearance_gain"].detach())
-        target_stuck = next_stats["stuck_active"].detach().clamp(0.0, 1.0)
-        target_wall_collision = next_stats["wall_collision"].detach().clamp(0.0, 1.0)
-        target_collision = next_stats["collision"].detach().clamp(0.0, 1.0)
+        target_future_collision = tensordict["_aux_future_collision"].detach().clamp(0.0, 1.0)
+        target_future_stuck = tensordict["_aux_future_stuck"].detach().clamp(0.0, 1.0)
+        target_future_clearance = self._symlog(tensordict["_aux_future_clearance"].detach())
+        target_future_progress = self._symlog(tensordict["_aux_future_progress"].detach())
 
-        goal_progress_loss = F.smooth_l1_loss(pred_goal_progress, target_goal_progress)
-        front_clearance_gain_loss = F.smooth_l1_loss(pred_front_clearance_gain, target_front_clearance_gain)
-        stuck_loss = F.binary_cross_entropy_with_logits(pred_stuck, target_stuck)
-        wall_collision_loss = F.binary_cross_entropy_with_logits(pred_wall_collision, target_wall_collision)
-        collision_loss = F.binary_cross_entropy_with_logits(pred_collision, target_collision)
-        if self.auxiliary_future_horizons:
-            target_future_collision = tensordict["_aux_future_collision"].detach().clamp(0.0, 1.0)
-            target_future_stuck = tensordict["_aux_future_stuck"].detach().clamp(0.0, 1.0)
-            future_collision_loss = F.binary_cross_entropy_with_logits(
-                pred_future_collision,
-                target_future_collision,
-            )
-            future_stuck_loss = F.binary_cross_entropy_with_logits(
-                pred_future_stuck,
-                target_future_stuck,
-            )
-        else:
-            future_collision_loss = predictions.sum() * 0.0
-            future_stuck_loss = predictions.sum() * 0.0
+        future_collision_loss = F.binary_cross_entropy_with_logits(
+            pred_future_collision,
+            target_future_collision,
+        )
+        future_stuck_loss = F.binary_cross_entropy_with_logits(
+            pred_future_stuck,
+            target_future_stuck,
+        )
+        future_clearance_loss = F.smooth_l1_loss(pred_future_clearance, target_future_clearance)
+        future_progress_loss = F.smooth_l1_loss(pred_future_progress, target_future_progress)
 
         raw_auxiliary_loss = (
-            self.auxiliary_goal_progress_weight * goal_progress_loss
-            + self.auxiliary_front_clearance_gain_weight * front_clearance_gain_loss
-            + self.auxiliary_stuck_weight * stuck_loss
-            + self.auxiliary_wall_collision_weight * wall_collision_loss
-            + self.auxiliary_collision_weight * collision_loss
-            + self.auxiliary_future_collision_weight * future_collision_loss
+            self.auxiliary_future_collision_weight * future_collision_loss
             + self.auxiliary_future_stuck_weight * future_stuck_loss
+            + self.auxiliary_future_clearance_weight * future_clearance_loss
+            + self.auxiliary_future_progress_weight * future_progress_loss
         )
         auxiliary_loss = self.auxiliary_loss_weight * raw_auxiliary_loss
 
         return auxiliary_loss, TensorDict({
             "auxiliary_loss": auxiliary_loss.detach(),
-            "auxiliary_goal_progress_loss": goal_progress_loss.detach(),
-            "auxiliary_front_clearance_gain_loss": front_clearance_gain_loss.detach(),
-            "auxiliary_stuck_loss": stuck_loss.detach(),
-            "auxiliary_wall_collision_loss": wall_collision_loss.detach(),
-            "auxiliary_collision_loss": collision_loss.detach(),
+            "auxiliary_future_progress_loss": future_progress_loss.detach(),
+            "auxiliary_future_clearance_loss": future_clearance_loss.detach(),
             "auxiliary_future_collision_loss": future_collision_loss.detach(),
             "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
         }, [])

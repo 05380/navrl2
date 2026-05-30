@@ -45,7 +45,14 @@ class policy_server:
 
         checkpoint = "/home/zhefan/rl_ws/src/nav-ros/navigation_runner/scripts/ckpts/120obs-21000.pt"
 
-        policy.load_state_dict(torch.load(checkpoint))
+        checkpoint_state = torch.load(checkpoint, map_location=self.cfg.device)
+        missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)
+        if missing_keys or unexpected_keys:
+            print("[policy server]: checkpoint loaded with non-strict key match.")
+            if missing_keys:
+                print("[policy server]: missing keys:", missing_keys)
+            if unexpected_keys:
+                print("[policy server]: unexpected keys:", unexpected_keys)
         print("[policy server]: model init success!")
         return policy
     

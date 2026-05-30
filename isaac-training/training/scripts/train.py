@@ -146,11 +146,8 @@ def main(cfg):
         "eval/stats.above_bound",
         "eval/stats.wall_collision",
         "auxiliary_loss",
-        "auxiliary_goal_progress_loss",
-        "auxiliary_front_clearance_gain_loss",
-        "auxiliary_stuck_loss",
-        "auxiliary_wall_collision_loss",
-        "auxiliary_collision_loss",
+        "auxiliary_future_progress_loss",
+        "auxiliary_future_clearance_loss",
         "auxiliary_future_collision_loss",
         "auxiliary_future_stuck_loss",
     ]:#
