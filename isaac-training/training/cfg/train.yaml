@@ -73,9 +73,9 @@ reward:
     progress_scale: 35.0
     blocked_backward_scale: 0.25
   escape:
-    weight: 2.0
+    weight: 0.0
   stall:
-    weight: 1.0
+    weight: 0.0
     window: 60
     ramp_window: 60
     distance_threshold: 0.25
