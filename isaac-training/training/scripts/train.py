@@ -150,6 +150,7 @@ def main(cfg):
         "auxiliary_future_clearance_loss",
         "auxiliary_future_collision_loss",
         "auxiliary_future_stuck_loss",
+        "auxiliary_latent_dynamics_loss",
     ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 

@@ -15,6 +15,8 @@ class PPO(TensorDictModuleBase):
         self.cfg = cfg
         self.device = device
         self.n_agents, self.action_dim = action_spec.shape
+        self.state_dim = int(observation_spec[("agents", "observation", "state")].shape[-1])
+        self.static_latent_dim = 128 + self.state_dim
 
         
         # Feature extractor for LiDAR
@@ -50,6 +52,8 @@ class PPO(TensorDictModuleBase):
                 self.auxiliary_future_horizons.append(horizon)
         if self.auxiliary_enabled and not self.auxiliary_future_horizons:
             self.auxiliary_future_horizons = [1]
+        self.latent_dynamics_enabled = bool(auxiliary_cfg.get("latent_dynamics_enabled", False))
+        self.latent_dynamics_weight = float(auxiliary_cfg.get("latent_dynamics_weight", 0.0))
         self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
@@ -61,6 +65,24 @@ class PPO(TensorDictModuleBase):
             ).to(self.device)
         else:
             self.auxiliary_predictor = None
+        if self.auxiliary_enabled and self.latent_dynamics_enabled and self.latent_dynamics_weight > 0.0:
+            latent_dynamics_hidden_dim = int(auxiliary_cfg.get("latent_dynamics_hidden_dim", 256))
+            self.latent_dynamics_state = nn.Sequential(
+                nn.Linear(self.static_latent_dim, latent_dynamics_hidden_dim),
+                nn.Tanh(),
+            ).to(self.device)
+            self.latent_dynamics_cell = nn.GRUCell(
+                self.static_latent_dim + self.action_dim,
+                latent_dynamics_hidden_dim,
+            ).to(self.device)
+            self.latent_dynamics_head = nn.Sequential(
+                nn.Linear(latent_dynamics_hidden_dim, self.static_latent_dim),
+                nn.LayerNorm(self.static_latent_dim),
+            ).to(self.device)
+        else:
+            self.latent_dynamics_state = None
+            self.latent_dynamics_cell = None
+            self.latent_dynamics_head = None
 
         # Actor etwork
         self.actor = ProbabilisticActor(
@@ -102,6 +124,8 @@ class PPO(TensorDictModuleBase):
         self.critic.apply(init_)
         if self.auxiliary_predictor is not None:
             self._init_auxiliary_predictor()
+        if self.latent_dynamics_cell is not None:
+            self._init_latent_dynamics()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -122,3 +146,18 @@ class PPO(TensorDictModuleBase):
         output_layer = self.auxiliary_predictor[-1]
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
+
+    def _init_latent_dynamics(self):
+        for module in self.latent_dynamics_state.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.constant_(module.bias, 0.0)
+        for name, param in self.latent_dynamics_cell.named_parameters():
+            if "weight" in name:
+                nn.init.orthogonal_(param, 0.1)
+            elif "bias" in name:
+                nn.init.constant_(param, 0.0)
+        for module in self.latent_dynamics_head.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.constant_(module.bias, 0.0)
