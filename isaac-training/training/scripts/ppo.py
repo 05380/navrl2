@@ -14,8 +14,6 @@ class PPO(TensorDictModuleBase):
         self.cfg = cfg
         self.device = device
         self.n_agents, self.action_dim = action_spec.shape
-        self.state_dim = int(observation_spec[("agents", "observation", "state")].shape[-1])
-        self.static_latent_dim = 128 + self.state_dim
 
         
         # Feature extractor for LiDAR
@@ -55,8 +53,6 @@ class PPO(TensorDictModuleBase):
         self.auxiliary_future_stuck_weight = float(auxiliary_cfg.get("future_stuck_weight", 1.0))
         self.auxiliary_future_clearance_weight = float(auxiliary_cfg.get("future_clearance_weight", 1.0))
         self.auxiliary_future_progress_weight = float(auxiliary_cfg.get("future_progress_weight", 1.0))
-        self.latent_dynamics_enabled = bool(auxiliary_cfg.get("latent_dynamics_enabled", False))
-        self.latent_dynamics_weight = float(auxiliary_cfg.get("latent_dynamics_weight", 0.0))
         self.future_risk_enabled = bool(auxiliary_cfg.get("future_risk_enabled", False))
         self.future_risk_weight = float(auxiliary_cfg.get("future_risk_weight", 0.0))
         self.future_risk_collision_horizons = []
@@ -86,31 +82,13 @@ class PPO(TensorDictModuleBase):
         ):
             future_risk_hidden_dim = int(auxiliary_cfg.get("future_risk_hidden_dim", 128))
             self.future_risk_predictor = nn.Sequential(
-                nn.Linear(self.static_latent_dim + self.action_dim, future_risk_hidden_dim),
+                nn.Linear(256 + self.action_dim, future_risk_hidden_dim),
                 nn.ELU(),
                 nn.LayerNorm(future_risk_hidden_dim),
                 nn.Linear(future_risk_hidden_dim, self.future_risk_output_dim),
             ).to(self.device)
         else:
             self.future_risk_predictor = None
-        if self.auxiliary_enabled and self.latent_dynamics_enabled and self.latent_dynamics_weight > 0.0:
-            latent_dynamics_hidden_dim = int(auxiliary_cfg.get("latent_dynamics_hidden_dim", 256))
-            self.latent_dynamics_state = nn.Sequential(
-                nn.Linear(self.static_latent_dim, latent_dynamics_hidden_dim),
-                nn.Tanh(),
-            ).to(self.device)
-            self.latent_dynamics_cell = nn.GRUCell(
-                self.static_latent_dim + self.action_dim,
-                latent_dynamics_hidden_dim,
-            ).to(self.device)
-            self.latent_dynamics_head = nn.Sequential(
-                nn.Linear(latent_dynamics_hidden_dim, self.static_latent_dim),
-                nn.LayerNorm(self.static_latent_dim),
-            ).to(self.device)
-        else:
-            self.latent_dynamics_state = None
-            self.latent_dynamics_cell = None
-            self.latent_dynamics_head = None
 
         # Actor etwork
         self.actor = ProbabilisticActor(
@@ -137,10 +115,6 @@ class PPO(TensorDictModuleBase):
             feature_extractor_params += list(self.auxiliary_predictor.parameters())
         if self.future_risk_predictor is not None:
             feature_extractor_params += list(self.future_risk_predictor.parameters())
-        if self.latent_dynamics_cell is not None:
-            feature_extractor_params += list(self.latent_dynamics_state.parameters())
-            feature_extractor_params += list(self.latent_dynamics_cell.parameters())
-            feature_extractor_params += list(self.latent_dynamics_head.parameters())
         self.feature_extractor_optim = torch.optim.Adam(feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor.learning_rate)
         self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.actor.learning_rate)
@@ -163,8 +137,6 @@ class PPO(TensorDictModuleBase):
             self._init_auxiliary_predictor()
         if self.future_risk_predictor is not None:
             self._init_future_risk_predictor()
-        if self.latent_dynamics_cell is not None:
-            self._init_latent_dynamics()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -195,21 +167,6 @@ class PPO(TensorDictModuleBase):
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
 
-    def _init_latent_dynamics(self):
-        for module in self.latent_dynamics_state.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, 0.1)
-                nn.init.constant_(module.bias, 0.0)
-        for name, param in self.latent_dynamics_cell.named_parameters():
-            if "weight" in name:
-                nn.init.orthogonal_(param, 0.1)
-            elif "bias" in name:
-                nn.init.constant_(param, 0.0)
-        for module in self.latent_dynamics_head.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, 0.1)
-                nn.init.constant_(module.bias, 0.0)
-
     @staticmethod
     def _symlog(x):
         return torch.sign(x) * torch.log1p(x.abs())
@@ -219,33 +176,6 @@ class PPO(TensorDictModuleBase):
         action = tensordict[("agents", "action_normalized")]
         action = action.reshape(*features.shape[:-1], -1)
         return torch.cat([features, action], dim=-1)
-
-    def _static_latent(self, tensordict):
-        lidar_feature = tensordict["_cnn_feature"]
-        state = tensordict[("agents", "observation", "state")].reshape(*lidar_feature.shape[:-1], -1)
-        return torch.cat([lidar_feature, state], dim=-1)
-
-    def _future_risk_input(self, tensordict):
-        static_latent = self._static_latent(tensordict)
-        action = tensordict[("agents", "action_normalized")]
-        action = action.reshape(*static_latent.shape[:-1], -1)
-        return torch.cat([static_latent, action], dim=-1)
-
-    def _zero_auxiliary_info(self, tensordict):
-        zero = tensordict["_feature"].sum() * 0.0
-        return zero, TensorDict({
-            "auxiliary_loss": zero.detach(),
-            "auxiliary_future_progress_loss": zero.detach(),
-            "auxiliary_future_clearance_loss": zero.detach(),
-            "auxiliary_future_collision_loss": zero.detach(),
-            "auxiliary_future_stuck_loss": zero.detach(),
-            "auxiliary_latent_dynamics_loss": zero.detach(),
-            "auxiliary_future_risk_loss": zero.detach(),
-            "auxiliary_risk_collision_3_loss": zero.detach(),
-            "auxiliary_risk_collision_5_loss": zero.detach(),
-            "auxiliary_risk_stuck_5_loss": zero.detach(),
-            "auxiliary_risk_deadlock_10_loss": zero.detach(),
-        }, [])
 
     def _future_within_horizon(self, signal, done, horizon):
         target = torch.zeros_like(signal, dtype=torch.bool)
@@ -308,11 +238,11 @@ class PPO(TensorDictModuleBase):
             return
 
         next_stats = tensordict["next", "stats"]
+        collision = next_stats["collision"].detach().squeeze(-1)
         stuck = next_stats["stuck_active"].detach().squeeze(-1)
         done = tensordict["next", "done"].detach().squeeze(-1)
 
         if self.auxiliary_predictor is not None and self.auxiliary_future_horizons:
-            collision = next_stats["collision"].detach().squeeze(-1)
             front_clearance = next_stats["front_clearance"].detach().squeeze(-1)
             goal_progress = next_stats["goal_progress"].detach().squeeze(-1)
 
@@ -332,9 +262,8 @@ class PPO(TensorDictModuleBase):
             tensordict.set("_aux_future_progress", torch.stack(future_progress, dim=-1))
 
         if self.future_risk_predictor is not None:
-            wall_collision = next_stats["wall_collision"].detach().squeeze(-1)
             future_risk_targets = [
-                self._future_within_horizon(wall_collision, done, horizon)
+                self._future_within_horizon(collision, done, horizon)
                 for horizon in self.future_risk_collision_horizons
             ]
             future_risk_targets.append(self._future_within_horizon(stuck, done, self.future_risk_stuck_horizon))
@@ -342,12 +271,20 @@ class PPO(TensorDictModuleBase):
             tensordict.set("_aux_future_risk", torch.stack(future_risk_targets, dim=-1))
 
     def _compute_auxiliary_loss(self, tensordict):
-        if (
-            self.auxiliary_predictor is None
-            and self.future_risk_predictor is None
-            and self.latent_dynamics_cell is None
-        ):
-            return self._zero_auxiliary_info(tensordict)
+        if self.auxiliary_predictor is None and self.future_risk_predictor is None:
+            zero = tensordict["_feature"].sum() * 0.0
+            return zero, TensorDict({
+                "auxiliary_loss": zero.detach(),
+                "auxiliary_future_progress_loss": zero.detach(),
+                "auxiliary_future_clearance_loss": zero.detach(),
+                "auxiliary_future_collision_loss": zero.detach(),
+                "auxiliary_future_stuck_loss": zero.detach(),
+                "auxiliary_future_risk_loss": zero.detach(),
+                "auxiliary_risk_collision_3_loss": zero.detach(),
+                "auxiliary_risk_collision_5_loss": zero.detach(),
+                "auxiliary_risk_stuck_5_loss": zero.detach(),
+                "auxiliary_risk_deadlock_10_loss": zero.detach(),
+            }, [])
 
         zero = tensordict["_feature"].sum() * 0.0
         future_collision_loss = zero
@@ -389,7 +326,7 @@ class PPO(TensorDictModuleBase):
             future_progress_loss = F.smooth_l1_loss(pred_future_progress, target_future_progress)
 
         if self.future_risk_predictor is not None:
-            pred_future_risk = self.future_risk_predictor(self._future_risk_input(tensordict))
+            pred_future_risk = self.future_risk_predictor(self._auxiliary_input(tensordict))
             target_future_risk = tensordict["_aux_future_risk"].detach().clamp(0.0, 1.0)
             risk_component_losses = F.binary_cross_entropy_with_logits(
                 pred_future_risk,
@@ -405,15 +342,12 @@ class PPO(TensorDictModuleBase):
             if risk_component_losses.shape[-1] > 3:
                 risk_deadlock_10_loss = risk_component_losses[..., 3].mean()
 
-        latent_dynamics_loss = self._compute_latent_dynamics_loss(tensordict)
-
         raw_auxiliary_loss = (
             self.auxiliary_future_collision_weight * future_collision_loss
             + self.auxiliary_future_stuck_weight * future_stuck_loss
             + self.auxiliary_future_clearance_weight * future_clearance_loss
             + self.auxiliary_future_progress_weight * future_progress_loss
             + self.future_risk_weight * future_risk_loss
-            + self.latent_dynamics_weight * latent_dynamics_loss
         )
         auxiliary_loss = self.auxiliary_loss_weight * raw_auxiliary_loss
 
@@ -423,7 +357,6 @@ class PPO(TensorDictModuleBase):
             "auxiliary_future_clearance_loss": future_clearance_loss.detach(),
             "auxiliary_future_collision_loss": future_collision_loss.detach(),
             "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
-            "auxiliary_latent_dynamics_loss": latent_dynamics_loss.detach(),
             "auxiliary_future_risk_loss": future_risk_loss.detach(),
             "auxiliary_risk_collision_3_loss": risk_collision_3_loss.detach(),
             "auxiliary_risk_collision_5_loss": risk_collision_5_loss.detach(),
@@ -431,39 +364,12 @@ class PPO(TensorDictModuleBase):
             "auxiliary_risk_deadlock_10_loss": risk_deadlock_10_loss.detach(),
         }, [])
 
-    def _compute_latent_dynamics_loss(self, tensordict):
-        if self.latent_dynamics_cell is None:
-            return tensordict["_feature"].sum() * 0.0
-        try:
-            target_next_latent = tensordict["_aux_next_static_latent"].detach()
-        except KeyError:
-            return tensordict["_feature"].sum() * 0.0
-
-        static_latent = self._static_latent(tensordict)
-        action = tensordict[("agents", "action_normalized")].reshape(*static_latent.shape[:-1], -1)
-        dynamics_input = torch.cat([static_latent, action], dim=-1)
-        flat_static_latent = static_latent.reshape(-1, static_latent.shape[-1])
-        hidden = self.latent_dynamics_state(flat_static_latent)
-        pred_next_latent = self.latent_dynamics_head(
-            self.latent_dynamics_cell(dynamics_input.reshape(-1, dynamics_input.shape[-1]), hidden)
-        ).reshape_as(static_latent)
-        transition_loss = F.smooth_l1_loss(
-            pred_next_latent,
-            target_next_latent,
-            reduction="none",
-        ).mean(dim=-1, keepdim=True)
-
-        done = tensordict["next", "done"].detach().bool()
-        valid = (~done).to(dtype=transition_loss.dtype)
-        return (transition_loss * valid).sum() / valid.sum().clamp_min(1.0)
-
     def train(self, tensordict):
         # tensordict: (num_env, num_frames, dim), batchsize = num_env * num_frames
         next_tensordict = tensordict["next"]
         with torch.no_grad():
             next_tensordict = torch.vmap(self.feature_extractor)(next_tensordict) # calculate features for next state value calculation
             next_values = self.critic(next_tensordict)["state_value"]
-            tensordict.set("_aux_next_static_latent", self._static_latent(next_tensordict).detach())
         rewards = tensordict["next", "agents", "reward"] # Reward obtained by state transition
         dones = tensordict["next", "terminated"] # Whether the next states are terminal states
 

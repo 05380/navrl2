@@ -150,7 +150,6 @@ def main(cfg):
         "auxiliary_future_clearance_loss",
         "auxiliary_future_collision_loss",
         "auxiliary_future_stuck_loss",
-        "auxiliary_latent_dynamics_loss",
         "auxiliary_future_risk_loss",
         "auxiliary_risk_collision_3_loss",
         "auxiliary_risk_collision_5_loss",

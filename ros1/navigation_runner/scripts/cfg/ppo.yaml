@@ -11,9 +11,6 @@ algo:
       future_stuck_weight: 1.0
       future_clearance_weight: 1.0
       future_progress_weight: 1.0
-      latent_dynamics_enabled: true
-      latent_dynamics_weight: 0.5
-      latent_dynamics_hidden_dim: 256
       future_risk_enabled: true
       future_risk_weight: 1.0
       future_risk_hidden_dim: 128
