@@ -14,6 +14,12 @@ algo:
       latent_dynamics_enabled: true
       latent_dynamics_weight: 0.5
       latent_dynamics_hidden_dim: 256
+      future_risk_enabled: true
+      future_risk_weight: 1.0
+      future_risk_hidden_dim: 128
+      future_risk_collision_horizons: [3, 5]
+      future_risk_stuck_horizon: 5
+      future_risk_deadlock_horizon: 10
   
   actor:
     learning_rate: 5e-4

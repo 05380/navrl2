@@ -54,6 +54,16 @@ class PPO(TensorDictModuleBase):
             self.auxiliary_future_horizons = [1]
         self.latent_dynamics_enabled = bool(auxiliary_cfg.get("latent_dynamics_enabled", False))
         self.latent_dynamics_weight = float(auxiliary_cfg.get("latent_dynamics_weight", 0.0))
+        self.future_risk_enabled = bool(auxiliary_cfg.get("future_risk_enabled", False))
+        self.future_risk_weight = float(auxiliary_cfg.get("future_risk_weight", 0.0))
+        self.future_risk_collision_horizons = []
+        for horizon in auxiliary_cfg.get("future_risk_collision_horizons", [3, 5]):
+            horizon = int(horizon)
+            if horizon >= 1 and horizon not in self.future_risk_collision_horizons:
+                self.future_risk_collision_horizons.append(horizon)
+        self.future_risk_stuck_horizon = max(1, int(auxiliary_cfg.get("future_risk_stuck_horizon", 5)))
+        self.future_risk_deadlock_horizon = max(1, int(auxiliary_cfg.get("future_risk_deadlock_horizon", 10)))
+        self.future_risk_output_dim = len(self.future_risk_collision_horizons) + 2
         self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
@@ -65,6 +75,21 @@ class PPO(TensorDictModuleBase):
             ).to(self.device)
         else:
             self.auxiliary_predictor = None
+        if (
+            self.auxiliary_enabled
+            and self.future_risk_enabled
+            and self.future_risk_weight > 0.0
+            and self.future_risk_output_dim > 0
+        ):
+            future_risk_hidden_dim = int(auxiliary_cfg.get("future_risk_hidden_dim", 128))
+            self.future_risk_predictor = nn.Sequential(
+                nn.Linear(self.static_latent_dim + self.action_dim, future_risk_hidden_dim),
+                nn.ELU(),
+                nn.LayerNorm(future_risk_hidden_dim),
+                nn.Linear(future_risk_hidden_dim, self.future_risk_output_dim),
+            ).to(self.device)
+        else:
+            self.future_risk_predictor = None
         if self.auxiliary_enabled and self.latent_dynamics_enabled and self.latent_dynamics_weight > 0.0:
             latent_dynamics_hidden_dim = int(auxiliary_cfg.get("latent_dynamics_hidden_dim", 256))
             self.latent_dynamics_state = nn.Sequential(
@@ -124,6 +149,8 @@ class PPO(TensorDictModuleBase):
         self.critic.apply(init_)
         if self.auxiliary_predictor is not None:
             self._init_auxiliary_predictor()
+        if self.future_risk_predictor is not None:
+            self._init_future_risk_predictor()
         if self.latent_dynamics_cell is not None:
             self._init_latent_dynamics()
 
@@ -144,6 +171,15 @@ class PPO(TensorDictModuleBase):
                 nn.init.orthogonal_(module.weight, 0.1)
                 nn.init.constant_(module.bias, 0.0)
         output_layer = self.auxiliary_predictor[-1]
+        nn.init.zeros_(output_layer.weight)
+        nn.init.zeros_(output_layer.bias)
+
+    def _init_future_risk_predictor(self):
+        for module in self.future_risk_predictor.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.constant_(module.bias, 0.0)
+        output_layer = self.future_risk_predictor[-1]
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
 

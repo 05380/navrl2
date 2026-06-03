@@ -151,6 +151,11 @@ def main(cfg):
         "auxiliary_future_collision_loss",
         "auxiliary_future_stuck_loss",
         "auxiliary_latent_dynamics_loss",
+        "auxiliary_future_risk_loss",
+        "auxiliary_risk_collision_3_loss",
+        "auxiliary_risk_collision_5_loss",
+        "auxiliary_risk_stuck_5_loss",
+        "auxiliary_risk_deadlock_10_loss",
     ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 
