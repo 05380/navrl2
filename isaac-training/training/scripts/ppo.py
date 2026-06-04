@@ -239,6 +239,7 @@ class PPO(TensorDictModuleBase):
 
         next_stats = tensordict["next", "stats"]
         collision = next_stats["collision"].detach().squeeze(-1)
+        wall_collision = next_stats["wall_collision"].detach().squeeze(-1)
         stuck = next_stats["stuck_active"].detach().squeeze(-1)
         done = tensordict["next", "done"].detach().squeeze(-1)
 
@@ -263,7 +264,7 @@ class PPO(TensorDictModuleBase):
 
         if self.future_risk_predictor is not None:
             future_risk_targets = [
-                self._future_within_horizon(collision, done, horizon)
+                self._future_within_horizon(wall_collision, done, horizon)
                 for horizon in self.future_risk_collision_horizons
             ]
             future_risk_targets.append(self._future_within_horizon(stuck, done, self.future_risk_stuck_horizon))
@@ -280,8 +281,8 @@ class PPO(TensorDictModuleBase):
                 "auxiliary_future_collision_loss": zero.detach(),
                 "auxiliary_future_stuck_loss": zero.detach(),
                 "auxiliary_future_risk_loss": zero.detach(),
-                "auxiliary_risk_collision_3_loss": zero.detach(),
-                "auxiliary_risk_collision_5_loss": zero.detach(),
+                "auxiliary_risk_wall_collision_3_loss": zero.detach(),
+                "auxiliary_risk_wall_collision_5_loss": zero.detach(),
                 "auxiliary_risk_stuck_5_loss": zero.detach(),
                 "auxiliary_risk_deadlock_10_loss": zero.detach(),
             }, [])
@@ -292,8 +293,8 @@ class PPO(TensorDictModuleBase):
         future_clearance_loss = zero
         future_progress_loss = zero
         future_risk_loss = zero
-        risk_collision_3_loss = zero
-        risk_collision_5_loss = zero
+        risk_wall_collision_3_loss = zero
+        risk_wall_collision_5_loss = zero
         risk_stuck_5_loss = zero
         risk_deadlock_10_loss = zero
 
@@ -334,9 +335,9 @@ class PPO(TensorDictModuleBase):
                 reduction="none",
             )
             future_risk_loss = risk_component_losses.mean()
-            risk_collision_3_loss = risk_component_losses[..., 0].mean()
+            risk_wall_collision_3_loss = risk_component_losses[..., 0].mean()
             if risk_component_losses.shape[-1] > 1:
-                risk_collision_5_loss = risk_component_losses[..., 1].mean()
+                risk_wall_collision_5_loss = risk_component_losses[..., 1].mean()
             if risk_component_losses.shape[-1] > 2:
                 risk_stuck_5_loss = risk_component_losses[..., 2].mean()
             if risk_component_losses.shape[-1] > 3:
@@ -358,8 +359,8 @@ class PPO(TensorDictModuleBase):
             "auxiliary_future_collision_loss": future_collision_loss.detach(),
             "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
             "auxiliary_future_risk_loss": future_risk_loss.detach(),
-            "auxiliary_risk_collision_3_loss": risk_collision_3_loss.detach(),
-            "auxiliary_risk_collision_5_loss": risk_collision_5_loss.detach(),
+            "auxiliary_risk_wall_collision_3_loss": risk_wall_collision_3_loss.detach(),
+            "auxiliary_risk_wall_collision_5_loss": risk_wall_collision_5_loss.detach(),
             "auxiliary_risk_stuck_5_loss": risk_stuck_5_loss.detach(),
             "auxiliary_risk_deadlock_10_loss": risk_deadlock_10_loss.detach(),
         }, [])
