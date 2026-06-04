@@ -52,18 +52,12 @@ class PPO(TensorDictModuleBase):
         self.auxiliary_future_collision_weight = float(auxiliary_cfg.get("future_collision_weight", 1.0))
         self.auxiliary_future_stuck_weight = float(auxiliary_cfg.get("future_stuck_weight", 1.0))
         self.auxiliary_future_clearance_weight = float(auxiliary_cfg.get("future_clearance_weight", 1.0))
+        self.auxiliary_future_sector_clearance_weight = float(
+            auxiliary_cfg.get("future_sector_clearance_weight", self.auxiliary_future_clearance_weight)
+        )
         self.auxiliary_future_progress_weight = float(auxiliary_cfg.get("future_progress_weight", 1.0))
-        self.future_risk_enabled = bool(auxiliary_cfg.get("future_risk_enabled", False))
-        self.future_risk_weight = float(auxiliary_cfg.get("future_risk_weight", 0.0))
-        self.future_risk_collision_horizons = []
-        for horizon in auxiliary_cfg.get("future_risk_collision_horizons", [3, 5]):
-            horizon = int(horizon)
-            if horizon >= 1 and horizon not in self.future_risk_collision_horizons:
-                self.future_risk_collision_horizons.append(horizon)
-        self.future_risk_stuck_horizon = max(1, int(auxiliary_cfg.get("future_risk_stuck_horizon", 5)))
-        self.future_risk_deadlock_horizon = max(1, int(auxiliary_cfg.get("future_risk_deadlock_horizon", 10)))
-        self.future_risk_output_dim = len(self.future_risk_collision_horizons) + 2
         self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
+        self.auxiliary_sector_clearance_output_dim = 3 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
             self.auxiliary_predictor = nn.Sequential(
@@ -76,19 +70,18 @@ class PPO(TensorDictModuleBase):
             self.auxiliary_predictor = None
         if (
             self.auxiliary_enabled
-            and self.future_risk_enabled
-            and self.future_risk_weight > 0.0
-            and self.future_risk_output_dim > 0
+            and self.auxiliary_loss_weight > 0.0
+            and self.auxiliary_future_sector_clearance_weight > 0.0
         ):
-            future_risk_hidden_dim = int(auxiliary_cfg.get("future_risk_hidden_dim", 128))
-            self.future_risk_predictor = nn.Sequential(
-                nn.Linear(256 + self.action_dim, future_risk_hidden_dim),
+            auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
+            self.sector_clearance_predictor = nn.Sequential(
+                nn.Linear(256 + self.action_dim, auxiliary_hidden_dim),
                 nn.ELU(),
-                nn.LayerNorm(future_risk_hidden_dim),
-                nn.Linear(future_risk_hidden_dim, self.future_risk_output_dim),
+                nn.LayerNorm(auxiliary_hidden_dim),
+                nn.Linear(auxiliary_hidden_dim, self.auxiliary_sector_clearance_output_dim),
             ).to(self.device)
         else:
-            self.future_risk_predictor = None
+            self.sector_clearance_predictor = None
 
         # Actor etwork
         self.actor = ProbabilisticActor(
@@ -113,8 +106,8 @@ class PPO(TensorDictModuleBase):
         feature_extractor_params = list(self.feature_extractor.parameters())
         if self.auxiliary_predictor is not None:
             feature_extractor_params += list(self.auxiliary_predictor.parameters())
-        if self.future_risk_predictor is not None:
-            feature_extractor_params += list(self.future_risk_predictor.parameters())
+        if self.sector_clearance_predictor is not None:
+            feature_extractor_params += list(self.sector_clearance_predictor.parameters())
         self.feature_extractor_optim = torch.optim.Adam(feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor.learning_rate)
         self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.actor.learning_rate)
@@ -135,8 +128,8 @@ class PPO(TensorDictModuleBase):
         self.critic.apply(init_)
         if self.auxiliary_predictor is not None:
             self._init_auxiliary_predictor()
-        if self.future_risk_predictor is not None:
-            self._init_future_risk_predictor()
+        if self.sector_clearance_predictor is not None:
+            self._init_sector_clearance_predictor()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -158,12 +151,12 @@ class PPO(TensorDictModuleBase):
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
 
-    def _init_future_risk_predictor(self):
-        for module in self.future_risk_predictor.modules():
+    def _init_sector_clearance_predictor(self):
+        for module in self.sector_clearance_predictor.modules():
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, 0.1)
                 nn.init.constant_(module.bias, 0.0)
-        output_layer = self.future_risk_predictor[-1]
+        output_layer = self.sector_clearance_predictor[-1]
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
 
@@ -209,7 +202,10 @@ class PPO(TensorDictModuleBase):
                 prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
                 valid_for_offset = valid_for_offset & (~prev_done)
                 shifted_signal[:, :-offset] = signal[:, offset:]
-            target = target + torch.where(valid_for_offset, shifted_signal, torch.zeros_like(shifted_signal))
+            valid_mask = valid_for_offset
+            while valid_mask.dim() < signal.dim():
+                valid_mask = valid_mask.unsqueeze(-1)
+            target = target + torch.where(valid_mask, shifted_signal, torch.zeros_like(shifted_signal))
         return target
 
     def _multi_step_min(self, signal, done, horizon):
@@ -227,76 +223,69 @@ class PPO(TensorDictModuleBase):
                 prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
                 valid_for_offset = valid_for_offset & (~prev_done)
                 shifted_signal[:, :-offset] = signal[:, offset:]
-            target = torch.minimum(target, torch.where(valid_for_offset, shifted_signal, torch.full_like(signal, fill_value)))
+            valid_mask = valid_for_offset
+            while valid_mask.dim() < signal.dim():
+                valid_mask = valid_mask.unsqueeze(-1)
+            target = torch.minimum(target, torch.where(valid_mask, shifted_signal, torch.full_like(signal, fill_value)))
         return target
 
     def _add_multi_step_auxiliary_targets(self, tensordict):
         if (
-            (self.auxiliary_predictor is None or not self.auxiliary_future_horizons)
-            and self.future_risk_predictor is None
-        ):
+            self.auxiliary_predictor is None
+            and self.sector_clearance_predictor is None
+        ) or not self.auxiliary_future_horizons:
             return
 
         next_stats = tensordict["next", "stats"]
         collision = next_stats["collision"].detach().squeeze(-1)
-        wall_collision = next_stats["wall_collision"].detach().squeeze(-1)
         stuck = next_stats["stuck_active"].detach().squeeze(-1)
+        front_clearance = next_stats["front_clearance"].detach().squeeze(-1)
+        sector_clearance = next_stats["sector_clearance"].detach()
+        goal_progress = next_stats["goal_progress"].detach().squeeze(-1)
         done = tensordict["next", "done"].detach().squeeze(-1)
 
-        if self.auxiliary_predictor is not None and self.auxiliary_future_horizons:
-            front_clearance = next_stats["front_clearance"].detach().squeeze(-1)
-            goal_progress = next_stats["goal_progress"].detach().squeeze(-1)
+        future_collision = []
+        future_stuck = []
+        future_clearance = []
+        future_sector_clearance = []
+        future_progress = []
+        for horizon in self.auxiliary_future_horizons:
+            future_collision.append(self._future_within_horizon(collision, done, horizon))
+            future_stuck.append(self._future_within_horizon(stuck, done, horizon))
+            future_clearance.append(self._multi_step_min(front_clearance, done, horizon))
+            future_sector_clearance.append(self._multi_step_min(sector_clearance, done, horizon))
+            future_progress.append(self._multi_step_sum(goal_progress, done, horizon))
 
-            future_collision = []
-            future_stuck = []
-            future_clearance = []
-            future_progress = []
-            for horizon in self.auxiliary_future_horizons:
-                future_collision.append(self._future_within_horizon(collision, done, horizon))
-                future_stuck.append(self._future_within_horizon(stuck, done, horizon))
-                future_clearance.append(self._multi_step_min(front_clearance, done, horizon))
-                future_progress.append(self._multi_step_sum(goal_progress, done, horizon))
-
-            tensordict.set("_aux_future_collision", torch.stack(future_collision, dim=-1))
-            tensordict.set("_aux_future_stuck", torch.stack(future_stuck, dim=-1))
-            tensordict.set("_aux_future_clearance", torch.stack(future_clearance, dim=-1))
-            tensordict.set("_aux_future_progress", torch.stack(future_progress, dim=-1))
-
-        if self.future_risk_predictor is not None:
-            future_risk_targets = [
-                self._future_within_horizon(wall_collision, done, horizon)
-                for horizon in self.future_risk_collision_horizons
-            ]
-            future_risk_targets.append(self._future_within_horizon(stuck, done, self.future_risk_stuck_horizon))
-            future_risk_targets.append(self._future_within_horizon(stuck, done, self.future_risk_deadlock_horizon))
-            tensordict.set("_aux_future_risk", torch.stack(future_risk_targets, dim=-1))
+        tensordict.set("_aux_future_collision", torch.stack(future_collision, dim=-1))
+        tensordict.set("_aux_future_stuck", torch.stack(future_stuck, dim=-1))
+        tensordict.set("_aux_future_clearance", torch.stack(future_clearance, dim=-1))
+        tensordict.set("_aux_future_sector_clearance", torch.stack(future_sector_clearance, dim=-2))
+        tensordict.set("_aux_future_progress", torch.stack(future_progress, dim=-1))
 
     def _compute_auxiliary_loss(self, tensordict):
-        if self.auxiliary_predictor is None and self.future_risk_predictor is None:
+        if self.auxiliary_predictor is None and self.sector_clearance_predictor is None:
             zero = tensordict["_feature"].sum() * 0.0
             return zero, TensorDict({
                 "auxiliary_loss": zero.detach(),
                 "auxiliary_future_progress_loss": zero.detach(),
                 "auxiliary_future_clearance_loss": zero.detach(),
+                "auxiliary_future_sector_clearance_loss": zero.detach(),
+                "auxiliary_future_left_clearance_loss": zero.detach(),
+                "auxiliary_future_front_sector_clearance_loss": zero.detach(),
+                "auxiliary_future_right_clearance_loss": zero.detach(),
                 "auxiliary_future_collision_loss": zero.detach(),
                 "auxiliary_future_stuck_loss": zero.detach(),
-                "auxiliary_future_risk_loss": zero.detach(),
-                "auxiliary_risk_wall_collision_3_loss": zero.detach(),
-                "auxiliary_risk_wall_collision_5_loss": zero.detach(),
-                "auxiliary_risk_stuck_5_loss": zero.detach(),
-                "auxiliary_risk_deadlock_10_loss": zero.detach(),
             }, [])
 
         zero = tensordict["_feature"].sum() * 0.0
         future_collision_loss = zero
         future_stuck_loss = zero
         future_clearance_loss = zero
+        future_sector_clearance_loss = zero
+        future_left_clearance_loss = zero
+        future_front_sector_clearance_loss = zero
+        future_right_clearance_loss = zero
         future_progress_loss = zero
-        future_risk_loss = zero
-        risk_wall_collision_3_loss = zero
-        risk_wall_collision_5_loss = zero
-        risk_stuck_5_loss = zero
-        risk_deadlock_10_loss = zero
 
         if self.auxiliary_predictor is not None:
             predictions = self.auxiliary_predictor(self._auxiliary_input(tensordict))
@@ -326,29 +315,30 @@ class PPO(TensorDictModuleBase):
             future_clearance_loss = F.smooth_l1_loss(pred_future_clearance, target_future_clearance)
             future_progress_loss = F.smooth_l1_loss(pred_future_progress, target_future_progress)
 
-        if self.future_risk_predictor is not None:
-            pred_future_risk = self.future_risk_predictor(self._auxiliary_input(tensordict))
-            target_future_risk = tensordict["_aux_future_risk"].detach().clamp(0.0, 1.0)
-            risk_component_losses = F.binary_cross_entropy_with_logits(
-                pred_future_risk,
-                target_future_risk,
+        if self.sector_clearance_predictor is not None:
+            sector_predictions = self.sector_clearance_predictor(self._auxiliary_input(tensordict))
+            pred_future_sector_clearance = sector_predictions.reshape(
+                *sector_predictions.shape[:-1],
+                len(self.auxiliary_future_horizons),
+                3,
+            )
+            target_future_sector_clearance = self._symlog(tensordict["_aux_future_sector_clearance"].detach())
+            sector_clearance_component_loss = F.smooth_l1_loss(
+                pred_future_sector_clearance,
+                target_future_sector_clearance,
                 reduction="none",
             )
-            future_risk_loss = risk_component_losses.mean()
-            risk_wall_collision_3_loss = risk_component_losses[..., 0].mean()
-            if risk_component_losses.shape[-1] > 1:
-                risk_wall_collision_5_loss = risk_component_losses[..., 1].mean()
-            if risk_component_losses.shape[-1] > 2:
-                risk_stuck_5_loss = risk_component_losses[..., 2].mean()
-            if risk_component_losses.shape[-1] > 3:
-                risk_deadlock_10_loss = risk_component_losses[..., 3].mean()
+            future_sector_clearance_loss = sector_clearance_component_loss.mean()
+            future_left_clearance_loss = sector_clearance_component_loss[..., 0].mean()
+            future_front_sector_clearance_loss = sector_clearance_component_loss[..., 1].mean()
+            future_right_clearance_loss = sector_clearance_component_loss[..., 2].mean()
 
         raw_auxiliary_loss = (
             self.auxiliary_future_collision_weight * future_collision_loss
             + self.auxiliary_future_stuck_weight * future_stuck_loss
             + self.auxiliary_future_clearance_weight * future_clearance_loss
+            + self.auxiliary_future_sector_clearance_weight * future_sector_clearance_loss
             + self.auxiliary_future_progress_weight * future_progress_loss
-            + self.future_risk_weight * future_risk_loss
         )
         auxiliary_loss = self.auxiliary_loss_weight * raw_auxiliary_loss
 
@@ -356,13 +346,12 @@ class PPO(TensorDictModuleBase):
             "auxiliary_loss": auxiliary_loss.detach(),
             "auxiliary_future_progress_loss": future_progress_loss.detach(),
             "auxiliary_future_clearance_loss": future_clearance_loss.detach(),
+            "auxiliary_future_sector_clearance_loss": future_sector_clearance_loss.detach(),
+            "auxiliary_future_left_clearance_loss": future_left_clearance_loss.detach(),
+            "auxiliary_future_front_sector_clearance_loss": future_front_sector_clearance_loss.detach(),
+            "auxiliary_future_right_clearance_loss": future_right_clearance_loss.detach(),
             "auxiliary_future_collision_loss": future_collision_loss.detach(),
             "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
-            "auxiliary_future_risk_loss": future_risk_loss.detach(),
-            "auxiliary_risk_wall_collision_3_loss": risk_wall_collision_3_loss.detach(),
-            "auxiliary_risk_wall_collision_5_loss": risk_wall_collision_5_loss.detach(),
-            "auxiliary_risk_stuck_5_loss": risk_stuck_5_loss.detach(),
-            "auxiliary_risk_deadlock_10_loss": risk_deadlock_10_loss.detach(),
         }, [])
 
     def train(self, tensordict):

@@ -10,13 +10,8 @@ algo:
       future_collision_weight: 1.0
       future_stuck_weight: 1.0
       future_clearance_weight: 1.0
+      future_sector_clearance_weight: 1.0
       future_progress_weight: 1.0
-      future_risk_enabled: true
-      future_risk_weight: 1.0
-      future_risk_hidden_dim: 128
-      future_risk_collision_horizons: [3, 5]
-      future_risk_stuck_horizon: 5
-      future_risk_deadlock_horizon: 10
   
   actor:
     learning_rate: 5e-4
