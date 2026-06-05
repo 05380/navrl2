@@ -394,12 +394,8 @@ class NavigationEnv(IsaacEnv):
         self.stuck_window = max(1, int(stuck_cfg.get("window", 40)))
         self.stuck_progress_eps = float(stuck_cfg.get("progress_eps", 0.005))
         self.stuck_front_distance = min(self.lidar_range, float(stuck_cfg.get("front_obstacle_distance", 1.5)))
-        stuck_front_angle_deg = float(stuck_cfg.get("front_angle_deg", 35.0))
-        self.stuck_front_tan = float(np.tan(np.deg2rad(stuck_front_angle_deg)))
+        self.stuck_front_tan = float(np.tan(np.deg2rad(stuck_cfg.get("front_angle_deg", 35.0))))
         self.stuck_front_height = float(stuck_cfg.get("front_height", 0.75))
-        self.sector_front_half_angle = float(np.deg2rad(stuck_cfg.get("sector_front_half_angle_deg", stuck_front_angle_deg)))
-        self.sector_side_max_angle = float(np.deg2rad(stuck_cfg.get("sector_side_max_angle_deg", 90.0)))
-        self.sector_clearance_height = float(stuck_cfg.get("sector_height", self.stuck_front_height))
         reward_cfg = cfg.get("reward", {})
         goal_progress_cfg = reward_cfg.get("goal_progress", {})
         self.goal_radius = float(goal_progress_cfg.get("goal_radius", 0.5))
@@ -773,23 +769,6 @@ class NavigationEnv(IsaacEnv):
             & (vertical <= self.stuck_front_height + vertical_inflation)
         )
 
-    def _compute_sector_clearance(self, rel_pos, distance):
-        forward = rel_pos[..., 0]
-        lateral = rel_pos[..., 1]
-        vertical = rel_pos[..., 2].abs()
-        angle = torch.atan2(lateral, forward)
-        valid = (forward > 0.0) & (vertical <= self.sector_clearance_height)
-
-        front_mask = valid & (angle.abs() <= self.sector_front_half_angle)
-        left_mask = valid & (angle > self.sector_front_half_angle) & (angle <= self.sector_side_max_angle)
-        right_mask = valid & (angle < -self.sector_front_half_angle) & (angle >= -self.sector_side_max_angle)
-
-        sector_clearances = []
-        for mask in (left_mask, front_mask, right_mask):
-            clearance_values = torch.where(mask, distance, torch.full_like(distance, self.lidar_range))
-            sector_clearances.append(clearance_values.min(dim=1).values.clamp(max=self.lidar_range))
-        return torch.stack(sector_clearances, dim=-1)
-
     def _compute_goal_progress_reward(self, goal_progress, reach_goal, time_limit, front_obstacle=None):
         scaled_goal_progress = goal_progress
         if front_obstacle is not None:
@@ -939,10 +918,7 @@ class NavigationEnv(IsaacEnv):
             "goal_distance": UnboundedContinuousTensorSpec(1),
             "goal_progress": UnboundedContinuousTensorSpec(1),
             "front_obstacle": UnboundedContinuousTensorSpec(1),
-            "left_clearance": UnboundedContinuousTensorSpec(1),
             "front_clearance": UnboundedContinuousTensorSpec(1),
-            "right_clearance": UnboundedContinuousTensorSpec(1),
-            "sector_clearance": UnboundedContinuousTensorSpec(3),
             "front_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
             "penalty_safety_static": UnboundedContinuousTensorSpec(1),
@@ -1355,9 +1331,6 @@ class NavigationEnv(IsaacEnv):
             torch.full_like(lidar_hit_distance, self.lidar_range),
         )
         front_clearance = front_clearance_values.min(dim=1, keepdim=True).values.clamp(max=self.lidar_range)
-        sector_clearance = self._compute_sector_clearance(lidar_hit_rpos_g, lidar_hit_distance)
-        left_clearance = sector_clearance[..., 0:1]
-        right_clearance = sector_clearance[..., 2:3]
         
         # c. velocity in the goal frame
         vel_w = self.root_state[..., 7:10] # world vel
@@ -1584,10 +1557,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["goal_distance"] = goal_distance
         self.stats["goal_progress"] = goal_progress
         self.stats["front_obstacle"] = front_obstacle.float()
-        self.stats["left_clearance"] = left_clearance
         self.stats["front_clearance"] = front_clearance
-        self.stats["right_clearance"] = right_clearance
-        self.stats["sector_clearance"] = sector_clearance
         self.stats["front_clearance_gain"] = front_clearance_gain
         self.stats["reward_goal_progress"] = reward_goal_progress
         self.stats["penalty_safety_static"] = penalty_safety_static

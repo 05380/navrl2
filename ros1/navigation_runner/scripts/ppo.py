@@ -50,12 +50,7 @@ class PPO(TensorDictModuleBase):
                 self.auxiliary_future_horizons.append(horizon)
         if self.auxiliary_enabled and not self.auxiliary_future_horizons:
             self.auxiliary_future_horizons = [1]
-        self.auxiliary_future_clearance_weight = float(auxiliary_cfg.get("future_clearance_weight", 1.0))
-        self.auxiliary_future_sector_clearance_weight = float(
-            auxiliary_cfg.get("future_sector_clearance_weight", self.auxiliary_future_clearance_weight)
-        )
         self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
-        self.auxiliary_sector_clearance_output_dim = 3 * len(self.auxiliary_future_horizons)
         if self.auxiliary_enabled and self.auxiliary_loss_weight > 0.0:
             auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
             self.auxiliary_predictor = nn.Sequential(
@@ -66,20 +61,6 @@ class PPO(TensorDictModuleBase):
             ).to(self.device)
         else:
             self.auxiliary_predictor = None
-        if (
-            self.auxiliary_enabled
-            and self.auxiliary_loss_weight > 0.0
-            and self.auxiliary_future_sector_clearance_weight > 0.0
-        ):
-            auxiliary_hidden_dim = int(auxiliary_cfg.get("hidden_dim", 128))
-            self.sector_clearance_predictor = nn.Sequential(
-                nn.Linear(256 + self.action_dim, auxiliary_hidden_dim),
-                nn.ELU(),
-                nn.LayerNorm(auxiliary_hidden_dim),
-                nn.Linear(auxiliary_hidden_dim, self.auxiliary_sector_clearance_output_dim),
-            ).to(self.device)
-        else:
-            self.sector_clearance_predictor = None
 
         # Actor etwork
         self.actor = ProbabilisticActor(
@@ -121,8 +102,6 @@ class PPO(TensorDictModuleBase):
         self.critic.apply(init_)
         if self.auxiliary_predictor is not None:
             self._init_auxiliary_predictor()
-        if self.sector_clearance_predictor is not None:
-            self._init_sector_clearance_predictor()
 
     def __call__(self, tensordict):
         self.feature_extractor(tensordict)
@@ -141,14 +120,5 @@ class PPO(TensorDictModuleBase):
                 nn.init.orthogonal_(module.weight, 0.1)
                 nn.init.constant_(module.bias, 0.0)
         output_layer = self.auxiliary_predictor[-1]
-        nn.init.zeros_(output_layer.weight)
-        nn.init.zeros_(output_layer.bias)
-
-    def _init_sector_clearance_predictor(self):
-        for module in self.sector_clearance_predictor.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, 0.1)
-                nn.init.constant_(module.bias, 0.0)
-        output_layer = self.sector_clearance_predictor[-1]
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)

@@ -10,7 +10,6 @@ algo:
       future_collision_weight: 1.0
       future_stuck_weight: 1.0
       future_clearance_weight: 1.0
-      future_sector_clearance_weight: 1.0
       future_progress_weight: 1.0
   
   actor:
