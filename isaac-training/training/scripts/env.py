@@ -1192,13 +1192,17 @@ class NavigationEnv(IsaacEnv):
         self.eval_task_mode = mode
 
     def _set_standard_eval_task(self, env_ids: torch.Tensor):
-        # In standard_eval, sample start and target independently on the four map edges.
-        # This keeps the random four-edge setup available without the non-same-side
-        # constraint used by random_crossing_eval.
-        pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
-        self.target_pos[env_ids] = self._sample_training_boundary_positions(
-            env_ids.size(0), self.target_clearance_radius
-        )
+        # Match the original NavRL-main evaluation setup: fixed crossing from
+        # y=24 to y=-24 with drones spread along the x axis.
+        pos = torch.zeros(len(env_ids), 1, 3, dtype=torch.float, device=self.device)
+        pos[:, 0, 0] = (env_ids.float() / self.num_envs - 0.5) * 32.0
+        pos[:, 0, 1] = 24.0
+        pos[:, 0, 2] = 2.0
+
+        target_x = torch.linspace(-0.5, 0.5, self.num_envs, dtype=torch.float, device=self.device) * 32.0
+        self.target_pos[env_ids, 0, 0] = target_x[env_ids.long()]
+        self.target_pos[env_ids, 0, 1] = -24.0
+        self.target_pos[env_ids, 0, 2] = 2.0
         return pos
 
     
