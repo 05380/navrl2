@@ -455,11 +455,11 @@ class Navigation:
                 "observation": TensorDict({
                     "state": drone_state,
                     "lidar": lidar_scan,
-                    "direction": target_dir_2d,
+                    "direction": target_dir_2d.unsqueeze(0),
                     "dynamic_obstacle": dyn_obs_states
-                })
-            })
-        })
+                }, batch_size=[1])
+            }, batch_size=[1])
+        }, batch_size=[1])
 
         has_obstacle_in_range = self.check_obstacle(lidar_scan, dyn_obs_states)
         # if (False):
@@ -486,6 +486,7 @@ class Navigation:
                     vel_world = torch.tensor([0., 0., 0.], device=self.cfg.device).unsqueeze(0).unsqueeze(0)
         else:
             vel_world =  (goal - pos)/torch.norm(goal - pos) * self.cfg.algo.actor.action_limit
+            vel_world = vel_world.unsqueeze(0).unsqueeze(0)
         return vel_world
 
 
