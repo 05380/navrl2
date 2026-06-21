@@ -48,15 +48,24 @@ env_dyn:
 observation_noise:
   enabled: true
   train_only: true
+  observation_delay:
+    steps: 2
+  action_delay:
+    steps: 1
+  action_execution:
+    std: 0.05
+    scale_std: 0.05
   lidar:
     std: 0.03
     dropout_prob: 0.03
     scale_std: 0.02
+    quantization: 0.10
   dynamic_obstacle:
     position_std: 0.10
     velocity_std: 0.10
     size_std: 0.05
     dropout_prob: 0.10
+    frame_dropout_prob: 0.05
 
 stuck:
   window: 40

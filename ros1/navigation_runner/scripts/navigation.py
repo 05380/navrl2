@@ -36,6 +36,7 @@ class Navigation:
         self.goal = None
         self.goal_received = False
         self.target_dir = None
+        self.hold_pose = None
         self.stable_times = 0
         self.has_action = False
         self.laser_points_msg = None
@@ -43,6 +44,13 @@ class Navigation:
         self.height_control = True 
         self.px4_control = rospy.get_param('rl/use_px4', True)
         self.use_safety_shield = rospy.get_param('rl/use_safety_shield', False)
+        self.goal_stop_radius = float(rospy.get_param('rl/goal_stop_radius', 0.5))
+        self.goal_slow_radius = float(rospy.get_param('rl/goal_slow_radius', 2.0))
+        self.goal_slow_min_speed = float(rospy.get_param('rl/goal_slow_min_speed', 0.5))
+        self.goal_slow_max_speed = float(rospy.get_param('rl/goal_slow_max_speed', 1.0))
+        self.goal_xy_settle_radius = float(rospy.get_param('rl/goal_xy_settle_radius', self.goal_stop_radius))
+        self.goal_stop_height_tolerance = float(rospy.get_param('rl/goal_stop_height_tolerance', 0.2))
+        self.goal_vertical_settle_speed = float(rospy.get_param('rl/goal_vertical_settle_speed', 0.3))
 
         self.use_policy_server = False
 
@@ -133,6 +141,7 @@ class Navigation:
         takeoff_pose.pose.position.z = takeoff_height
         takeoff_pose.pose.orientation = self.odom.pose.pose.orientation
         self.takeoff_pose = takeoff_pose
+        self.hold_pose = takeoff_pose
         if (self.px4_control):
             pose = PoseStamped()
 
@@ -394,7 +403,85 @@ class Navigation:
         if current_z >= 4.0 and velocity_world[2] > 0.0:
             velocity_world[2] = 0.0
         return velocity_world
-    
+
+    def _cap_velocity_speed(self, velocity, max_speed):
+        velocity = self._as_velocity_array(velocity).copy()
+        velocity_norm = np.linalg.norm(velocity)
+        if velocity_norm <= 1e-6 or velocity_norm <= max_speed:
+            return velocity
+        return max_speed * velocity / velocity_norm
+
+    def _publish_stop_command(self, yaw):
+        zero_vel = np.zeros(3)
+        self.cmd_vel_world = zero_vel.copy()
+        self.safe_cmd_vel_world = zero_vel.copy()
+        if self.odom_received:
+            self.hold_pose = PoseStamped()
+            self.hold_pose.pose = self.odom.pose.pose
+
+        if (self.px4_control):
+            final_cmd_vel = PositionTarget()
+            final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.header.frame_id = "map"
+            if (self.height_control):
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.velocity.z = 0.0
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+            else:
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+        else:
+            final_cmd_vel = TwistStamped()
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.twist.linear.x = 0.0
+            final_cmd_vel.twist.linear.y = 0.0
+            final_cmd_vel.twist.linear.z = 0.0
+
+        self.action_pub.publish(final_cmd_vel)
+        self.has_action = True
+
+    def _publish_vertical_settle_command(self, vertical_velocity, yaw):
+        velocity_world = np.array([0.0, 0.0, vertical_velocity], dtype=np.float64)
+        self.cmd_vel_world = velocity_world.copy()
+        self.safe_cmd_vel_world = velocity_world.copy()
+
+        if (self.px4_control):
+            final_cmd_vel = PositionTarget()
+            final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.header.frame_id = "map"
+            if (self.height_control):
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.velocity.z = vertical_velocity
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+            else:
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+        else:
+            final_cmd_vel = TwistStamped()
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.twist.linear.x = 0.0
+            final_cmd_vel.twist.linear.y = 0.0
+            final_cmd_vel.twist.linear.z = vertical_velocity if self.height_control else 0.0
+
+        self.action_pub.publish(final_cmd_vel)
+        self.has_action = True
+     
     def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
         rpos = goal - pos
         distance = rpos.norm(dim=-1, keepdim=True)
@@ -506,7 +593,7 @@ class Navigation:
             return
 
         if (not self.goal_received or len(self.raypoints) == 0 or len(self.dynamic_obstacles) == 0):
-            self.pose_pub.publish(self.takeoff_pose)
+            self.pose_pub.publish(self.hold_pose if self.hold_pose is not None else self.takeoff_pose)
             return
 
         if (self.safety_stop):
@@ -514,9 +601,49 @@ class Navigation:
             return
         
         start_time = time.time()
-        # check for angle
-        goal_angle = np.arctan2(self.target_dir[1].cpu().numpy(), self.target_dir[0].cpu().numpy())
+        pos = torch.tensor([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z], device=self.cfg.device)
+        goal = torch.tensor([self.goal.pose.position.x, self.goal.pose.position.y, self.goal.pose.position.z], device=self.cfg.device)
         _, _, curr_angle = tf.transformations.euler_from_quaternion([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w])
+
+        # Recompute target direction every control step. After the drone passes
+        # the goal, the desired heading should flip instead of keeping the
+        # initial goal direction forever.
+        current_target_dir = goal - pos
+        distance = current_target_dir.norm()
+        distance_float = distance.item()
+        target_dir_np = current_target_dir.detach().cpu().numpy()
+        target_dir_xy_norm = np.linalg.norm(target_dir_np[:2])
+        height_error = float(target_dir_np[2])
+        if target_dir_xy_norm > 1e-3:
+            self.target_dir = current_target_dir.detach()
+
+        if target_dir_xy_norm > 1e-6:
+            goal_angle = np.arctan2(target_dir_np[1], target_dir_np[0])
+        else:
+            goal_angle = curr_angle
+
+        if (
+            distance_float <= self.goal_stop_radius
+            or (
+                target_dir_xy_norm <= self.goal_xy_settle_radius
+                and abs(height_error) <= self.goal_stop_height_tolerance
+            )
+        ):
+            self.goal_received = False
+            self.stable_times = 0
+            self._publish_stop_command(goal_angle)
+            print("[nav-ros]: goal reached. stop navigation.")
+            return
+
+        if target_dir_xy_norm <= self.goal_xy_settle_radius:
+            settle_speed = min(abs(height_error), self.goal_vertical_settle_speed)
+            if settle_speed > 1e-3:
+                settle_speed = max(settle_speed, min(self.goal_slow_min_speed, self.goal_vertical_settle_speed))
+            vertical_velocity = math.copysign(settle_speed, height_error)
+            self._publish_vertical_settle_command(vertical_velocity, goal_angle)
+            return
+
+        # check for angle
         angle_diff = np.abs(goal_angle - curr_angle)
         if (angle_diff > math.pi):
             angle_diff = np.abs(angle_diff - math.pi * 2)
@@ -535,8 +662,6 @@ class Navigation:
             if (self.stable_times <= 10):
                 return
 
-        pos = torch.tensor([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z], device=self.cfg.device)
-        goal = torch.tensor([self.goal.pose.position.x, self.goal.pose.position.y, self.goal.pose.position.z], device=self.cfg.device)
         orientation = torch.tensor([self.odom.pose.pose.orientation.w, self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z], device=self.cfg.device)
         rot = self.quaternion_to_rotation_matrix(self.odom.pose.pose.orientation)
         vel_body = np.array([self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z])
@@ -567,15 +692,15 @@ class Navigation:
         rot_no_tilt = self.quaternion_to_rotation_matrix(quat_msg)
         safe_cmd_vel_local = np.linalg.inv(rot_no_tilt) @ safe_cmd_vel_world
 
-        # Goal condition
-        distance = (pos - goal).norm() 
-        if (distance <= 3. and distance > 0.3):
-            if (np.linalg.norm(safe_cmd_vel_local) != 0):
-                safe_cmd_vel_local = 0.5 * safe_cmd_vel_local/np.linalg.norm(safe_cmd_vel_local)
-                safe_cmd_vel_world = 0.5 * safe_cmd_vel_world/np.linalg.norm(safe_cmd_vel_world)
-        elif (distance <= 1.0):
-            safe_cmd_vel_local *= 0.
-            safe_cmd_vel_world *= 0.
+        # Goal condition: slow down smoothly near the goal. The stop condition
+        # is handled before policy inference so the drone cannot skip over the
+        # goal and keep flying away.
+        if distance_float <= self.goal_slow_radius:
+            slow_radius = max(self.goal_slow_radius, 1e-6)
+            target_speed = self.goal_slow_max_speed * distance_float / slow_radius
+            target_speed = min(self.goal_slow_max_speed, max(self.goal_slow_min_speed, target_speed))
+            safe_cmd_vel_local = self._cap_velocity_speed(safe_cmd_vel_local, target_speed)
+            safe_cmd_vel_world = self._cap_velocity_speed(safe_cmd_vel_world, target_speed)
 
         # final action
         if (self.px4_control):

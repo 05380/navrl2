@@ -10,9 +10,10 @@ import rospy
 import tf.transformations
 from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
 from map_manager.srv import RayCast
 from nav_msgs.msg import Odometry
+from onboard_detector.srv import GetDynamicObstacles
 
 
 class DeploymentEvaluator:
@@ -35,6 +36,10 @@ class DeploymentEvaluator:
 
         # Keep the deployment metric defaults aligned with training env.py.
         self.success_radius = float(rospy.get_param("~success_radius", 0.5))
+        # Training env.py treats any static LiDAR hit within 0.3m as collision,
+        # and uses the same 0.3m radius inflation for dynamic obstacle collision.
+        self.collision_radius = float(rospy.get_param("~collision_radius", 0.3))
+        self.dynamic_collision_range = float(rospy.get_param("~dynamic_collision_range", 4.0))
         self.timeout = float(rospy.get_param("~timeout", 180.0))
         self.eval_rate_hz = float(rospy.get_param("~eval_rate_hz", 20.0))
         self.stuck_window = int(rospy.get_param("~stuck_window", 40))
@@ -60,6 +65,17 @@ class DeploymentEvaluator:
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
         rospy.wait_for_service("occupancy_map/raycast")
         self.raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)
+        self.dynamic_obstacle_service = None
+        try:
+            rospy.wait_for_service("onboard_detector/get_dynamic_obstacles", timeout=5.0)
+            self.dynamic_obstacle_service = rospy.ServiceProxy(
+                "onboard_detector/get_dynamic_obstacles", GetDynamicObstacles
+            )
+        except rospy.ROSException:
+            rospy.logwarn(
+                "[deployment-eval] onboard_detector/get_dynamic_obstacles unavailable; "
+                "dynamic collision checking is disabled."
+            )
 
     def odom_callback(self, msg):
         self.latest_odom = msg
@@ -187,6 +203,69 @@ class DeploymentEvaluator:
                 return True
         return False
 
+    def get_static_collision(self, odom):
+        pos = odom.pose.pose.position
+        try:
+            points = self.raycast(
+                pos,
+                0.0,
+                self.lidar_range,
+                self.lidar_vfov_min,
+                self.lidar_vfov_max,
+                self.lidar_vbeams,
+                self.lidar_hres,
+            ).points
+        except rospy.ServiceException:
+            return False
+
+        for i in range(0, len(points), 3):
+            dx = points[i] - pos.x
+            dy = points[i + 1] - pos.y
+            dz = points[i + 2] - pos.z
+            distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if distance <= self.collision_radius:
+                return True
+        return False
+
+    def get_dynamic_collision(self, odom):
+        if self.dynamic_obstacle_service is None:
+            return False
+
+        pos = odom.pose.pose.position
+        query = Point(x=pos.x, y=pos.y, z=pos.z)
+        try:
+            response = self.dynamic_obstacle_service(query, self.dynamic_collision_range)
+        except rospy.ServiceException:
+            return False
+
+        total_obs_num = min(len(response.position), len(response.velocity), len(response.size))
+        for i in range(total_obs_num):
+            obs_pos = response.position[i]
+            obs_size = response.size[i]
+            if obs_size.x == 0.0 and obs_size.y == 0.0 and obs_size.z == 0.0:
+                continue
+
+            obstacle_width = max(obs_size.x, obs_size.y)
+            horizontal_distance = math.sqrt((obs_pos.x - pos.x) ** 2 + (obs_pos.y - pos.y) ** 2)
+            vertical_distance = abs(obs_pos.z - pos.z)
+
+            collision_xy = horizontal_distance <= obstacle_width * 0.5 + self.collision_radius
+            collision_z = vertical_distance <= obs_size.z * 0.5 + self.collision_radius
+            if collision_xy and collision_z:
+                return True
+        return False
+
+    def get_collision(self, odom):
+        static_collision = self.get_static_collision(odom)
+        dynamic_collision = self.get_dynamic_collision(odom)
+        if static_collision and dynamic_collision:
+            return True, "static+dynamic"
+        if static_collision:
+            return True, "static"
+        if dynamic_collision:
+            return True, "dynamic"
+        return False, ""
+
     def run_one_trial(self, trial_idx):
         start, goal, start_side, goal_side = self.sample_trial_task()
         self.reset_robot(start, goal)
@@ -199,6 +278,8 @@ class DeploymentEvaluator:
         deadlock_seen = False
         deadlock_time = None
         success = False
+        collision = False
+        collision_type = ""
 
         rate = rospy.Rate(self.eval_rate_hz)
         while not rospy.is_shutdown():
@@ -228,6 +309,10 @@ class DeploymentEvaluator:
                     deadlock_seen = True
                     deadlock_time = elapsed
 
+            collision, collision_type = self.get_collision(odom)
+            if collision:
+                break
+
             if distance <= self.success_radius:
                 success = True
                 break
@@ -249,6 +334,8 @@ class DeploymentEvaluator:
             "goal_z": goal[2],
             "goal_side": goal_side,
             "success": success,
+            "collision": collision,
+            "collision_type": collision_type,
             "deadlock": deadlock_seen,
             "escaped_after_deadlock": deadlock_seen and success,
             "deadlock_time": deadlock_time if deadlock_time is not None else "",
@@ -276,10 +363,12 @@ class DeploymentEvaluator:
             result = self.run_one_trial(i)
             results.append(result)
             rospy.loginfo(
-                "[deployment-eval] trial %02d/%02d | success=%s | deadlock=%s | escaped_after_deadlock=%s | duration=%.1fs | start=(%.1f, %.1f, %.1f) side=%d | goal=(%.1f, %.1f, %.1f) side=%d",
+                "[deployment-eval] trial %02d/%02d | success=%s | collision=%s(%s) | deadlock=%s | escaped_after_deadlock=%s | duration=%.1fs | start=(%.1f, %.1f, %.1f) side=%d | goal=(%.1f, %.1f, %.1f) side=%d",
                 result["trial"],
                 self.num_trials,
                 result["success"],
+                result["collision"],
+                result["collision_type"],
                 result["deadlock"],
                 result["escaped_after_deadlock"],
                 result["duration"],
@@ -294,11 +383,13 @@ class DeploymentEvaluator:
             )
 
         success_count = sum(1 for item in results if item["success"])
+        collision_count = sum(1 for item in results if item["collision"])
         deadlock_count = sum(1 for item in results if item["deadlock"])
         escaped_count = sum(1 for item in results if item["escaped_after_deadlock"])
         deadlock_steps_mean = sum(item["deadlock_steps"] for item in results) / float(self.num_trials)
 
         success_rate = success_count / float(self.num_trials)
+        collision_rate = collision_count / float(self.num_trials)
         deadlock_rate = deadlock_count / float(self.num_trials)
         # Match utils.conditional_rate: no conditioned samples returns 0.0.
         escape_rate = escaped_count / float(deadlock_count) if deadlock_count > 0 else 0.0
@@ -307,6 +398,7 @@ class DeploymentEvaluator:
         print("[deployment-eval] summary")
         print(f"  trials: {self.num_trials}")
         print(f"  success_rate: {success_count}/{self.num_trials} = {success_rate:.4f}")
+        print(f"  collision_rate: {collision_count}/{self.num_trials} = {collision_rate:.4f}")
         print(f"  deadlock_rate: {deadlock_count}/{self.num_trials} = {deadlock_rate:.4f}")
         print(f"  escape_after_deadlock_rate: {escaped_count}/{deadlock_count} = {escape_rate:.4f}")
         print(f"  deadlock_steps_mean: {deadlock_steps_mean:.4f}")

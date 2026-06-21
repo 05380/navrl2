@@ -432,11 +432,23 @@ class NavigationEnv(IsaacEnv):
         self.lidar_noise_std = max(float(lidar_noise_cfg.get("std", 0.0)), 0.0)
         self.lidar_dropout_prob = min(max(float(lidar_noise_cfg.get("dropout_prob", 0.0)), 0.0), 1.0)
         self.lidar_scale_std = max(float(lidar_noise_cfg.get("scale_std", 0.0)), 0.0)
+        self.lidar_quantization = max(float(lidar_noise_cfg.get("quantization", 0.0)), 0.0)
         dyn_obs_noise_cfg = noise_cfg.get("dynamic_obstacle", {})
         self.dyn_obs_pos_noise_std = max(float(dyn_obs_noise_cfg.get("position_std", 0.0)), 0.0)
         self.dyn_obs_vel_noise_std = max(float(dyn_obs_noise_cfg.get("velocity_std", 0.0)), 0.0)
         self.dyn_obs_size_noise_std = max(float(dyn_obs_noise_cfg.get("size_std", 0.0)), 0.0)
         self.dyn_obs_dropout_prob = min(max(float(dyn_obs_noise_cfg.get("dropout_prob", 0.0)), 0.0), 1.0)
+        self.dyn_obs_frame_dropout_prob = min(max(float(dyn_obs_noise_cfg.get("frame_dropout_prob", 0.0)), 0.0), 1.0)
+        obs_delay_cfg = noise_cfg.get("observation_delay", {})
+        action_delay_cfg = noise_cfg.get("action_delay", {})
+        action_execution_cfg = noise_cfg.get("action_execution", {})
+        self.observation_delay_steps = max(int(obs_delay_cfg.get("steps", 0)), 0)
+        self.action_delay_steps = max(int(action_delay_cfg.get("steps", 0)), 0)
+        self.action_execution_noise_std = max(float(action_execution_cfg.get("std", 0.0)), 0.0)
+        self.action_execution_scale_std = max(float(action_execution_cfg.get("scale_std", 0.0)), 0.0)
+        self.observation_delay_buffers = None
+        self.action_delay_buffer = None
+        self.prev_dyn_obs_states = None
 
         super().__init__(cfg, cfg.headless)
         
@@ -477,6 +489,9 @@ class NavigationEnv(IsaacEnv):
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
+            self.observation_delay_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
+            self.action_delay_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
+            self.dyn_obs_frame_drop_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
             self.train_task_mode = str(self.cfg.get("train_style", "random_crossing_eval"))
             if self.train_task_mode not in ("random_crossing_eval", "random_crossing", "random"):
                 raise ValueError(
@@ -1050,7 +1065,102 @@ class NavigationEnv(IsaacEnv):
         if self.lidar_dropout_prob > 0.0:
             dropout_mask = torch.rand_like(noisy_scan) < self.lidar_dropout_prob
             noisy_scan = torch.where(dropout_mask, torch.zeros_like(noisy_scan), noisy_scan)
+        if self.lidar_quantization > 0.0:
+            noisy_scan = torch.round(noisy_scan / self.lidar_quantization) * self.lidar_quantization
         return noisy_scan.clamp_(0.0, self.lidar_range)
+
+    def _apply_observation_delay(self, obs):
+        if not self._observation_noise_active() or self.observation_delay_steps <= 0:
+            return obs
+
+        if self.observation_delay_buffers is None:
+            self.observation_delay_buffers = {
+                key: value.unsqueeze(0).repeat(self.observation_delay_steps + 1, *([1] * value.dim())).clone()
+                for key, value in obs.items()
+            }
+            return obs
+
+        reset_mask = self.observation_delay_reset_mask
+        if torch.any(reset_mask):
+            for key, value in obs.items():
+                reset_value = value[reset_mask].detach().unsqueeze(0).expand(
+                    self.observation_delay_steps + 1, *value[reset_mask].shape
+                )
+                self.observation_delay_buffers[key][:, reset_mask] = reset_value
+            self.observation_delay_reset_mask.zero_()
+
+        delayed_obs = {
+            key: self.observation_delay_buffers[key][0].clone()
+            for key in obs.keys()
+        }
+        for key, value in obs.items():
+            buffer = self.observation_delay_buffers[key]
+            buffer[:-1] = buffer[1:].clone()
+            buffer[-1] = value.detach()
+        return delayed_obs
+
+    def _apply_action_delay(self, actions: torch.Tensor):
+        if not self._observation_noise_active() or self.action_delay_steps <= 0:
+            return actions
+
+        if self.action_delay_buffer is None or self.action_delay_buffer.shape[1:] != actions.shape:
+            self.action_delay_buffer = actions.unsqueeze(0).repeat(
+                self.action_delay_steps + 1, *([1] * actions.dim())
+            ).clone()
+            return actions
+
+        reset_mask = self.action_delay_reset_mask
+        if torch.any(reset_mask):
+            reset_actions = actions[reset_mask].detach().unsqueeze(0).expand(
+                self.action_delay_steps + 1, *actions[reset_mask].shape
+            )
+            self.action_delay_buffer[:, reset_mask] = reset_actions
+            self.action_delay_reset_mask.zero_()
+
+        delayed_actions = self.action_delay_buffer[0].clone()
+        self.action_delay_buffer[:-1] = self.action_delay_buffer[1:].clone()
+        self.action_delay_buffer[-1] = actions.detach()
+        return delayed_actions
+
+    def _apply_action_execution_noise(self, actions: torch.Tensor):
+        if (
+            not self._observation_noise_active()
+            or (self.action_execution_noise_std <= 0.0 and self.action_execution_scale_std <= 0.0)
+        ):
+            return actions
+
+        noisy_actions = actions.clone()
+        if self.action_execution_scale_std > 0.0:
+            scale_shape = noisy_actions.shape[:-1] + (1,)
+            scale = 1.0 + torch.randn(scale_shape, device=noisy_actions.device, dtype=noisy_actions.dtype) * self.action_execution_scale_std
+            noisy_actions = noisy_actions * scale
+        if self.action_execution_noise_std > 0.0:
+            noisy_actions = noisy_actions + torch.randn_like(noisy_actions) * self.action_execution_noise_std
+
+        action_limit = float(getattr(self.cfg.algo.actor, "action_limit", 0.0))
+        if action_limit > 0.0:
+            noisy_actions = noisy_actions.clamp(-action_limit, action_limit)
+        return noisy_actions
+
+    def _apply_dynamic_obstacle_frame_dropout(self, dyn_obs_states: torch.Tensor):
+        if not self._observation_noise_active() or self.dyn_obs_frame_dropout_prob <= 0.0:
+            self.prev_dyn_obs_states = dyn_obs_states.detach().clone()
+            return dyn_obs_states
+
+        if self.prev_dyn_obs_states is None or self.prev_dyn_obs_states.shape != dyn_obs_states.shape:
+            self.prev_dyn_obs_states = dyn_obs_states.detach().clone()
+            return dyn_obs_states
+
+        reset_mask = self.dyn_obs_frame_drop_reset_mask
+        if torch.any(reset_mask):
+            self.prev_dyn_obs_states[reset_mask] = dyn_obs_states[reset_mask].detach()
+            self.dyn_obs_frame_drop_reset_mask.zero_()
+
+        drop_shape = (dyn_obs_states.shape[0],) + (1,) * (dyn_obs_states.dim() - 1)
+        drop_mask = torch.rand(drop_shape, device=dyn_obs_states.device) < self.dyn_obs_frame_dropout_prob
+        observed_dyn_obs_states = torch.where(drop_mask, self.prev_dyn_obs_states, dyn_obs_states)
+        self.prev_dyn_obs_states = observed_dyn_obs_states.detach().clone()
+        return observed_dyn_obs_states
 
     def _apply_dynamic_obstacle_observation_noise(
         self,
@@ -1264,11 +1374,16 @@ class NavigationEnv(IsaacEnv):
         self.stall_anchor_pos[env_ids] = pos
         self.height_range[env_ids, 0, 0] = torch.min(pos[:, 0, 2], self.target_pos[env_ids, 0, 2])
         self.height_range[env_ids, 0, 1] = torch.max(pos[:, 0, 2], self.target_pos[env_ids, 0, 2])
+        self.observation_delay_reset_mask[env_ids] = True
+        self.action_delay_reset_mask[env_ids] = True
+        self.dyn_obs_frame_drop_reset_mask[env_ids] = True
 
         self.stats[env_ids] = 0.  
         
     def _pre_sim_step(self, tensordict: TensorDictBase):
         actions = tensordict[("agents", "action")] 
+        actions = self._apply_action_delay(actions)
+        actions = self._apply_action_execution_noise(actions)
         if self.training:
             self.vo_step_count += 1
         self.drone.apply_action(actions) 
@@ -1405,6 +1520,7 @@ class NavigationEnv(IsaacEnv):
             # concatenate all for dynamic obstacles
             # dyn_obs_states = torch.cat([closest_dyn_obs_rpos_g, closest_dyn_obs_vel_g, closest_dyn_obs_width_category, closest_dyn_obs_height_category], dim=-1).unsqueeze(1)
             dyn_obs_states = torch.cat([observed_dyn_obs_rpos_gn, observed_dyn_obs_distance_2d, observed_dyn_obs_distance_z, observed_dyn_obs_vel_g, closest_dyn_obs_width_category, closest_dyn_obs_height_category], dim=-1).unsqueeze(1)
+            dyn_obs_states = self._apply_dynamic_obstacle_frame_dropout(dyn_obs_states)
 
             closest_dyn_obs_vel[dyn_obs_range_mask] = 0.
 
@@ -1454,6 +1570,7 @@ class NavigationEnv(IsaacEnv):
             
         else:
             dyn_obs_states = torch.zeros(self.num_envs, 1, self.cfg.algo.feature_extractor.dyn_obs_num, 10, device=self.cfg.device)
+            dyn_obs_states = self._apply_dynamic_obstacle_frame_dropout(dyn_obs_states)
             dynamic_collision = torch.zeros(self.num_envs, 1, dtype=torch.bool, device=self.cfg.device)
             dynamic_front_obstacle = torch.zeros(self.num_envs, 1, dtype=torch.bool, device=self.cfg.device)
             closest_dyn_obs_distance_reward = torch.full(
@@ -1501,6 +1618,7 @@ class NavigationEnv(IsaacEnv):
             "direction": target_dir_2d,
             "dynamic_obstacle": dyn_obs_states
         }
+        obs = self._apply_observation_delay(obs)
 ####
 
         # -----------------Reward Calculation-----------------
