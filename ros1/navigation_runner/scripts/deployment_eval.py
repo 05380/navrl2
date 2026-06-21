@@ -22,7 +22,14 @@ class DeploymentEvaluator:
         self.random_seed = int(rospy.get_param("~random_seed", 0))
         self.rng = random.Random(self.random_seed)
 
-        self.boundary_half_size = float(rospy.get_param("~boundary_half_size", 10.0))
+        legacy_boundary_half_size = rospy.get_param("~boundary_half_size", None)
+        if legacy_boundary_half_size is None:
+            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", 11.0))
+            self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", 12.0))
+        else:
+            legacy_boundary_half_size = float(legacy_boundary_half_size)
+            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", legacy_boundary_half_size))
+            self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", legacy_boundary_half_size))
         self.start_z = float(rospy.get_param("~start_z", 1.0))
         self.goal_z = float(rospy.get_param("~goal_z", self.start_z))
 
@@ -93,8 +100,7 @@ class DeploymentEvaluator:
             self.goal_pub.publish(goal_msg)
             rate.sleep()
 
-    def sample_boundary_point(self, side, z):
-        half = self.boundary_half_size
+    def sample_boundary_point(self, side, z, half):
         offset = self.rng.uniform(-half, half)
         if side == 0:
             return (offset, half, z)
@@ -108,8 +114,8 @@ class DeploymentEvaluator:
         start_side = self.rng.randrange(4)
         candidate_goal_sides = [side for side in range(4) if side != start_side]
         goal_side = self.rng.choice(candidate_goal_sides)
-        start = self.sample_boundary_point(start_side, self.start_z)
-        goal = self.sample_boundary_point(goal_side, self.goal_z)
+        start = self.sample_boundary_point(start_side, self.start_z, self.start_boundary_half_size)
+        goal = self.sample_boundary_point(goal_side, self.goal_z, self.goal_boundary_half_size)
         return start, goal, start_side, goal_side
 
     def publish_goal_for_a_moment(self, goal):
