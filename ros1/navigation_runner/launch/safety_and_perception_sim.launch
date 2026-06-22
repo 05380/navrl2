@@ -3,11 +3,13 @@
     <arg name="use_prebuilt_map" default="false" />
     <arg name="use_real_detector" default="false" />
     <arg name="use_safety_shield" default="false" />
+    <arg name="always_use_policy" default="true" />
     <arg name="rviz" default="true" />
     
     <!-- PX4 -->
     <param name="rl/use_px4" value="$(arg use_px4)" />
     <param name="rl/use_safety_shield" value="$(arg use_safety_shield)" />
+    <param name="rl/always_use_policy" value="$(arg always_use_policy)" />
 
     <!-- mapping -->
     <group if="$(arg use_prebuilt_map)">

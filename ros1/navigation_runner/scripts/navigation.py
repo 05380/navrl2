@@ -44,6 +44,7 @@ class Navigation:
         self.height_control = True 
         self.px4_control = rospy.get_param('rl/use_px4', True)
         self.use_safety_shield = rospy.get_param('rl/use_safety_shield', False)
+        self.always_use_policy = rospy.get_param('rl/always_use_policy', True)
         self.goal_stop_radius = float(rospy.get_param('rl/goal_stop_radius', 0.5))
         self.goal_slow_radius = float(rospy.get_param('rl/goal_slow_radius', 2.0))
         self.goal_slow_min_speed = float(rospy.get_param('rl/goal_slow_min_speed', 0.5))
@@ -550,7 +551,7 @@ class Navigation:
 
         has_obstacle_in_range = self.check_obstacle(lidar_scan, dyn_obs_states)
         # if (False):
-        if (has_obstacle_in_range):
+        if (self.always_use_policy or has_obstacle_in_range):
             if (not self.use_policy_server):
                 with set_exploration_type(ExplorationType.MEAN):
                     output = self.policy(obs)
