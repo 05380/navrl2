@@ -45,6 +45,7 @@ class Navigation:
         self.px4_control = rospy.get_param('rl/use_px4', True)
         self.use_safety_shield = rospy.get_param('rl/use_safety_shield', False)
         self.always_use_policy = rospy.get_param('rl/always_use_policy', True)
+        self.use_goal_z = rospy.get_param('rl/use_goal_z', True)
         self.goal_stop_radius = float(rospy.get_param('rl/goal_stop_radius', 0.5))
         self.goal_slow_radius = float(rospy.get_param('rl/goal_slow_radius', 2.0))
         self.goal_slow_min_speed = float(rospy.get_param('rl/goal_slow_min_speed', 0.5))
@@ -293,7 +294,8 @@ class Navigation:
             return
 
         self.goal = goal
-        self.goal.pose.position.z = self.takeoff_pose.pose.position.z
+        if not self.use_goal_z:
+            self.goal.pose.position.z = self.takeoff_pose.pose.position.z
         dir_x = self.goal.pose.position.x - self.odom.pose.pose.position.x
         dir_y = self.goal.pose.position.y - self.odom.pose.pose.position.y
         dir_z = self.goal.pose.position.z - self.odom.pose.pose.position.z
@@ -527,12 +529,13 @@ class Navigation:
         
         obs_res = 0.25
         closest_dyn_obs_width = torch.max(dynamic_obstacle_size[:, 0], dynamic_obstacle_size[:, 1])
-        closest_dyn_obs_width += self.robot_size * 2.
         closest_dyn_obs_width = torch.clamp(torch.ceil(closest_dyn_obs_width / 0.25) - 1, min=0, max=1./obs_res - 1)
         closest_dyn_obs_width[dynamic_obstacle_size[:, 2] == 0] = 0.
-        closest_dyn_obs_height = dynamic_obstacle_size[:, 2]
-        closest_dyn_obs_height[(closest_dyn_obs_height <= 1) & (closest_dyn_obs_height != 0)] = 1.
-        closest_dyn_obs_height[closest_dyn_obs_height > 1] = 0.
+        closest_dyn_obs_height = torch.where(
+            dynamic_obstacle_size[:, 2] > 1.0,
+            torch.zeros_like(dynamic_obstacle_size[:, 2]),
+            dynamic_obstacle_size[:, 2],
+        )
         # dyn_obs_states = torch.cat([closest_dyn_obs_rpos_g, closest_dyn_obs_vel_g, \
         #                             closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
         dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, \

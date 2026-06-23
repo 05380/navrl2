@@ -31,6 +31,11 @@ class DeploymentEvaluator:
             legacy_boundary_half_size = float(legacy_boundary_half_size)
             self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", legacy_boundary_half_size))
             self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", legacy_boundary_half_size))
+        self.random_height = bool(rospy.get_param("~random_height", True))
+        self.height_min = float(rospy.get_param("~height_min", 0.5))
+        self.height_max = float(rospy.get_param("~height_max", 2.5))
+        if self.height_max < self.height_min:
+            raise ValueError("~height_max must be greater than or equal to ~height_min")
         self.start_z = float(rospy.get_param("~start_z", 1.0))
         self.goal_z = float(rospy.get_param("~goal_z", self.start_z))
 
@@ -130,8 +135,14 @@ class DeploymentEvaluator:
         start_side = self.rng.randrange(4)
         candidate_goal_sides = [side for side in range(4) if side != start_side]
         goal_side = self.rng.choice(candidate_goal_sides)
-        start = self.sample_boundary_point(start_side, self.start_z, self.start_boundary_half_size)
-        goal = self.sample_boundary_point(goal_side, self.goal_z, self.goal_boundary_half_size)
+        if self.random_height:
+            start_z = self.rng.uniform(self.height_min, self.height_max)
+            goal_z = self.rng.uniform(self.height_min, self.height_max)
+        else:
+            start_z = self.start_z
+            goal_z = self.goal_z
+        start = self.sample_boundary_point(start_side, start_z, self.start_boundary_half_size)
+        goal = self.sample_boundary_point(goal_side, goal_z, self.goal_boundary_half_size)
         return start, goal, start_side, goal_side
 
     def publish_goal_for_a_moment(self, goal):
@@ -389,6 +400,8 @@ class DeploymentEvaluator:
         deadlock_steps_mean = sum(item["deadlock_steps"] for item in results) / float(self.num_trials)
 
         success_rate = success_count / float(self.num_trials)
+        failure_count = self.num_trials - success_count
+        failure_rate = failure_count / float(self.num_trials)
         collision_rate = collision_count / float(self.num_trials)
         deadlock_rate = deadlock_count / float(self.num_trials)
         # Match utils.conditional_rate: no conditioned samples returns 0.0.
@@ -398,6 +411,7 @@ class DeploymentEvaluator:
         print("[deployment-eval] summary")
         print(f"  trials: {self.num_trials}")
         print(f"  success_rate: {success_count}/{self.num_trials} = {success_rate:.4f}")
+        print(f"  failure_rate: {failure_count}/{self.num_trials} = {failure_rate:.4f}")
         print(f"  collision_rate: {collision_count}/{self.num_trials} = {collision_rate:.4f}")
         print(f"  deadlock_rate: {deadlock_count}/{self.num_trials} = {deadlock_rate:.4f}")
         print(f"  escape_after_deadlock_rate: {escaped_count}/{deadlock_count} = {escape_rate:.4f}")
