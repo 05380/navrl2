@@ -56,19 +56,19 @@ observation_noise:
     std: 0.05
     scale_std: 0.05
   lidar:
-    std: 0.03
-    dropout_prob: 0.03
-    scale_std: 0.02
-    quantization: 0.10
+    std: 0 #0.03
+    dropout_prob: 0 #0.03
+    scale_std: 0 #0.02
+    quantization: 0 #0.10
   dynamic_obstacle:
-    position_std: 0.10
-    velocity_std: 0.10
-    size_std: 0.05
-    dropout_prob: 0.10
-    frame_dropout_prob: 0.05
+    position_std: 0 #0.10
+    velocity_std: 0 #0.10
+    size_std: 0 #0.05
+    dropout_prob: 0 #0.10
+    frame_dropout_prob: 0 #0.05
 
 stuck:
-  window: 40
+  window: 60
   progress_eps: 0.005
   front_obstacle_distance: 1.5
   front_angle_deg: 35.0

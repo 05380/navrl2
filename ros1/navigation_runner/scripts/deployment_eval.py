@@ -25,7 +25,7 @@ class DeploymentEvaluator:
 
         legacy_boundary_half_size = rospy.get_param("~boundary_half_size", None)
         if legacy_boundary_half_size is None:
-            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", 11.0))
+            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", 12.0))
             self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", 12.0))
         else:
             legacy_boundary_half_size = float(legacy_boundary_half_size)
@@ -36,9 +36,9 @@ class DeploymentEvaluator:
 
         # Keep the deployment metric defaults aligned with training env.py.
         self.success_radius = float(rospy.get_param("~success_radius", 0.5))
-        # Training env.py treats any static LiDAR hit within 0.3m as collision,
-        # and uses the same 0.3m radius inflation for dynamic obstacle collision.
-        self.collision_radius = float(rospy.get_param("~collision_radius", 0.3))
+        # Collision radius used for static raycast hits and dynamic obstacle
+        # inflation during deployment evaluation.
+        self.collision_radius = float(rospy.get_param("~collision_radius", 0.15))
         self.dynamic_collision_range = float(rospy.get_param("~dynamic_collision_range", 4.0))
         self.timeout = float(rospy.get_param("~timeout", 180.0))
         self.eval_rate_hz = float(rospy.get_param("~eval_rate_hz", 20.0))
