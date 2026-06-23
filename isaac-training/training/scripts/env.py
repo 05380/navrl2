@@ -421,6 +421,11 @@ class NavigationEnv(IsaacEnv):
         self.vo_horizon = max(float(vo_cfg.get("horizon", 2.5)), 1e-6)
         self.vo_xy_margin = float(vo_cfg.get("xy_margin", 0.3))
         self.vo_z_margin = float(vo_cfg.get("z_margin", 0.3))
+        self.vo_action_weight = float(vo_cfg.get("action_weight", 0.0))
+        self.vo_static_weight = float(vo_cfg.get("static_weight", 0.0))
+        self.vo_safe_action_weight = float(vo_cfg.get("safe_action_weight", 0.0))
+        self.vo_static_radius = max(float(vo_cfg.get("static_radius", 0.0)), 0.0)
+        self.vo_static_vertical_min = float(vo_cfg.get("static_vertical_min", -0.35))
         self.vo_reward_topk = max(1, int(vo_cfg.get("reward_topk", 10)))
         self.vo_reward_range = max(self.lidar_range, float(max(cfg.env_dyn.local_range)))
         self.vo_warmup_steps = max(0, int(vo_cfg.get("warmup_steps", 0)))
@@ -851,15 +856,33 @@ class NavigationEnv(IsaacEnv):
         ).clamp_min(1e-6)
         return scale
 
-    def _compute_vo_reward(self, dyn_obs_rpos, dyn_obs_vel, dyn_obs_size, dyn_obs_range_mask, drone_vel):
-        drone_vel_expanded = drone_vel.expand(-1, dyn_obs_rpos.size(1), -1)
-        # dyn_obs_rpos is obstacle position minus drone position, so its time derivative is v_obs - v_drone.
-        rel_vel = dyn_obs_vel - drone_vel_expanded
+    def _vo_warmup_like(self, reference: torch.Tensor):
+        if self.vo_warmup_steps > 0:
+            warmup = min(float(self.vo_step_count) / float(self.vo_warmup_steps), 1.0)
+        else:
+            warmup = 1.0
+        return torch.full_like(reference, warmup)
+
+    def _format_vo_velocity(self, velocity: torch.Tensor):
+        if velocity.dim() == 2:
+            velocity = velocity.unsqueeze(1)
+        return velocity[..., :3]
+
+    def _compute_vo_risk(self, obs_rpos, obs_vel, obs_size, obs_range_mask, agent_vel):
+        if obs_rpos.size(1) == 0:
+            vo_risk = torch.zeros(obs_rpos.size(0), 1, dtype=obs_rpos.dtype, device=obs_rpos.device)
+            risk_each = torch.zeros(obs_rpos.size(0), 0, 1, dtype=obs_rpos.dtype, device=obs_rpos.device)
+            return vo_risk, risk_each
+
+        agent_vel = self._format_vo_velocity(agent_vel)
+        agent_vel_expanded = agent_vel.expand(-1, obs_rpos.size(1), -1)
+        # obs_rpos is obstacle position minus drone position, so its time derivative is v_obs - v_drone.
+        rel_vel = obs_vel - agent_vel_expanded
 
         # Scale the 3D relative motion by an anisotropic safety ellipsoid.
-        scale = self._compute_vo_scale(dyn_obs_size)
+        scale = self._compute_vo_scale(obs_size)
 
-        scaled_rel_pos = dyn_obs_rpos / scale
+        scaled_rel_pos = obs_rpos / scale
         scaled_rel_vel = rel_vel / scale
 
         quad_a = (scaled_rel_vel * scaled_rel_vel).sum(dim=-1, keepdim=True)
@@ -867,7 +890,7 @@ class NavigationEnv(IsaacEnv):
         quad_c = (scaled_rel_pos * scaled_rel_pos).sum(dim=-1, keepdim=True) - 1.0
         discriminant = quad_b.square() - 4.0 * quad_a * quad_c
 
-        valid_mask = (~dyn_obs_range_mask).unsqueeze(-1)
+        valid_mask = (~obs_range_mask).unsqueeze(-1)
         approaching = quad_b < 0.0
         overlapping = quad_c <= 0.0
         discriminant_positive = discriminant >= 0.0
@@ -875,18 +898,38 @@ class NavigationEnv(IsaacEnv):
         ttc = (-quad_b - torch.sqrt(discriminant.clamp_min(0.0))) / (2.0 * quad_a.clamp_min(1e-6))
         valid_ttc = valid_mask & approaching & discriminant_positive & moving & (~overlapping) & (ttc > 0.0) & (ttc <= self.vo_horizon)
 
-        risk = torch.zeros_like(ttc)
-        risk = torch.where(valid_ttc, torch.exp(-ttc / self.vo_tau), risk)
-        risk = torch.where(valid_mask & overlapping, torch.ones_like(risk), risk)
-        vo_risk = risk.max(dim=1, keepdim=True).values.squeeze(-1)
+        risk_each = torch.zeros_like(ttc)
+        risk_each = torch.where(valid_ttc, torch.exp(-ttc / self.vo_tau), risk_each)
+        risk_each = torch.where(valid_mask & overlapping, torch.ones_like(risk_each), risk_each)
+        vo_risk = risk_each.max(dim=1, keepdim=True).values.squeeze(-1)
+        return vo_risk, risk_each
 
-        if self.vo_warmup_steps > 0:
-            warmup = min(float(self.vo_step_count) / float(self.vo_warmup_steps), 1.0)
-        else:
-            warmup = 1.0
-        vo_warmup = torch.full_like(vo_risk, warmup)
-        reward_vo = -self.vo_weight * vo_warmup * vo_risk
-        return reward_vo, vo_risk, vo_warmup
+    def _compute_vo_reward(self, obs_rpos, obs_vel, obs_size, obs_range_mask, agent_vel, weight=None):
+        vo_risk, risk_each = self._compute_vo_risk(obs_rpos, obs_vel, obs_size, obs_range_mask, agent_vel)
+        vo_warmup = self._vo_warmup_like(vo_risk)
+        reward_weight = self.vo_weight if weight is None else weight
+        reward_vo = -reward_weight * vo_warmup * vo_risk
+        return reward_vo, vo_risk, vo_warmup, risk_each
+
+    def _compute_safe_action_penalty(self, action_vel, obs_rpos, obs_vel, obs_size, obs_range_mask):
+        action_vel = self._format_vo_velocity(action_vel)
+        vo_risk, risk_each = self._compute_vo_risk(obs_rpos, obs_vel, obs_size, obs_range_mask, action_vel)
+        if obs_rpos.size(1) == 0:
+            return torch.zeros_like(vo_risk), vo_risk
+
+        valid_mask = (~obs_range_mask).unsqueeze(-1)
+        relative_speed = action_vel.expand(-1, obs_rpos.size(1), -1) - obs_vel
+        obs_distance = obs_rpos.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+        obs_dir = obs_rpos / obs_distance
+        closing_speed = (relative_speed * obs_dir).sum(dim=-1, keepdim=True).clamp_min(0.0)
+        correction_each = torch.where(valid_mask, risk_each * closing_speed * obs_dir, torch.zeros_like(obs_rpos))
+
+        worst_idx = risk_each.squeeze(-1).argmax(dim=1)
+        correction = torch.gather(correction_each, 1, worst_idx.view(-1, 1, 1).expand(-1, 1, 3))
+        action_limit = max(float(getattr(self.cfg.algo.actor, "action_limit", 1.0)), 1e-6)
+        penalty = (correction.norm(dim=-1, keepdim=True) / action_limit).square().clamp(max=1.0).squeeze(1)
+        penalty = penalty * (vo_risk > 0.0).float()
+        return penalty, vo_risk
 
 
     def _set_specs(self):
@@ -947,6 +990,13 @@ class NavigationEnv(IsaacEnv):
             "reward_vo": UnboundedContinuousTensorSpec(1),
             "vo_risk": UnboundedContinuousTensorSpec(1),
             "vo_warmup": UnboundedContinuousTensorSpec(1),
+            "reward_action_vo": UnboundedContinuousTensorSpec(1),
+            "action_vo_risk": UnboundedContinuousTensorSpec(1),
+            "reward_static_vo": UnboundedContinuousTensorSpec(1),
+            "static_vo_risk": UnboundedContinuousTensorSpec(1),
+            "reward_safe_action": UnboundedContinuousTensorSpec(1),
+            "safe_action_penalty": UnboundedContinuousTensorSpec(1),
+            "safe_action_risk": UnboundedContinuousTensorSpec(1),
             "reach_goal": UnboundedContinuousTensorSpec(1),
             "collision": UnboundedContinuousTensorSpec(1),
             "wall_collision": UnboundedContinuousTensorSpec(1),
@@ -1381,9 +1431,11 @@ class NavigationEnv(IsaacEnv):
         self.stats[env_ids] = 0.  
         
     def _pre_sim_step(self, tensordict: TensorDictBase):
-        actions = tensordict[("agents", "action")] 
+        actions = tensordict[("agents", "action")]
+        self.policy_action_w = actions.detach().clone()
         actions = self._apply_action_delay(actions)
         actions = self._apply_action_execution_noise(actions)
+        self.executed_action_w = actions.detach().clone()
         if self.training:
             self.vo_step_count += 1
         self.drone.apply_action(actions) 
@@ -1456,10 +1508,18 @@ class NavigationEnv(IsaacEnv):
             torch.full_like(lidar_hit_distance, self.lidar_range),
         )
         front_clearance = front_clearance_values.min(dim=1, keepdim=True).values.clamp(max=self.lidar_range)
+        static_vo_hit_mask = (lidar_hit_distance < (self.lidar_range - 1e-3)) & (
+            lidar_hit_rpos_w[..., 2] >= self.vo_static_vertical_min
+        )
+        static_vo_range_mask = ~static_vo_hit_mask
+        static_vo_rpos = lidar_hit_rpos_w
+        static_vo_vel = torch.zeros_like(static_vo_rpos)
+        static_vo_size = torch.full_like(static_vo_rpos, 2.0 * self.vo_static_radius)
         
         # c. velocity in the goal frame
         vel_w = self.root_state[..., 7:10] # world vel
         vel_g = vec_to_new_frame(vel_w, target_dir_2d)   # coordinate change for velocity
+        policy_action_w = self._format_vo_velocity(getattr(self, "policy_action_w", vel_w))
 
         # final drone's internal states
         drone_state = torch.cat([rpos_clipped_g, distance_2d, distance_z, vel_g], dim=-1).squeeze(1)
@@ -1566,12 +1626,20 @@ class NavigationEnv(IsaacEnv):
             reward_dyn_obs_rpos = torch.gather(closest_dyn_obs_rpos, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
             reward_dyn_obs_vel = torch.gather(closest_dyn_obs_vel, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
             reward_dyn_obs_size = torch.gather(closest_dyn_obs_size, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
-            reward_vo, vo_risk, vo_warmup = self._compute_vo_reward(
+            reward_vo, vo_risk, vo_warmup, _ = self._compute_vo_reward(
                 reward_dyn_obs_rpos,
                 reward_dyn_obs_vel,
                 reward_dyn_obs_size,
                 reward_dyn_obs_range_mask,
                 vel_w,
+            )
+            reward_action_vo, action_vo_risk, _, _ = self._compute_vo_reward(
+                reward_dyn_obs_rpos,
+                reward_dyn_obs_vel,
+                reward_dyn_obs_size,
+                reward_dyn_obs_range_mask,
+                policy_action_w,
+                weight=self.vo_action_weight,
             )
             
         else:
@@ -1587,6 +1655,33 @@ class NavigationEnv(IsaacEnv):
             reward_vo = torch.zeros(self.num_envs, 1, device=self.cfg.device)
             vo_risk = torch.zeros(self.num_envs, 1, device=self.cfg.device)
             vo_warmup = torch.zeros(self.num_envs, 1, device=self.cfg.device)
+            reward_action_vo = torch.zeros(self.num_envs, 1, device=self.cfg.device)
+            action_vo_risk = torch.zeros(self.num_envs, 1, device=self.cfg.device)
+            reward_dyn_obs_rpos = torch.empty(self.num_envs, 0, 3, device=self.cfg.device)
+            reward_dyn_obs_vel = torch.empty(self.num_envs, 0, 3, device=self.cfg.device)
+            reward_dyn_obs_size = torch.empty(self.num_envs, 0, 3, device=self.cfg.device)
+            reward_dyn_obs_range_mask = torch.empty(self.num_envs, 0, dtype=torch.bool, device=self.cfg.device)
+
+        reward_static_vo, static_vo_risk, _, _ = self._compute_vo_reward(
+            static_vo_rpos,
+            static_vo_vel,
+            static_vo_size,
+            static_vo_range_mask,
+            policy_action_w,
+            weight=self.vo_static_weight,
+        )
+        safe_obs_rpos = torch.cat([reward_dyn_obs_rpos, static_vo_rpos], dim=1)
+        safe_obs_vel = torch.cat([reward_dyn_obs_vel, static_vo_vel], dim=1)
+        safe_obs_size = torch.cat([reward_dyn_obs_size, static_vo_size], dim=1)
+        safe_obs_range_mask = torch.cat([reward_dyn_obs_range_mask, static_vo_range_mask], dim=1)
+        safe_action_penalty, safe_action_risk = self._compute_safe_action_penalty(
+            policy_action_w,
+            safe_obs_rpos,
+            safe_obs_vel,
+            safe_obs_size,
+            safe_obs_range_mask,
+        )
+        reward_safe_action = -self.vo_safe_action_weight * self._vo_warmup_like(safe_action_penalty) * safe_action_penalty
 
         goal_distance = distance.squeeze(-1)
         reach_goal = goal_distance <= self.goal_radius
@@ -1664,7 +1759,16 @@ class NavigationEnv(IsaacEnv):
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
             self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
-        self.reward = self.reward + reward_goal_progress + reward_escape + reward_stall + reward_vo
+        self.reward = (
+            self.reward
+            + reward_goal_progress
+            + reward_escape
+            + reward_stall
+            + reward_vo
+            + reward_action_vo
+            + reward_static_vo
+            + reward_safe_action
+        )
 
         # Terminal penalties make failure modes explicitly costly.
         self.reward[collision] -= 45.0
@@ -1699,6 +1803,13 @@ class NavigationEnv(IsaacEnv):
         self.stats["reward_vo"] = reward_vo
         self.stats["vo_risk"] = vo_risk
         self.stats["vo_warmup"] = vo_warmup
+        self.stats["reward_action_vo"] = reward_action_vo
+        self.stats["action_vo_risk"] = action_vo_risk
+        self.stats["reward_static_vo"] = reward_static_vo
+        self.stats["static_vo_risk"] = static_vo_risk
+        self.stats["reward_safe_action"] = reward_safe_action
+        self.stats["safe_action_penalty"] = safe_action_penalty
+        self.stats["safe_action_risk"] = safe_action_risk
         self.stats["reach_goal"] = reach_goal.float()
         self.stats["collision"] = collision.float()
         self.stats["wall_collision"] = wall_collision.float()
