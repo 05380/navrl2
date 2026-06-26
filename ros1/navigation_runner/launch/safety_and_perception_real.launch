@@ -1,11 +1,17 @@
 <launch>
     <arg name="use_prebuilt_map" default="true" />
     <arg name="use_safety_shield" default="false" />
+    <arg name="show_rollout_traj" default="true" />
+    <arg name="rollout_traj_dt" default="0.2" />
+    <arg name="rollout_traj_horizon" default="2.0" />
     <arg name="rviz" default="false" />
 
     <!-- PX4 -->
     <param name="rl/use_px4" value="true" />
     <param name="rl/use_safety_shield" value="$(arg use_safety_shield)" />
+    <param name="rl/show_rollout_traj" value="$(arg show_rollout_traj)" />
+    <param name="rl/rollout_traj_dt" value="$(arg rollout_traj_dt)" />
+    <param name="rl/rollout_traj_horizon" value="$(arg rollout_traj_horizon)" />
 
     <!-- mapping -->
     <group if="$(arg use_prebuilt_map)">

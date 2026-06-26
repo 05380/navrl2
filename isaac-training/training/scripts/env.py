@@ -979,8 +979,8 @@ class NavigationEnv(IsaacEnv):
             "front_clearance": UnboundedContinuousTensorSpec(1),
             "front_clearance_gain": UnboundedContinuousTensorSpec(1),
             "reward_goal_progress": UnboundedContinuousTensorSpec(1),
-            "penalty_safety_static": UnboundedContinuousTensorSpec(1),
-            "penalty_safety_dynamic": UnboundedContinuousTensorSpec(1),
+            "reward_safety_static": UnboundedContinuousTensorSpec(1),
+            "reward_safety_dynamic": UnboundedContinuousTensorSpec(1),
             "reward_vel": UnboundedContinuousTensorSpec(1),
             "penalty_height": UnboundedContinuousTensorSpec(1),
             "reward_escape": UnboundedContinuousTensorSpec(1),
@@ -1723,16 +1723,22 @@ class NavigationEnv(IsaacEnv):
 ####
 
         # -----------------Reward Calculation-----------------
-        # a. penalize static obstacles only when they get too close.
+        # a. Safety reward for static obstacles. This follows the original
+        # NavRL shaping: log(distance) is positive when clearance is above 1m,
+        # near zero around 1m, and negative when obstacles are too close.
         dist_static = self.lidar_range - self.lidar_scan_clean
-        safe_margin = 1.1
-        penalty_safety_static = torch.relu(safe_margin - dist_static) / safe_margin
-        penalty_safety_static = penalty_safety_static.mean(dim=(2, 3))
+        reward_safety_static = torch.log(
+            dist_static.clamp(min=1e-6, max=self.lidar_range)
+        ).mean(dim=(2, 3))
         
 
-        # b. penalize dynamic obstacles only when they enter the same safety margin.
-        penalty_safety_dynamic = torch.relu(safe_margin - closest_dyn_obs_distance_reward) / safe_margin
-        penalty_safety_dynamic = penalty_safety_dynamic.mean(dim=-1, keepdim=True)
+        # b. Safety reward for dynamic obstacles with the same log-distance
+        # shaping. Out-of-range obstacles are clamped to lidar_range.
+        reward_safety_dynamic = torch.log(
+            closest_dyn_obs_distance_reward.clamp(min=1e-6, max=self.lidar_range)
+        ).mean(dim=-1, keepdim=True)
+        if self.cfg.env_dyn.num_obstacles == 0:
+            reward_safety_dynamic = torch.zeros_like(reward_safety_static)
 
         # c. reward forward progress only in the horizontal plane.
         goal_direction_xy = rpos[..., :2] / distance_2d.clamp_min(1e-6)
@@ -1756,9 +1762,9 @@ class NavigationEnv(IsaacEnv):
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
+            self.reward = reward_vel*0.05 + 0.1 + reward_safety_static * 0.6 + reward_safety_dynamic * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         else:
-            self.reward = reward_vel*0.05 + 0.1 - penalty_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
+            self.reward = reward_vel*0.05 + 0.1 + reward_safety_static * 0.6 - penalty_smooth * 0.1 - penalty_height * 0.5
         self.reward = (
             self.reward
             + reward_goal_progress
@@ -1792,8 +1798,8 @@ class NavigationEnv(IsaacEnv):
         self.stats["front_clearance"] = front_clearance
         self.stats["front_clearance_gain"] = front_clearance_gain
         self.stats["reward_goal_progress"] = reward_goal_progress
-        self.stats["penalty_safety_static"] = penalty_safety_static
-        self.stats["penalty_safety_dynamic"] = penalty_safety_dynamic
+        self.stats["reward_safety_static"] = reward_safety_static
+        self.stats["reward_safety_dynamic"] = reward_safety_dynamic
         self.stats["reward_vel"] = reward_vel
         self.stats["penalty_height"] = penalty_height
         self.stats["reward_escape"] = reward_escape

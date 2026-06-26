@@ -5,6 +5,9 @@
     <arg name="use_safety_shield" default="false" />
     <arg name="always_use_policy" default="false" />
     <arg name="use_goal_z" default="true" />
+    <arg name="show_rollout_traj" default="true" />
+    <arg name="rollout_traj_dt" default="0.2" />
+    <arg name="rollout_traj_horizon" default="2.0" />
     <arg name="rviz" default="true" />
     
     <!-- PX4 -->
@@ -12,6 +15,9 @@
     <param name="rl/use_safety_shield" value="$(arg use_safety_shield)" />
     <param name="rl/always_use_policy" value="$(arg always_use_policy)" />
     <param name="rl/use_goal_z" value="$(arg use_goal_z)" />
+    <param name="rl/show_rollout_traj" value="$(arg show_rollout_traj)" />
+    <param name="rl/rollout_traj_dt" value="$(arg rollout_traj_dt)" />
+    <param name="rl/rollout_traj_horizon" value="$(arg rollout_traj_horizon)" />
 
     <!-- mapping -->
     <group if="$(arg use_prebuilt_map)">

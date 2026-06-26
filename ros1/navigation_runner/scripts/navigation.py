@@ -53,6 +53,9 @@ class Navigation:
         self.goal_xy_settle_radius = float(rospy.get_param('rl/goal_xy_settle_radius', self.goal_stop_radius))
         self.goal_stop_height_tolerance = float(rospy.get_param('rl/goal_stop_height_tolerance', 0.2))
         self.goal_vertical_settle_speed = float(rospy.get_param('rl/goal_vertical_settle_speed', 0.3))
+        self.show_rollout_traj = rospy.get_param('rl/show_rollout_traj', True)
+        self.rollout_traj_dt = float(rospy.get_param('rl/rollout_traj_dt', 0.2))
+        self.rollout_traj_horizon = float(rospy.get_param('rl/rollout_traj_horizon', 2.0))
 
         self.use_policy_server = False
 
@@ -592,6 +595,28 @@ class Navigation:
             traj.append(pos.cpu().detach().numpy())
         return np.array(traj)
 
+    def publish_rollout_traj(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor):
+        if not self.show_rollout_traj:
+            return
+        rollout_traj = self.get_rollout_traj(
+            pos,
+            vel,
+            goal,
+            dt=self.rollout_traj_dt,
+            horizon=self.rollout_traj_horizon,
+        )
+        traj_msg = Path()
+        traj_msg.header.frame_id = "map"
+        traj_msg.header.stamp = rospy.get_rostime()
+        for point in rollout_traj:
+            pose = PoseStamped()
+            pose.header = traj_msg.header
+            pose.pose.position.x = point[0]
+            pose.pose.position.y = point[1]
+            pose.pose.position.z = point[2]
+            traj_msg.poses.append(pose)
+        self.rollout_traj_pub.publish(traj_msg)
+
     def control_callback(self, event):
         if (not self.odom_received):
             return
@@ -738,16 +763,7 @@ class Navigation:
         self.action_pub.publish(final_cmd_vel)
         self.has_action = True
 
-        # rollout_traj = self.get_rollout_traj(pos, vel_world, goal, dt=0.1, horizon=3.0)
-        # traj_msg = Path()
-        # traj_msg.header.frame_id = "map"
-        # for i in range(len(rollout_traj)):
-        #     p = PoseStamped()
-        #     p.pose.position.x = rollout_traj[i][0]
-        #     p.pose.position.y = rollout_traj[i][1]
-        #     p.pose.position.z = rollout_traj[i][2]
-        #     traj_msg.poses.append(p)
-        # self.rollout_traj_pub.publish(traj_msg)
+        self.publish_rollout_traj(pos, vel_world, goal)
         end_time = time.time()
         # print("[nav-ros]: control time ", end_time - start_time)
         
