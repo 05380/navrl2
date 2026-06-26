@@ -71,16 +71,16 @@ stuck:
   window: 60
   progress_eps: 0.005
   front_obstacle_distance: 1.5
-  front_angle_deg: 35.0
+  front_angle_deg: 30.0
   front_height: 0.75 #
 
 reward:
   goal_progress:
     goal_radius: 0.5
-    arrival_reward: 45.0
+    arrival_reward: 48.0
     timeout_penalty: 45.0
     progress_scale: 35.0
-    blocked_backward_scale: 0.25
+    blocked_backward_scale: 0.1
   escape:
     weight: 3.0
   stall:
