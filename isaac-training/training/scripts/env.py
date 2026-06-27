@@ -427,6 +427,9 @@ class NavigationEnv(IsaacEnv):
         self.vo_static_radius = max(float(vo_cfg.get("static_radius", 0.0)), 0.0)
         self.vo_static_vertical_min = float(vo_cfg.get("static_vertical_min", -0.35))
         self.vo_reward_topk = max(1, int(vo_cfg.get("reward_topk", 10)))
+        self.vo_sphere_stack = bool(vo_cfg.get("sphere_stack", False))
+        self.vo_sphere_stack_max_spheres = int(vo_cfg.get("sphere_stack_max_spheres", 0))
+        self.vo_sphere_stack_z_margin = max(float(vo_cfg.get("sphere_stack_z_margin", 0.6)), 0.0)
         self.vo_reward_range = max(self.lidar_range, float(max(cfg.env_dyn.local_range)))
         self.vo_warmup_steps = max(0, int(vo_cfg.get("warmup_steps", 0)))
         self.vo_step_count = 0
@@ -855,6 +858,67 @@ class NavigationEnv(IsaacEnv):
             dim=-1,
         ).clamp_min(1e-6)
         return scale
+
+    def _expand_dynamic_obstacles_for_vo(self, obs_rpos, obs_vel, obs_size, obs_range_mask, agent_vel=None):
+        if (
+            not self.vo_sphere_stack
+            or obs_rpos.size(1) == 0
+        ):
+            return obs_rpos, obs_vel, obs_size, obs_range_mask
+
+        batch_size, obs_count, _ = obs_rpos.shape
+        dtype = obs_rpos.dtype
+        device = obs_rpos.device
+
+        xy_extent = torch.maximum(obs_size[..., 0], obs_size[..., 1]).clamp_min(1e-6)
+        height = obs_size[..., 2].clamp_min(1e-6)
+        base_radius = obs_size[..., :2].norm(dim=-1).mul(0.5).clamp_min(1e-6)
+        num_spheres = torch.ceil(height / xy_extent).clamp_min(1).long()
+        if self.vo_sphere_stack_max_spheres > 0:
+            num_spheres = num_spheres.clamp(max=self.vo_sphere_stack_max_spheres)
+        sphere_count = int(num_spheres.max().item())
+
+        sphere_ids = torch.arange(sphere_count, device=device).view(1, 1, sphere_count)
+        valid_sphere = sphere_ids < num_spheres.unsqueeze(-1)
+        num_spheres_f = num_spheres.to(dtype=dtype).clamp_min(1.0)
+        step_z = xy_extent
+        z_remain = height - (num_spheres_f - 1.0) * step_z
+
+        z_offsets = (
+            -0.5 * height.unsqueeze(-1)
+            + 0.5 * z_remain.unsqueeze(-1)
+            + sphere_ids.to(dtype=dtype) * step_z.unsqueeze(-1)
+        )
+        z_offsets = torch.where(valid_sphere, z_offsets, torch.zeros_like(z_offsets))
+
+        expanded_rpos = obs_rpos.unsqueeze(2).expand(batch_size, obs_count, sphere_count, 3).clone()
+        expanded_rpos[..., 2] = expanded_rpos[..., 2] + z_offsets
+        expanded_vel = obs_vel.unsqueeze(2).expand(batch_size, obs_count, sphere_count, 3).clone()
+        expanded_size = (2.0 * base_radius).unsqueeze(-1).unsqueeze(-1).expand(
+            batch_size,
+            obs_count,
+            sphere_count,
+            3,
+        ).clone()
+        expanded_mask = obs_range_mask.unsqueeze(-1) | (~valid_sphere)
+
+        if self.vo_sphere_stack_z_margin > 0.0 and agent_vel is not None:
+            agent_vel = self._format_vo_velocity(agent_vel)
+            agent_vel_z = agent_vel[..., 2].reshape(batch_size, 1, 1)
+            rel_z_now = expanded_rpos[..., 2]
+            rel_z_future = rel_z_now + (expanded_vel[..., 2] - agent_vel_z) * self.vo_horizon
+            rel_z_min = torch.minimum(rel_z_now, rel_z_future)
+            rel_z_max = torch.maximum(rel_z_now, rel_z_future)
+            effective_z_margin = self.vo_sphere_stack_z_margin + 0.5 * expanded_size[..., 2]
+            height_relevant = (rel_z_min <= effective_z_margin) & (rel_z_max >= -effective_z_margin)
+            expanded_mask = expanded_mask | (~height_relevant)
+
+        return (
+            expanded_rpos.reshape(batch_size, obs_count * sphere_count, 3),
+            expanded_vel.reshape(batch_size, obs_count * sphere_count, 3),
+            expanded_size.reshape(batch_size, obs_count * sphere_count, 3),
+            expanded_mask.reshape(batch_size, obs_count * sphere_count),
+        )
 
     def _vo_warmup_like(self, reference: torch.Tensor):
         if self.vo_warmup_steps > 0:
@@ -1605,7 +1669,7 @@ class NavigationEnv(IsaacEnv):
             closest_dyn_obs_distance_reward[dyn_obs_range_mask] = self.cfg.sensor.lidar_range
 
             # Keep reward candidates aligned with the observed dynamic obstacles, then
-            # re-rank only within that set using the 3D VO metric.
+            # re-rank only within that set using the VO metric.
             closest_dyn_obs_distance_3d = closest_dyn_obs_rpos.norm(dim=-1)
             reward_dyn_obs_metric = torch.norm(
                 closest_dyn_obs_rpos / self._compute_vo_scale(closest_dyn_obs_size),
@@ -1626,6 +1690,15 @@ class NavigationEnv(IsaacEnv):
             reward_dyn_obs_rpos = torch.gather(closest_dyn_obs_rpos, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
             reward_dyn_obs_vel = torch.gather(closest_dyn_obs_vel, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
             reward_dyn_obs_size = torch.gather(closest_dyn_obs_size, 1, reward_dyn_obs_idx.unsqueeze(-1).expand(-1, -1, 3))
+            reward_dyn_obs_rpos, reward_dyn_obs_vel, reward_dyn_obs_size, reward_dyn_obs_range_mask = (
+                self._expand_dynamic_obstacles_for_vo(
+                    reward_dyn_obs_rpos,
+                    reward_dyn_obs_vel,
+                    reward_dyn_obs_size,
+                    reward_dyn_obs_range_mask,
+                    vel_w,
+                )
+            )
             reward_vo, vo_risk, vo_warmup, _ = self._compute_vo_reward(
                 reward_dyn_obs_rpos,
                 reward_dyn_obs_vel,

@@ -49,9 +49,9 @@ observation_noise:
   enabled: true
   train_only: true
   observation_delay:
-    steps: 2
+    steps: 0
   action_delay:
-    steps: 1
+    steps: 0
   action_execution:
     std: 0.05
     scale_std: 0.05
@@ -102,6 +102,9 @@ reward:
     static_radius: 0.0
     static_vertical_min: -0.35
     reward_topk: 10
+    sphere_stack: true
+    sphere_stack_max_spheres: 0 # 0 keeps the deployment get_safe_action density: ceil(height / max(width_x, width_y))
+    sphere_stack_z_margin: 0.6
     warmup_steps: 20000
 
 viewer:
