@@ -1,0 +1,204 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{#1}
+\csname url@rmstyle\endcsname
+\providecommand{\newblock}{\relax}
+\providecommand{\bibinfo}[2]{#2}
+\providecommand\BIBentrySTDinterwordspacing{\spaceskip=0pt\relax}
+\providecommand\BIBentryALTinterwordstretchfactor{4}
+\providecommand\BIBentryALTinterwordspacing{\spaceskip=\fontdimen2\font plus
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
+\providecommand\BIBforeignlanguage[2]{{%
+\expandafter\ifx\csname l@#1\endcsname\relax
+\typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
+\typeout{** loaded for the language `#1'. Using the pattern for}%
+\typeout{** the default language instead.}%
+\else
+\language=\csname l@#1\endcsname
+\fi
+#2}}
+
+\bibitem{yoder2016autonomous}
+L.~Yoder and S.~Scherer, ``Autonomous exploration for infrastructure modeling
+  with a micro aerial vehicle,'' in \emph{Field and Service Robotics: Results
+  of the 10th International Conference}.\hskip 1em plus 0.5em minus 0.4em\relax
+  Springer, 2016, pp. 427--440.
+
+\bibitem{bircher2018receding}
+A.~Bircher, M.~Kamel, K.~Alexis, H.~Oleynikova, and R.~Siegwart, ``Receding
+  horizon path planning for 3d exploration and surface inspection,''
+  \emph{Autonomous Robots}, vol.~42, pp. 291--306, 2018.
+
+\bibitem{gao2023uav}
+C.~Gao, X.~Wang, R.~Wang, Z.~Zhao, Y.~Zhai, X.~Chen, and B.~M. Chen, ``A
+  uav-based explore-then-exploit system for autonomous indoor facility
+  inspection and scene reconstruction,'' \emph{Automation in Construction},
+  vol. 148, p. 104753, 2023.
+
+\bibitem{hepp2018plan3d}
+B.~Hepp, M.~Nie{\ss}ner, and O.~Hilliges, ``Plan3d: Viewpoint and trajectory
+  optimization for aerial multi-view stereo reconstruction,'' \emph{ACM
+  Transactions on Graphics (TOG)}, vol.~38, no.~1, pp. 1--17, 2018.
+
+\bibitem{yan2021sampling}
+F.~Yan, E.~Xia, Z.~Li, and Z.~Zhou, ``Sampling-based path planning for
+  high-quality aerial 3d reconstruction of urban scenes,'' \emph{Remote
+  Sensing}, vol.~13, no.~5, p. 989, 2021.
+
+\bibitem{zhang2024soar}
+M.~Zhang, C.~Feng, Z.~Li, G.~Zheng, Y.~Luo, Z.~Wang, J.~Zhou, S.~Shen, and
+  B.~Zhou, ``Soar: Simultaneous exploration and photographing with
+  heterogeneous uavs for fast autonomous reconstruction,'' \emph{arXiv preprint
+  arXiv:2409.02738}, 2024.
+
+\bibitem{erdelj2017help}
+M.~Erdelj, E.~Natalizio, K.~R. Chowdhury, and I.~F. Akyildiz, ``Help from the
+  sky: Leveraging uavs for disaster management,'' \emph{IEEE Pervasive
+  Computing}, vol.~16, no.~1, pp. 24--32, 2017.
+
+\bibitem{schedl2021autonomous}
+D.~C. Schedl, I.~Kurmi, and O.~Bimber, ``An autonomous drone for search and
+  rescue in forests using airborne optical sectioning,'' \emph{Science
+  Robotics}, vol.~6, no.~55, p. eabg1188, 2021.
+
+\bibitem{zhang2022fast}
+S.~Zhang, X.~Zhang, T.~Li, J.~Yuan, and Y.~Fang, ``Fast active aerial
+  exploration for traversable path finding of ground robots in unknown
+  environments,'' \emph{IEEE Transactions on Instrumentation and Measurement},
+  vol.~71, pp. 1--13, 2022.
+
+\bibitem{zhang2024falcon}
+Y.~Zhang, X.~Chen, C.~Feng, B.~Zhou, and S.~Shen, ``Falcon: Fast autonomous
+  aerial exploration using coverage path guidance,'' \emph{arXiv preprint
+  arXiv:2407.00577}, 2024.
+
+\bibitem{tang2023bubble}
+B.~Tang, Y.~Ren, F.~Zhu, R.~He, S.~Liang, F.~Kong, and F.~Zhang, ``Bubble
+  explorer: Fast uav exploration in large-scale and cluttered 3d-environments
+  using occlusion-free spheres,'' in \emph{2023 IEEE/RSJ International
+  Conference on Intelligent Robots and Systems (IROS)}.\hskip 1em plus 0.5em
+  minus 0.4em\relax IEEE, 2023, pp. 1118--1125.
+
+\bibitem{lindqvist2024tree}
+B.~Lindqvist, A.~Patel, K.~L{\"o}fgren, and G.~Nikolakopoulos, ``A tree-based
+  next-best-trajectory method for 3d uav exploration,'' \emph{IEEE Transactions
+  on Robotics}, 2024.
+
+\bibitem{cao2023representation}
+C.~Cao, H.~Zhu, Z.~Ren, H.~Choset, and J.~Zhang, ``Representation granularity
+  enables time-efficient autonomous exploration in large, complex worlds,''
+  \emph{Science Robotics}, vol.~8, no.~80, p. eadf0970, 2023.
+
+\bibitem{zhou2023racer}
+B.~Zhou, H.~Xu, and S.~Shen, ``Racer: Rapid collaborative exploration with a
+  decentralized multi-uav system,'' \emph{IEEE Transactions on Robotics},
+  vol.~39, no.~3, pp. 1816--1835, 2023.
+
+\bibitem{bartolomei2023fast}
+L.~Bartolomei, L.~Teixeira, and M.~Chli, ``Fast multi-uav decentralized
+  exploration of forests,'' \emph{IEEE Robotics and Automation Letters},
+  vol.~8, no.~9, pp. 5576--5583, 2023.
+
+\bibitem{dong2024fast}
+Q.~Dong, H.~Xi, S.~Zhang, Q.~Bi, T.~Li, Z.~Wang, and X.~Zhang, ``Fast and
+  communication-efficient multi-uav exploration via voronoi partition on
+  dynamic topological graph,'' \emph{arXiv preprint arXiv:2408.05808}, 2024.
+
+\bibitem{yamauchi1997frontier}
+B.~Yamauchi, ``A frontier-based approach for autonomous exploration,'' in
+  \emph{Proceedings 1997 IEEE International Symposium on Computational
+  Intelligence in Robotics and Automation CIRA'97.'Towards New Computational
+  Principles for Robotics and Automation'}.\hskip 1em plus 0.5em minus
+  0.4em\relax IEEE, 1997, pp. 146--151.
+
+\bibitem{cieslewski2017rapid}
+T.~Cieslewski, E.~Kaufmann, and D.~Scaramuzza, ``Rapid exploration with
+  multi-rotors: A frontier selection method for high speed flight,'' in
+  \emph{2017 IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2017, pp.
+  2135--2142.
+
+\bibitem{batinovic2021multi}
+A.~Batinovic, T.~Petrovic, A.~Ivanovic, F.~Petric, and S.~Bogdan, ``A
+  multi-resolution frontier-based planner for autonomous 3d exploration,''
+  \emph{IEEE Robotics and Automation Letters}, vol.~6, no.~3, pp. 4528--4535,
+  2021.
+
+\bibitem{huang2023fael}
+J.~Huang, B.~Zhou, Z.~Fan, Y.~Zhu, Y.~Jie, L.~Li, and H.~Cheng, ``Fael: fast
+  autonomous exploration for large-scale environments with a mobile robot,''
+  \emph{IEEE Robotics and Automation Letters}, vol.~8, no.~3, pp. 1667--1674,
+  2023.
+
+\bibitem{zhang2021novel}
+X.~Zhang, Y.~Chu, Y.~Liu, X.~Zhang, and Y.~Zhuang, ``A novel informative
+  autonomous exploration strategy with uniform sampling for quadrotors,''
+  \emph{IEEE transactions on industrial electronics}, vol.~69, no.~12, pp.
+  13\,131--13\,140, 2021.
+
+\bibitem{witting2018history}
+C.~Witting, M.~Fehr, R.~B{\"a}hnemann, H.~Oleynikova, and R.~Siegwart,
+  ``History-aware autonomous exploration in confined environments using mavs,''
+  in \emph{2018 IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2018, pp. 1--9.
+
+\bibitem{lee2021real}
+E.~M. Lee, J.~Choi, H.~Lim, and H.~Myung, ``Real: Rapid exploration with active
+  loop-closing toward large-scale 3d mapping using uavs,'' in \emph{2021
+  IEEE/RSJ International Conference on Intelligent Robots and Systems
+  (IROS)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2021, pp. 4194--4198.
+
+\bibitem{burgard2005coordinated}
+W.~Burgard, M.~Moors, C.~Stachniss, and F.~E. Schneider, ``Coordinated
+  multi-robot exploration,'' \emph{IEEE Transactions on robotics}, vol.~21,
+  no.~3, pp. 376--386, 2005.
+
+\bibitem{dong2019multi}
+S.~Dong, K.~Xu, Q.~Zhou, A.~Tagliasacchi, S.~Xin, M.~Nie{\ss}ner, and B.~Chen,
+  ``Multi-robot collaborative dense scene reconstruction,'' \emph{ACM
+  Transactions on Graphics (TOG)}, vol.~38, no.~4, pp. 1--16, 2019.
+
+\bibitem{tian2020search}
+Y.~Tian, K.~Liu, K.~Ok, L.~Tran, D.~Allen, N.~Roy, and J.~P. How, ``Search and
+  rescue under the forest canopy using multiple uavs,'' \emph{The International
+  Journal of Robotics Research}, vol.~39, no. 10-11, pp. 1201--1221, 2020.
+
+\bibitem{yamauchi1999decentralized}
+B.~Yamauchi, ``Decentralized coordination for multirobot exploration,''
+  \emph{Robotics and Autonomous Systems}, vol.~29, no. 2-3, pp. 111--118, 1999.
+
+\bibitem{kabir2021efficient}
+R.~H. Kabir and K.~Lee, ``Efficient, decentralized, and collaborative
+  multi-robot exploration using optimal transport theory,'' in \emph{2021
+  American Control Conference (ACC)}.\hskip 1em plus 0.5em minus 0.4em\relax
+  IEEE, 2021, pp. 4203--4208.
+
+\bibitem{hu2020voronoi}
+J.~Hu, H.~Niu, J.~Carrasco, B.~Lennox, and F.~Arvin, ``Voronoi-based
+  multi-robot autonomous exploration in unknown environments via deep
+  reinforcement learning,'' \emph{IEEE Transactions on Vehicular Technology},
+  vol.~69, no.~12, pp. 14\,413--14\,423, 2020.
+
+\bibitem{klodt2015equitable}
+L.~Klodt and V.~Willert, ``Equitable workload partitioning for multi-robot
+  exploration through pairwise optimization,'' in \emph{2015 IEEE/RSJ
+  International Conference on Intelligent Robots and Systems (IROS)}.\hskip 1em
+  plus 0.5em minus 0.4em\relax IEEE, 2015, pp. 2809--2816.
+
+\bibitem{hui2023dppm}
+Y.~Hui, X.~Zhang, H.~Shen, H.~Lu, and B.~Tian, ``Dppm: Decentralized
+  exploration planning for multi-uav systems using lightweight information
+  structure,'' \emph{IEEE Transactions on Intelligent Vehicles}, vol.~9, no.~1,
+  pp. 613--625, 2023.
+
+\bibitem{han2019fiesta}
+L.~Han, F.~Gao, B.~Zhou, and S.~Shen, ``Fiesta: Fast incremental euclidean
+  distance fields for online motion planning of aerial robots,'' \emph{arXiv
+  preprint arXiv:1903.02144}, 2019.
+
+\bibitem{zhou2019robust}
+B.~Zhou, F.~Gao, L.~Wang, C.~Liu, and S.~Shen, ``Robust and efficient quadrotor
+  trajectory generation for fast autonomous flight,'' \emph{IEEE Robotics and
+  Automation Letters}, vol.~4, no.~4, pp. 3529--3536, 2019.
+
+\end{thebibliography}

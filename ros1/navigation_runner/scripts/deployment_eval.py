@@ -59,6 +59,9 @@ class DeploymentEvaluator:
         self.lidar_vbeams = int(rospy.get_param("~lidar_vbeams", 4))
         self.lidar_hres = float(rospy.get_param("~lidar_hres", 10.0))
         self.reset_wait = float(rospy.get_param("~reset_wait", 2.0))
+        self.reset_position_tolerance = float(rospy.get_param("~reset_position_tolerance", 0.15))
+        self.reset_speed_tolerance = float(rospy.get_param("~reset_speed_tolerance", 0.10))
+        self.reset_stable_time = float(rospy.get_param("~reset_stable_time", 0.30))
         self.goal_publish_time = float(rospy.get_param("~goal_publish_time", 1.0))
         self.csv_path = rospy.get_param("~csv_path", "")
 
@@ -111,15 +114,36 @@ class DeploymentEvaluator:
         state.twist.angular.x = 0.0
         state.twist.angular.y = 0.0
         state.twist.angular.z = 0.0
-        goal_msg = self.make_pose_msg(goal[0], goal[1], goal[2], 0.0)
 
         rate = rospy.Rate(20)
         end_time = time.time() + self.reset_wait
+        stable_since = None
+        stable = False
         while not rospy.is_shutdown() and time.time() < end_time:
             self.set_model_state(state)
-            goal_msg.header.stamp = rospy.Time.now()
-            self.goal_pub.publish(goal_msg)
+            odom = self.latest_odom
+            if odom is not None:
+                pos_error = self.distance_to_point(odom, start)
+                curr_speed = self.speed(odom)
+                if (
+                    pos_error <= self.reset_position_tolerance
+                    and curr_speed <= self.reset_speed_tolerance
+                ):
+                    if stable_since is None:
+                        stable_since = time.time()
+                    if time.time() - stable_since >= self.reset_stable_time:
+                        stable = True
+                        break
+                else:
+                    stable_since = None
             rate.sleep()
+        if not stable:
+            rospy.logwarn(
+                "[deployment-eval] reset did not fully settle before goal publish: "
+                "pos_tolerance=%.3f speed_tolerance=%.3f",
+                self.reset_position_tolerance,
+                self.reset_speed_tolerance,
+            )
 
     def sample_boundary_point(self, side, z, half):
         offset = self.rng.uniform(-half, half)
@@ -165,6 +189,13 @@ class DeploymentEvaluator:
         dx = goal[0] - pos.x
         dy = goal[1] - pos.y
         dz = goal[2] - pos.z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    def distance_to_point(self, odom, point):
+        pos = odom.pose.pose.position
+        dx = point[0] - pos.x
+        dy = point[1] - pos.y
+        dz = point[2] - pos.z
         return math.sqrt(dx * dx + dy * dy + dz * dz)
 
     def speed(self, odom):
@@ -280,6 +311,9 @@ class DeploymentEvaluator:
     def run_one_trial(self, trial_idx):
         start, goal, start_side, goal_side = self.sample_trial_task()
         self.reset_robot(start, goal)
+        # Publish the goal only after the reset pose has settled, so the
+        # navigation node does not act on a new task while Gazebo is still being
+        # forced to the start state.
         self.publish_goal_for_a_moment(goal)
 
         start_time = rospy.Time.now().to_sec()

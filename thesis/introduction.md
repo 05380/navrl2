@@ -1,0 +1,25 @@
+# Introduction
+
+Autonomous navigation is essential for unmanned aerial vehicles (UAVs) operating in environments with dense dynamic obstacles and large, geometrically complex structures. Beyond reacting to local geometry, a UAV must account for the likely future consequences of its decisions: an action that is collision-free at the current instant may still create a future motion conflict or progressively reduce route feasibility. Enabling such foresight under limited onboard sensing and computation remains a central challenge in UAV navigation and control.
+
+Classical navigation systems decompose the problem into perception, prediction, planning, and control [1]–[3]. Although interpretable and constraint-aware, these systems rely on accurate models, hand-crafted objectives, and repeated online optimization, which can increase tuning effort and reaction latency. Deep reinforcement learning offers an alternative by learning a direct observation-to-action policy from large-scale simulated experience [4]–[6]. As a representative approach, NavRL learns efficient reactive navigation behavior with Proximal Policy Optimization (PPO) [6]. However, its learning objective provides limited explicit supervision of future collision risk and route feasibility, leaving the nominal policy largely reactive.
+
+This limited lookahead causes two related failures. First, distance-based safety signals cannot distinguish equally close obstacles with different relative velocities or vertical separation. A deployment-time velocity-obstacle (VO) shield can correct residual unsafe actions, but it does not teach the nominal policy to avoid motion conflicts proactively [7]–[9]. Second, locally collision-free actions around extended or concave structures may progressively reduce route feasibility and lead to deadlocks. Recurrent policies provide temporal memory but lack explicit supervision of future navigability, whereas model-based methods that rely on online rollouts can increase deployment complexity [10]–[12]. These limitations motivate training-time guidance that captures both finite-horizon collision risk and longer-term route feasibility.
+
+To address these limitations, we present Learning-based Predictive Navigation (LP-Nav), a reinforcement learning framework that integrates physics-informed reward shaping with task-oriented predictive representation learning. First, LP-Nav incorporates a finite-horizon, time-to-collision-aware reward term derived from a three-dimensional VO formulation into PPO training, encouraging the nominal policy to proactively avoid imminent motion conflicts. Second, we introduce an action-conditioned multi-horizon auxiliary prediction objective. The auxiliary predictor shares the observation encoder with the policy network and regularizes the shared representation to encode both imminent risk and longer-term route feasibility. Given the current observation-action pair, it predicts subsequent rollout outcomes, including future collision and deadlock events, minimum forward clearance over each prediction horizon, and cumulative progress toward the goal. 
+
+We evaluate LP-Nav against NavRL, ViGO, and representative learning-based and planning baselines [6], [13]–[15] in dynamic, static–dynamic mixed, and structured large-obstacle environments. LP-Nav and NavRL are evaluated with identical deployment-time VO shield settings. In dynamic and static–dynamic mixed environments, LP-Nav improves navigation success by 8.0–10.3 percentage points over the strongest baseline. In structured large-obstacle environments, it reduces the deadlock rate by 15.8–25.5 percentage points and achieves a higher post-deadlock escape rate. Real-world UAV flights demonstrate the zero-shot deployment feasibility of the proposed framework.
+
+（待定）Ablation studies further isolate the contributions of the TTC-aware VO reward and the multi-horizon auxiliary objective.
+
+（待定）As shown in Figure 1(b), the LP-Nav policy enables the UAV to navigate safely and efficiently around large obstacles instead of becoming trapped or colliding with them.
+
+The main contributions of this work are summarized as follows:
+
+- **Physics-informed 3D dynamic-risk learning:** We introduce a time-to-collision-aware three-dimensional VO reward that provides finite-horizon dynamic-risk supervision and encourages proactive avoidance of dynamic obstacles.
+
+- **Predictive navigability learning for large obstacles:** We introduce action-conditioned multi-horizon auxiliary learning to improve long-horizon navigation around extended and concave obstacles while mitigating deadlocks without additional deployment-time computation.
+
+- **Simulation evaluation and zero-shot physical deployment:** Simulation experiments demonstrate higher navigation success, lower collision and deadlock rates, and improved post-deadlock recovery, while zero-shot real-world flights validate deployment feasibility.
+
+<!-- Citation placeholders [1]–[15] should be replaced after the related-work bibliography is finalized. -->
