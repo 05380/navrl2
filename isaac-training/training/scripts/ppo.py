@@ -90,7 +90,7 @@ class PPO(TensorDictModuleBase):
             feature_extractor_params += list(self.auxiliary_predictor.parameters())
         self.feature_extractor_optim = torch.optim.Adam(feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor.learning_rate)
-        self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.actor.learning_rate)
+        self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.critic.learning_rate,)
 
         # Dummy Input for nn lazymodule
         dummy_input = observation_spec.zero()

@@ -1,0 +1,79 @@
+# LP-Nav Gazebo Corridor Benchmark
+
+This benchmark is independent of the Isaac Sim training environment. The default
+scenario contains a 10 m x 5 m enclosure, eight non-overflyable square prisms,
+and four pedestrians following deterministic collision-free paths.
+The evaluator restricts the UAV center to 0.35--1.50 m altitude; together with
+the configured collision radius, both the prisms and pedestrians are
+non-overflyable.
+
+## Generate scenarios
+
+Generate the default scenario:
+
+```bash
+rosrun uav_simulator generate_corridor_world.py
+```
+
+The generator requires the ROS `python3-yaml` package.
+
+Generate another reproducible layout:
+
+```bash
+rosrun uav_simulator generate_corridor_world.py --seed 42
+```
+
+Each generation produces matching `.world`, `.pcd`, and `.yaml` files in this
+directory. Keep all three files together. Configuration is in
+`uav_simulator/scripts/corridor_world_generator.yaml`.
+
+## Run the benchmark
+
+Terminal 1 starts Gazebo, online mapping, the fake dynamic-obstacle detector,
+the VO shield, and RViz:
+
+```bash
+roslaunch navigation_runner lpnav_corridor_sim.launch \
+  scenario_name:=lpnav_corridor_seed_7
+```
+
+Terminal 2 starts the policy using the checkpoint selected by
+`navigation_runner/scripts/navigation.py`:
+
+```bash
+conda activate NavRL
+rosrun navigation_runner navigation_node.py
+```
+
+Terminal 3 starts the dedicated evaluator and pedestrian controller:
+
+```bash
+rosrun navigation_runner deployment_eval2.py \
+  _scenario_file:=$(rospack find uav_simulator)/worlds/lpnav_corridor/lpnav_corridor_seed_7.yaml \
+  _num_trials:=100 \
+  _random_seed:=1007 \
+  _csv_path:=/tmp/lpnav_corridor_lpnav.csv
+```
+
+The evaluator waits for the navigation goal subscriber before starting. It also
+resets the pedestrian phases deterministically for every trial. Use the same
+scenario and random seed for every compared method.
+
+To let the launch file start the evaluator, set `run_evaluator:=true`; start the
+navigation node in another terminal before the 120-second dependency timeout.
+
+## Mapping modes
+
+The default `use_prebuilt_map:=false` builds the static map online from the
+simulated depth camera. This is the preferred cross-simulator test.
+
+For a controlled policy-only diagnostic, use the matching generated PCD:
+
+```bash
+roslaunch navigation_runner lpnav_corridor_sim.launch \
+  scenario_name:=lpnav_corridor_seed_7 \
+  use_prebuilt_map:=true
+```
+
+Pedestrians move only while `deployment_eval2.py` is running. Their Gazebo model
+names retain the `personN_0.5_0.5_1.8` convention required by the fake detector.

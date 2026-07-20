@@ -1,6 +1,7 @@
 <launch>
     <arg name="use_px4" default="false" />
     <arg name="use_prebuilt_map" default="false" />
+    <arg name="prebuilt_map_file" default="$(find uav_simulator)/worlds/generated_env/generated_env_static.pcd" />
     <arg name="use_real_detector" default="false" />
     <arg name="use_safety_shield" default="false" />
     <arg name="always_use_policy" default="false" />
@@ -25,8 +26,9 @@
 	        <rosparam file="$(find navigation_runner)/cfg/mapping/sim/prebuilt_map_px4.yaml" ns="/occupancy_map"  />
         </group>
         <group unless="$(arg use_px4)">
-	        <rosparam file="$(find navigation_runner)/cfg/mapping/sim/prebuilt_map.yaml" ns="/occupancy_map"  />
-        </group>
+		        <rosparam file="$(find navigation_runner)/cfg/mapping/sim/prebuilt_map.yaml" ns="/occupancy_map"  />
+	        </group>
+		<param name="/occupancy_map/prebuilt_map_directory" value="$(arg prebuilt_map_file)" />
     </group>
     <group unless="$(arg use_prebuilt_map)">
         <group if="$(arg use_px4)">

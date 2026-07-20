@@ -57,6 +57,11 @@ class Navigation:
         self.rollout_traj_dt = float(rospy.get_param('rl/rollout_traj_dt', 0.2))
         self.rollout_traj_horizon = float(rospy.get_param('rl/rollout_traj_horizon', 2.0))
 
+        self.odom_data_stamp = None
+        self.raycast_data_stamp = None
+        self.dynamic_obstacle_data_stamp = None
+        self.last_command_publish_stamp = None
+
         self.use_policy_server = False
 
         self.odom_received = False
@@ -274,19 +279,24 @@ class Navigation:
     def raycast_callback(self, event):
         if not self.odom_received or not self.goal_received:
             return
+        data_stamp = rospy.Time.now()
         pos = np.array([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z])
         start_angle = np.arctan2(self.target_dir[1].cpu().numpy(), self.target_dir[0].cpu().numpy())
         self.raypoints = self.get_raycast(pos, start_angle)
+        self.raycast_data_stamp = data_stamp
 
     def dynamic_obstacle_callback(self, event):
         if not self.odom_received:
             return
+        data_stamp = rospy.Time.now()
         pos = np.array([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z])
         dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size = self.get_dynamic_obstacles(pos)
         self.dynamic_obstacles = (dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size)
+        self.dynamic_obstacle_data_stamp = data_stamp
 
     def odom_callback(self, odom):
         self.odom = odom
+        self.odom_data_stamp = odom.header.stamp if odom.header.stamp.to_sec() > 0.0 else rospy.Time.now()
         self.odom_received = True
     
     def state_callback(self, state):
@@ -618,6 +628,8 @@ class Navigation:
         self.rollout_traj_pub.publish(traj_msg)
 
     def control_callback(self, event):
+        control_start_wall = time.perf_counter()
+
         if (not self.odom_received):
             return
 
@@ -691,6 +703,15 @@ class Navigation:
             if (self.stable_times <= 10):
                 return
 
+        used_input_stamps = [
+            stamp for stamp in (
+                self.odom_data_stamp,
+                self.raycast_data_stamp,
+                self.dynamic_obstacle_data_stamp,
+            )
+            if stamp is not None and stamp.to_sec() > 0.0
+        ]
+
         orientation = torch.tensor([self.odom.pose.pose.orientation.w, self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z], device=self.cfg.device)
         rot = self.quaternion_to_rotation_matrix(self.odom.pose.pose.orientation)
         vel_body = np.array([self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z])
@@ -761,6 +782,29 @@ class Navigation:
             else:
                 final_cmd_vel.twist.linear.z = 0
         self.action_pub.publish(final_cmd_vel)
+        publish_stamp = rospy.Time.now()
+
+        control_to_publish_ms = (time.perf_counter() - control_start_wall) * 1000.0
+        if used_input_stamps:
+            oldest_input_stamp = min(used_input_stamps, key=lambda stamp: stamp.to_sec())
+            observation_to_command_ms = max(0.0, (publish_stamp - oldest_input_stamp).to_sec() * 1000.0)
+        else:
+            observation_to_command_ms = float("nan")
+
+        if self.last_command_publish_stamp is None:
+            command_interval_ms = float("nan")
+        else:
+            command_interval_ms = max(
+                0.0,
+                (publish_stamp - self.last_command_publish_stamp).to_sec() * 1000.0,
+            )
+        self.last_command_publish_stamp = publish_stamp
+
+        print(
+            "[nav-ros][timing-ms] control_to_publish=%.3f "
+            "observation_to_command=%.3f command_interval=%.3f"
+            % (control_to_publish_ms, observation_to_command_ms, command_interval_ms)
+        )
         self.has_action = True
 
         self.publish_rollout_traj(pos, vel_world, goal)
