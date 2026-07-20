@@ -458,6 +458,8 @@ class CorridorWorldGenerator:
         for index, obstacle in enumerate(obstacles):
             models.append(self.box_sdf(obstacle, palette[index % len(palette)]))
         models.extend(self.pedestrian_sdf(pedestrian) for pedestrian in pedestrians)
+        ground_size_x = self.length + 4.0
+        ground_size_y = self.width + 4.0
         return """<?xml version="1.0"?>
 <sdf version="1.7">
   <world name="default">
@@ -476,10 +478,10 @@ class CorridorWorldGenerator:
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>14 9</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>{ground_size_x} {ground_size_y}</size></plane></geometry>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>14 9</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>{ground_size_x} {ground_size_y}</size></plane></geometry>
           <material><ambient>0.72 0.72 0.70 1</ambient><diffuse>0.72 0.72 0.70 1</diffuse></material>
         </visual>
       </link>
@@ -487,7 +489,11 @@ class CorridorWorldGenerator:
 {models}
   </world>
 </sdf>
-""".format(models="\n".join(models))
+""".format(
+            ground_size_x=ground_size_x,
+            ground_size_y=ground_size_y,
+            models="\n".join(models),
+        )
 
     @staticmethod
     def axis_samples(center, size, resolution):
