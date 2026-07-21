@@ -288,66 +288,54 @@ class CorridorWorldGenerator:
                 return obstacles
         raise RuntimeError("Could not generate a connected static-obstacle layout")
 
-    def random_free_point(self, grid, forbidden_points, min_separation):
-        candidates = list(grid.free_cells)
-        self.rng.shuffle(candidates)
-        for cell in candidates:
-            point = grid.point(cell)
-            if all(pairwise_distance(point, other) >= min_separation for other in forbidden_points):
-                return point
-        return None
-
-    def generate_pedestrians(self, obstacles):
+    def generate_pedestrians(self):
         cfg = self.config["pedestrians"]
         count = int(cfg["count"])
-        clearance = float(cfg["obstacle_clearance"])
-        resolution = float(self.config["planning"]["grid_resolution"])
-        bounds = (
-            -self.length * 0.5 + clearance,
-            self.length * 0.5 - clearance,
-            -self.width * 0.5 + clearance,
-            self.width * 0.5 - clearance,
-        )
-        grid = OccupancyGrid(bounds, resolution, obstacles, clearance)
         size = [float(value) for value in cfg["size"]]
+        wall_clearance = float(cfg["wall_clearance"])
+        body_radius = max(size[0], size[1]) * 0.5
+        center_margin = body_radius + wall_clearance
+        bounds = (
+            -self.length * 0.5 + center_margin,
+            self.length * 0.5 - center_margin,
+            -self.width * 0.5 + center_margin,
+            self.width * 0.5 - center_margin,
+        )
         speed_min, speed_max = map(float, cfg["speed_range"])
         target_count = int(cfg["random_targets_per_path"])
         min_path_length = float(cfg["min_path_length"])
-        min_initial_separation = float(cfg["min_initial_separation"])
+        min_leg_length = float(cfg["min_leg_length"])
         path_attempts = int(cfg["path_attempts"])
 
         pedestrians = []
-        starts = []
         for index in range(count):
             accepted = None
             for _ in range(path_attempts):
-                start = self.random_free_point(grid, starts, min_initial_separation)
-                if start is None:
-                    break
-                targets = [start]
-                full_path = [start]
-                valid = True
+                path = [
+                    (
+                        self.rng.uniform(bounds[0], bounds[1]),
+                        self.rng.uniform(bounds[2], bounds[3]),
+                    )
+                ]
                 for _ in range(target_count):
-                    goal = self.random_free_point(grid, [targets[-1]], 1.5)
-                    if goal is None:
-                        valid = False
+                    for _ in range(100):
+                        candidate = (
+                            self.rng.uniform(bounds[0], bounds[1]),
+                            self.rng.uniform(bounds[2], bounds[3]),
+                        )
+                        if pairwise_distance(path[-1], candidate) >= min_leg_length:
+                            path.append(candidate)
+                            break
+                    else:
                         break
-                    leg = grid.astar(targets[-1], goal)
-                    if not leg:
-                        valid = False
-                        break
-                    full_path.extend(grid.simplify(leg)[1:])
-                    targets.append(goal)
-                if not valid:
+                if len(path) != target_count + 1:
                     continue
-                closing_leg = grid.astar(targets[-1], start)
-                if not closing_leg:
+                if pairwise_distance(path[-1], path[0]) < min_leg_length:
                     continue
-                full_path.extend(grid.simplify(closing_leg)[1:])
-                if polyline_length(full_path) < min_path_length:
+                path.append(path[0])
+                if polyline_length(path) < min_path_length:
                     continue
-                accepted = full_path
-                starts.append(start)
+                accepted = path
                 break
             if accepted is None:
                 raise RuntimeError("Could not generate pedestrian path %d" % (index + 1))
@@ -387,9 +375,6 @@ class CorridorWorldGenerator:
             },
             "task": self.config["task"],
             "evaluation": self.config["evaluation"],
-            "pedestrian_motion": {
-                "minimum_separation": float(self.config["pedestrians"]["minimum_separation"]),
-            },
             "walls": walls,
             "static_obstacles": obstacles,
             "pedestrians": pedestrians,
@@ -472,6 +457,7 @@ class CorridorWorldGenerator:
       <ambient>0.55 0.55 0.55 1</ambient>
       <background>0.80 0.86 0.92 1</background>
       <shadows>true</shadows>
+      <grid>false</grid>
     </scene>
     <include><uri>model://sun</uri></include>
     <model name="ground_plane">
@@ -561,7 +547,7 @@ class CorridorWorldGenerator:
 
         walls = self.make_walls()
         obstacles = self.generate_obstacle_layout()
-        pedestrians = self.generate_pedestrians(obstacles)
+        pedestrians = self.generate_pedestrians()
         scenario = self.scenario(walls, obstacles, pedestrians)
         scenario["name"] = basename
 

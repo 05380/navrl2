@@ -2,7 +2,9 @@
 
 This benchmark is independent of the Isaac Sim training environment. The default
 scenario contains a 10 m x 5 m enclosure, eight non-overflyable square prisms,
-and four pedestrians following deterministic collision-free paths.
+and four pedestrians following reproducible random loops within the enclosure.
+Pedestrian paths may cross static obstacles and one another, and the Gazebo scene
+grid is disabled for a cleaner overhead view.
 The evaluator restricts the UAV center to 0.35--1.50 m altitude; together with
 the configured collision radius, both the prisms and pedestrians are
 non-overflyable.

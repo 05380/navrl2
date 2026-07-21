@@ -80,9 +80,13 @@ reward:
     arrival_reward: 50.0
     timeout_penalty: 45.0
     progress_scale: 35.0
-    blocked_backward_scale: 0.1
   escape:
     weight: 3.0
+    recovery_window: 180
+    cooldown_steps: 120
+    min_displacement: 0.3
+    min_goal_progress: 0.2
+    min_clearance_gain: 0.2
   stall:
     weight: 1.0
     window: 60

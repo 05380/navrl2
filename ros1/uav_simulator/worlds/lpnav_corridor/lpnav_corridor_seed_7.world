@@ -10,16 +10,17 @@
       <ambient>0.55 0.55 0.55 1</ambient>
       <background>0.80 0.86 0.92 1</background>
       <shadows>true</shadows>
+      <grid>false</grid>
     </scene>
     <include><uri>model://sun</uri></include>
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>14 9</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>14.0 9.0</size></plane></geometry>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>14 9</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>14.0 9.0</size></plane></geometry>
           <material><ambient>0.72 0.72 0.70 1</ambient><diffuse>0.72 0.72 0.70 1</diffuse></material>
         </visual>
       </link>
@@ -231,7 +232,7 @@
 
     <model name="person1_0.5_0.5_1.8">
       <static>true</static>
-      <pose>-4.45 0.95 0 0 0 0</pose>
+      <pose>-1.488 -1.924 0 0 0 0</pose>
       <link name="link">
         <collision name="body">
           <pose>0 0 0.9 0 0 0</pose>
@@ -246,7 +247,7 @@
 
     <model name="person2_0.5_0.5_1.8">
       <static>true</static>
-      <pose>0.45 -1.15 0 0 0 0</pose>
+      <pose>-1.419 -0.584 0 0 0 0</pose>
       <link name="link">
         <collision name="body">
           <pose>0 0 0.9 0 0 0</pose>
@@ -261,7 +262,7 @@
 
     <model name="person3_0.5_0.5_1.8">
       <static>true</static>
-      <pose>4.15 0.25 0 0 0 0</pose>
+      <pose>3.058 -1.456 0 0 0 0</pose>
       <link name="link">
         <collision name="body">
           <pose>0 0 0.9 0 0 0</pose>
@@ -276,7 +277,7 @@
 
     <model name="person4_0.5_0.5_1.8">
       <static>true</static>
-      <pose>-0.55 -1.55 0 0 0 0</pose>
+      <pose>-1.24 -1.432 0 0 0 0</pose>
       <link name="link">
         <collision name="body">
           <pose>0 0 0.9 0 0 0</pose>

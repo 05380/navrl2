@@ -117,16 +117,13 @@ class PolylineWalker:
 
 
 class PedestrianController:
-    def __init__(self, pedestrian_configs, minimum_separation, state_publisher, state_service):
+    def __init__(self, pedestrian_configs, state_publisher, state_service):
         self.walkers = [PolylineWalker(config) for config in pedestrian_configs]
-        self.minimum_separation = float(minimum_separation)
         self.state_publisher = state_publisher
         self.state_service = state_service
-        self.tick = 0
 
     def reset(self, rng, forbidden_points, forbidden_clearance):
         phases = []
-        positions = []
         for walker in self.walkers:
             selected_phase = None
             for _ in range(500):
@@ -134,44 +131,21 @@ class PedestrianController:
                 position, _ = walker.pose_at(phase * walker.total_length)
                 if any(distance_2d(position, point) < forbidden_clearance for point in forbidden_points):
                     continue
-                if any(distance_2d(position, point) < self.minimum_separation for point in positions):
-                    continue
                 selected_phase = phase
-                positions.append(position)
                 break
             if selected_phase is None:
                 raise RuntimeError("Could not place pedestrian %s away from the trial endpoints" % walker.name)
             walker.reset(selected_phase)
             phases.append(round(selected_phase, 6))
-        self.tick = 0
         self.publish(use_service=True)
         return phases
 
     def advance(self, dt):
         if not self.walkers:
             return
-        candidates = [walker.candidate(dt) for walker in self.walkers]
-        accepted_positions = {}
-        count = len(self.walkers)
-        order = [(self.tick + offset) % count for offset in range(count)]
-        for index in order:
-            next_progress, candidate_position, yaw = candidates[index]
-            unprocessed_positions = (
-                self.walkers[other_index].position
-                for other_index in order
-                if other_index not in accepted_positions and other_index != index
-            )
-            conflict = any(
-                distance_2d(candidate_position, other_position) < self.minimum_separation
-                for other_position in list(accepted_positions.values()) + list(unprocessed_positions)
-            )
-            if conflict:
-                self.walkers[index].pause()
-                accepted_positions[index] = self.walkers[index].position
-            else:
-                self.walkers[index].advance(next_progress, candidate_position, yaw, dt)
-                accepted_positions[index] = candidate_position
-        self.tick += 1
+        for walker in self.walkers:
+            next_progress, position, yaw = walker.candidate(dt)
+            walker.advance(next_progress, position, yaw, dt)
         self.publish(use_service=False)
 
     @staticmethod
@@ -218,8 +192,6 @@ class CorridorDeploymentEvaluator:
         flight = self.scenario["flight"]
         arena = self.scenario["arena"]
         task = self.scenario["task"]
-        pedestrian_settings = self.scenario.get("pedestrian_motion", {})
-
         self.num_trials = int(rospy.get_param("~num_trials", 100))
         self.random_seed = int(rospy.get_param("~random_seed", self.scenario["random_seed"] + 1000))
         self.model_name = str(rospy.get_param("~model_name", "quadcopter"))
@@ -267,7 +239,6 @@ class CorridorDeploymentEvaluator:
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
         self.pedestrians = PedestrianController(
             self.scenario["pedestrians"],
-            pedestrian_settings.get("minimum_separation", 0.60),
             self.model_state_pub,
             self.set_model_state,
         )

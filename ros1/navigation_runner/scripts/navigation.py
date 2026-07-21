@@ -823,7 +823,7 @@ class Navigation:
 
     def run(self):
         raycast_timer = rospy.Timer(rospy.Duration(0.05), self.raycast_callback)
-        raycast_vis_timer = rospy.Timer(rospy.Duration(0.05), self.raycast_vis_callback)
+        #raycast_vis_timer = rospy.Timer(rospy.Duration(0.05), self.raycast_vis_callback)
         control_timer = rospy.Timer(rospy.Duration(0.05), self.control_callback)
         goal_vis_timer = rospy.Timer(rospy.Duration(0.05), self.goal_vis_callback)
         dynamic_obstacle_timer = rospy.Timer(rospy.Duration(0.05), self.dynamic_obstacle_callback)

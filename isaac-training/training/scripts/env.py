@@ -402,10 +402,6 @@ class NavigationEnv(IsaacEnv):
         self.goal_arrival_reward = float(goal_progress_cfg.get("arrival_reward", 5.0))
         self.goal_timeout_penalty = float(goal_progress_cfg.get("timeout_penalty", self.goal_arrival_reward))
         self.goal_progress_scale = float(goal_progress_cfg.get("progress_scale", 10.0))
-        self.blocked_backward_scale = min(
-            max(float(goal_progress_cfg.get("blocked_backward_scale", 0.25)), 0.0),
-            1.0,
-        )
         stall_reward_cfg = reward_cfg.get("stall", {})
         self.stall_reward_weight = float(stall_reward_cfg.get("weight", 0.5))
         self.stall_reward_window = max(1, int(stall_reward_cfg.get("window", self.stuck_window)))
@@ -415,6 +411,11 @@ class NavigationEnv(IsaacEnv):
         self.stall_progress_threshold = float(stall_reward_cfg.get("progress_eps", self.stuck_progress_eps))
         escape_reward_cfg = reward_cfg.get("escape", {})
         self.escape_reward_weight = float(escape_reward_cfg.get("weight", 1.0))
+        self.escape_recovery_window = max(1, int(escape_reward_cfg.get("recovery_window", self.stuck_window * 3)))
+        self.escape_cooldown_steps = max(0, int(escape_reward_cfg.get("cooldown_steps", self.stuck_window * 2)))
+        self.escape_min_displacement = max(float(escape_reward_cfg.get("min_displacement", 0.3)), 0.0)
+        self.escape_min_goal_progress = max(float(escape_reward_cfg.get("min_goal_progress", 0.2)), 0.0)
+        self.escape_min_clearance_gain = max(float(escape_reward_cfg.get("min_clearance_gain", 0.2)), 0.0)
         vo_cfg = reward_cfg.get("vo", {})
         self.vo_weight = float(vo_cfg.get("weight", 1.0))
         self.vo_tau = max(float(vo_cfg.get("tau", 0.75)), 1e-6)
@@ -495,6 +496,12 @@ class NavigationEnv(IsaacEnv):
             self.prev_goal_distance = torch.zeros(self.num_envs, 1)
             self.prev_front_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stuck_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
+            self.escape_armed = torch.zeros(self.num_envs, 1, dtype=torch.bool)
+            self.escape_age = torch.zeros(self.num_envs, 1, dtype=torch.long)
+            self.escape_cooldown = torch.zeros(self.num_envs, 1, dtype=torch.long)
+            self.escape_anchor_pos = torch.zeros(self.num_envs, 1, 3)
+            self.escape_anchor_goal_distance = torch.zeros(self.num_envs, 1)
+            self.escape_anchor_clearance = torch.full((self.num_envs, 1), self.lidar_range)
             self.stall_counter = torch.zeros(self.num_envs, 1, dtype=torch.long)
             self.stall_anchor_pos = torch.zeros(self.num_envs, 1, 3)
             self.observation_delay_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
@@ -792,16 +799,8 @@ class NavigationEnv(IsaacEnv):
             & (vertical <= self.stuck_front_height + vertical_inflation)
         )
 
-    def _compute_goal_progress_reward(self, goal_progress, reach_goal, time_limit, front_obstacle=None):
-        scaled_goal_progress = goal_progress
-        if front_obstacle is not None:
-            blocked_backward = front_obstacle & (goal_progress < 0.0) & (~reach_goal) & (~time_limit)
-            scaled_goal_progress = torch.where(
-                blocked_backward,
-                goal_progress * self.blocked_backward_scale,
-                goal_progress,
-            )
-        reward_goal_progress = self.goal_progress_scale * scaled_goal_progress
+    def _compute_goal_progress_reward(self, goal_progress, reach_goal, time_limit):
+        reward_goal_progress = self.goal_progress_scale * goal_progress
         reward_goal_progress = torch.where(
             time_limit,
             torch.full_like(reward_goal_progress, -self.goal_timeout_penalty),
@@ -814,15 +813,72 @@ class NavigationEnv(IsaacEnv):
         )
         return reward_goal_progress
 
-    def _compute_escape_reward(self, previous_stuck_counter, reach_goal, time_limit):
-        stuck_counter_drop = (previous_stuck_counter - self.stuck_counter).clamp(min=0).float()
-        reward_escape = self.escape_reward_weight * (
-            stuck_counter_drop / float(self.stuck_window)
-        ).clamp(max=1.0)
-        reward_escape = torch.where(
-            reach_goal | time_limit,
-            torch.zeros_like(reward_escape),
-            reward_escape,
+    def _compute_escape_reward(
+        self,
+        previous_stuck_counter,
+        current_pos,
+        goal_distance,
+        front_clearance,
+        blocked_low_progress,
+        reach_goal,
+        time_limit,
+    ):
+        self.escape_cooldown = (self.escape_cooldown - 1).clamp_min(0)
+
+        crossed_stuck_threshold = (
+            (previous_stuck_counter < self.stuck_window)
+            & (self.stuck_counter >= self.stuck_window)
+        )
+        arm_now = crossed_stuck_threshold & (~self.escape_armed) & (self.escape_cooldown == 0)
+        self.escape_anchor_pos = torch.where(
+            arm_now.unsqueeze(-1),
+            current_pos,
+            self.escape_anchor_pos,
+        )
+        self.escape_anchor_goal_distance = torch.where(
+            arm_now,
+            goal_distance,
+            self.escape_anchor_goal_distance,
+        )
+        self.escape_anchor_clearance = torch.where(
+            arm_now,
+            front_clearance,
+            self.escape_anchor_clearance,
+        )
+        self.escape_armed = self.escape_armed | arm_now
+        self.escape_age = torch.where(
+            arm_now,
+            torch.zeros_like(self.escape_age),
+            torch.where(self.escape_armed, self.escape_age + 1, torch.zeros_like(self.escape_age)),
+        )
+
+        displacement = (current_pos[..., :2] - self.escape_anchor_pos[..., :2]).norm(dim=-1)
+        goal_progress_since_block = self.escape_anchor_goal_distance - goal_distance
+        clearance_gain = front_clearance - self.escape_anchor_clearance
+        recovery_evidence = (
+            (displacement >= self.escape_min_displacement)
+            & (
+                (goal_progress_since_block >= self.escape_min_goal_progress)
+                | (clearance_gain >= self.escape_min_clearance_gain)
+            )
+        )
+        recovered = (
+            self.escape_armed
+            & (~blocked_low_progress)
+            & recovery_evidence
+            & (~reach_goal)
+            & (~time_limit)
+        )
+        reward_escape = self.escape_reward_weight * recovered.float()
+
+        expired = self.escape_armed & (self.escape_age >= self.escape_recovery_window)
+        disarm = recovered | expired | reach_goal | time_limit
+        self.escape_armed = self.escape_armed & (~disarm)
+        self.escape_age = torch.where(disarm, torch.zeros_like(self.escape_age), self.escape_age)
+        self.escape_cooldown = torch.where(
+            recovered,
+            torch.full_like(self.escape_cooldown, self.escape_cooldown_steps),
+            self.escape_cooldown,
         )
         return reward_escape
 
@@ -1484,6 +1540,12 @@ class NavigationEnv(IsaacEnv):
         self.prev_goal_distance[env_ids] = init_goal_distance
         self.prev_front_clearance[env_ids] = self.lidar_range
         self.stuck_counter[env_ids] = 0
+        self.escape_armed[env_ids] = False
+        self.escape_age[env_ids] = 0
+        self.escape_cooldown[env_ids] = 0
+        self.escape_anchor_pos[env_ids] = pos
+        self.escape_anchor_goal_distance[env_ids] = init_goal_distance
+        self.escape_anchor_clearance[env_ids] = self.lidar_range
         self.stall_counter[env_ids] = 0
         self.stall_anchor_pos[env_ids] = pos
         self.height_range[env_ids, 0, 0] = torch.min(pos[:, 0, 2], self.target_pos[env_ids, 0, 2])
@@ -1765,7 +1827,6 @@ class NavigationEnv(IsaacEnv):
             goal_progress,
             reach_goal,
             time_limit,
-            front_obstacle,
         )
         reward_stall, stall_active = self._compute_stall_reward(
             self.root_state[..., :3],
@@ -1773,14 +1834,22 @@ class NavigationEnv(IsaacEnv):
             goal_progress,
             reach_goal,
         )
-        small_progress_with_obstacle = (goal_progress <= self.stuck_progress_eps) & front_obstacle
+        blocked_low_progress = (goal_progress <= self.stuck_progress_eps) & front_obstacle
         previous_stuck_counter = self.stuck_counter.clone()
         self.stuck_counter = torch.where(
-            small_progress_with_obstacle,
+            blocked_low_progress,
             self.stuck_counter + 1,
             torch.zeros_like(self.stuck_counter),
         )
-        reward_escape = self._compute_escape_reward(previous_stuck_counter, reach_goal, time_limit)
+        reward_escape = self._compute_escape_reward(
+            previous_stuck_counter,
+            self.root_state[..., :3],
+            goal_distance,
+            front_clearance,
+            blocked_low_progress,
+            reach_goal,
+            time_limit,
+        )
         stuck = self.stuck_counter >= self.stuck_window
         front_clearance_gain = front_clearance - self.prev_front_clearance
         self.prev_goal_distance = goal_distance.clone()

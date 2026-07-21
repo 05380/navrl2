@@ -5,7 +5,7 @@ output:
   basename: "lpnav_corridor_seed_7"
 
 arena:
-  length: 10.0
+  length: 50.0
   width: 5.0
   wall_thickness: 0.20
   wall_height: 3.50
@@ -29,11 +29,10 @@ pedestrians:
   count: 4
   size: [0.5, 0.5, 1.8]
   speed_range: [0.55, 1.10]
-  minimum_separation: 0.60
   random_targets_per_path: 4
   min_path_length: 5.0
-  obstacle_clearance: 0.35
-  min_initial_separation: 0.80
+  min_leg_length: 1.0
+  wall_clearance: 0.10
   path_attempts: 300
 
 task:
