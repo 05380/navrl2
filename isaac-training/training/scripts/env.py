@@ -1607,13 +1607,8 @@ class NavigationEnv(IsaacEnv):
         distance_z = rpos[..., 2].unsqueeze(-1)
         
         
-        # b. unit direction vector to goal. Keep the goal frame aligned with the
-        # current drone-to-goal direction, matching the ROS deployment node.
-        current_target_dir_2d = rpos.clone()
-        current_target_dir_2d[..., 2] = 0
-        valid_target_dir = current_target_dir_2d.norm(dim=-1, keepdim=True) > 1e-6
-        self.target_dir = torch.where(valid_target_dir, rpos, self.target_dir)
-
+        # b. Unit direction to the goal in the episode-fixed navigation frame.
+        # The frame orientation is initialized from start to goal at reset.
         target_dir_2d = self.target_dir.clone()
         target_dir_2d[..., 2] = 0
 
