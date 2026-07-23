@@ -36,6 +36,7 @@ class Navigation:
         self.goal = None
         self.goal_received = False
         self.target_dir = None
+        self.navigation_frame_yaw = None
         self.hold_pose = None
         self.stable_times = 0
         self.has_action = False
@@ -281,8 +282,7 @@ class Navigation:
             return
         data_stamp = rospy.Time.now()
         pos = np.array([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z])
-        start_angle = np.arctan2(self.target_dir[1].cpu().numpy(), self.target_dir[0].cpu().numpy())
-        self.raypoints = self.get_raycast(pos, start_angle)
+        self.raypoints = self.get_raycast(pos, self.navigation_frame_yaw)
         self.raycast_data_stamp = data_stamp
 
     def dynamic_obstacle_callback(self, event):
@@ -312,7 +312,19 @@ class Navigation:
         dir_x = self.goal.pose.position.x - self.odom.pose.pose.position.x
         dir_y = self.goal.pose.position.y - self.odom.pose.pose.position.y
         dir_z = self.goal.pose.position.z - self.odom.pose.pose.position.z
-        self.target_dir = torch.tensor([dir_x, dir_y, dir_z], device=self.cfg.device) 
+        horizontal_norm = math.hypot(dir_x, dir_y)
+        if horizontal_norm > 1e-6:
+            self.navigation_frame_yaw = math.atan2(dir_y, dir_x)
+        else:
+            _, _, self.navigation_frame_yaw = tf.transformations.euler_from_quaternion([
+                self.odom.pose.pose.orientation.x,
+                self.odom.pose.pose.orientation.y,
+                self.odom.pose.pose.orientation.z,
+                self.odom.pose.pose.orientation.w,
+            ])
+            dir_x = math.cos(self.navigation_frame_yaw)
+            dir_y = math.sin(self.navigation_frame_yaw)
+        self.target_dir = torch.tensor([dir_x, dir_y, dir_z], device=self.cfg.device)
 
         self.goal_received = True
         self.stable_times = 0
@@ -646,52 +658,60 @@ class Navigation:
         goal = torch.tensor([self.goal.pose.position.x, self.goal.pose.position.y, self.goal.pose.position.z], device=self.cfg.device)
         _, _, curr_angle = tf.transformations.euler_from_quaternion([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w])
 
-        # Recompute target direction every control step. After the drone passes
-        # the goal, the desired heading should flip instead of keeping the
-        # initial goal direction forever.
+        # Keep the navigation frame fixed from the start-to-goal direction.
+        # The current goal vector is still updated for observation and arrival logic.
         current_target_dir = goal - pos
         distance = current_target_dir.norm()
         distance_float = distance.item()
-        target_dir_np = current_target_dir.detach().cpu().numpy()
-        target_dir_xy_norm = np.linalg.norm(target_dir_np[:2])
-        height_error = float(target_dir_np[2])
-        if target_dir_xy_norm > 1e-3:
-            self.target_dir = current_target_dir.detach()
+        current_target_dir_np = current_target_dir.detach().cpu().numpy()
+        goal_xy_distance = np.linalg.norm(current_target_dir_np[:2])
+        height_error = float(current_target_dir_np[2])
 
-        if target_dir_xy_norm > 1e-6:
-            goal_angle = np.arctan2(target_dir_np[1], target_dir_np[0])
-        else:
-            goal_angle = curr_angle
+        frame_direction_xy = np.array([
+            math.cos(self.navigation_frame_yaw),
+            math.sin(self.navigation_frame_yaw),
+        ])
+        along_track_remaining = float(np.dot(current_target_dir_np[:2], frame_direction_xy))
+        cross_track_error = float(abs(
+            frame_direction_xy[0] * current_target_dir_np[1]
+            - frame_direction_xy[1] * current_target_dir_np[0]
+        ))
+        passed_goal_plane = (
+            along_track_remaining <= 0.0
+            and cross_track_error <= self.goal_xy_settle_radius
+            and abs(height_error) <= self.goal_stop_height_tolerance
+        )
 
         if (
             distance_float <= self.goal_stop_radius
+            or passed_goal_plane
             or (
-                target_dir_xy_norm <= self.goal_xy_settle_radius
+                goal_xy_distance <= self.goal_xy_settle_radius
                 and abs(height_error) <= self.goal_stop_height_tolerance
             )
         ):
             self.goal_received = False
             self.stable_times = 0
-            self._publish_stop_command(goal_angle)
+            self._publish_stop_command(self.navigation_frame_yaw)
             print("[nav-ros]: goal reached. stop navigation.")
             return
 
-        if target_dir_xy_norm <= self.goal_xy_settle_radius:
+        if goal_xy_distance <= self.goal_xy_settle_radius:
             settle_speed = min(abs(height_error), self.goal_vertical_settle_speed)
             if settle_speed > 1e-3:
                 settle_speed = max(settle_speed, min(self.goal_slow_min_speed, self.goal_vertical_settle_speed))
             vertical_velocity = math.copysign(settle_speed, height_error)
-            self._publish_vertical_settle_command(vertical_velocity, goal_angle)
+            self._publish_vertical_settle_command(vertical_velocity, self.navigation_frame_yaw)
             return
 
-        # check for angle
-        angle_diff = np.abs(goal_angle - curr_angle)
+        # Align yaw with the fixed navigation frame used by the policy and raycast.
+        angle_diff = np.abs(self.navigation_frame_yaw - curr_angle)
         if (angle_diff > math.pi):
             angle_diff = np.abs(angle_diff - math.pi * 2)
         if (angle_diff >= 0.1):
             pose_msg = PoseStamped()
             pose_msg.pose = self.odom.pose.pose
-            quaternion = tf.transformations.quaternion_from_euler(0, 0, goal_angle)
+            quaternion = tf.transformations.quaternion_from_euler(0, 0, self.navigation_frame_yaw)
             pose_msg.pose.orientation.w = quaternion[3]
             pose_msg.pose.orientation.x = quaternion[0]
             pose_msg.pose.orientation.y = quaternion[1]
@@ -762,14 +782,14 @@ class Navigation:
                 final_cmd_vel.velocity.x = safe_cmd_vel_world[0]
                 final_cmd_vel.velocity.y = safe_cmd_vel_world[1]
                 final_cmd_vel.velocity.z = safe_cmd_vel_world[2]
-                final_cmd_vel.yaw = goal_angle
+                final_cmd_vel.yaw = self.navigation_frame_yaw
                 final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
                     final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
             else:
                 final_cmd_vel.velocity.x = safe_cmd_vel_world[0]
                 final_cmd_vel.velocity.y = safe_cmd_vel_world[1]
                 final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
-                final_cmd_vel.yaw = goal_angle
+                final_cmd_vel.yaw = self.navigation_frame_yaw
                 final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
                     final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE                           
         else:
