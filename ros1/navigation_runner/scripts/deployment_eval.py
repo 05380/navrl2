@@ -18,19 +18,26 @@ from onboard_detector.srv import GetDynamicObstacles
 
 class DeploymentEvaluator:
     def __init__(self):
-        self.num_trials = int(rospy.get_param("~num_trials", 100))
+        self.num_trials = int(rospy.get_param("~num_trials", 1000))
         self.model_name = rospy.get_param("~model_name", "quadcopter")
         self.random_seed = int(rospy.get_param("~random_seed", 0))
         self.rng = random.Random(self.random_seed)
 
         legacy_boundary_half_size = rospy.get_param("~boundary_half_size", None)
         if legacy_boundary_half_size is None:
-            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", 12.0))
-            self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", 12.0))
+            self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", 11.0))
+            self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", 11.0))
         else:
             legacy_boundary_half_size = float(legacy_boundary_half_size)
             self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", legacy_boundary_half_size))
             self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", legacy_boundary_half_size))
+        self.boundary_axis = str(rospy.get_param("~boundary_axis", "y")).strip().lower()
+        if self.boundary_axis == "y":
+            self.boundary_sides = (0, 1)
+        elif self.boundary_axis == "x":
+            self.boundary_sides = (2, 3)
+        else:
+            raise ValueError("~boundary_axis must be either 'x' or 'y'")
         self.random_height = bool(rospy.get_param("~random_height", True))
         self.height_min = float(rospy.get_param("~height_min", 0.5))
         self.height_max = float(rospy.get_param("~height_max", 2.5))
@@ -156,9 +163,8 @@ class DeploymentEvaluator:
         return (-half, offset, z)
 
     def sample_trial_task(self):
-        start_side = self.rng.randrange(4)
-        candidate_goal_sides = [side for side in range(4) if side != start_side]
-        goal_side = self.rng.choice(candidate_goal_sides)
+        start_side = self.rng.choice(self.boundary_sides)
+        goal_side = self.boundary_sides[1] if start_side == self.boundary_sides[0] else self.boundary_sides[0]
         if self.random_height:
             start_z = self.rng.uniform(self.height_min, self.height_max)
             goal_z = self.rng.uniform(self.height_min, self.height_max)
