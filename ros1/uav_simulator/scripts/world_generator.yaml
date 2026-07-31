@@ -22,6 +22,31 @@ static_objects:
     width_y: [0.2, 0.5]
     height: [2.0, 4.0]
 
+# The training map is 40 m x 40 m, while this deployment map is 20 m x 20 m.
+# Horizontal wall dimensions are therefore approximately half of the training
+# dimensions. Heights are not scaled down so the UAV cannot bypass a wall by
+# flying over it within the deployment altitude range.
+large_static_structures:
+  enabled: True
+  range_x: [-9.0, 9.0]
+  range_y: [-9.0, 9.0]
+  thickness: [0.20, 0.35]
+  height: [3.0, 4.0]
+  obstacle_clearance: 0.35
+  structure_clearance: 0.75
+  sampling_attempts: 2000
+  pcd_resolution: 0.10
+  single_wall:
+    num: 1
+    length: [2.5, 6.0]
+  l_wall:
+    num: 1
+    arm_length: [4.0, 5.0]
+  u_wall:
+    num: 1
+    width: [5.0, 6.0]
+    depth: [1.75, 3.25]
+
 dynamic_objects:
   cylinder: # 2D
     num: 20
@@ -39,4 +64,3 @@ dynamic_objects:
     width_y: [0.2, 0.5]
     height: [0.5, 1.5]
     velocity: [0.5, 1.0]
-  

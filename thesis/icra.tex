@@ -341,11 +341,11 @@ Because the complete state is not observable, the policy uses
 	\mathbf{o}_t=(\mathbf{L}_t,\mathbf{s}_t,\mathbf{D}_t),\\
 	\mathbf{L}_t\in\mathbb{R}^{36\times4},\quad
 	\mathbf{s}_t\in\mathbb{R}^{8},\quad
-	\mathbf{D}_t\in\mathbb{R}^{N_d\times10},
+		\mathbf{D}_t\in\mathbb{R}^{K_{\mathrm{dyn}}\times10},
 	\end{gathered}
 	\label{eq:policy_observation}
 \end{equation}
-where \(N_d=5\). The LiDAR tensor contains 36 horizontal directions at \(10^\circ\) resolution and four elevation angles \(\{-10^\circ,0^\circ,10^\circ,20^\circ\}\). Entry \(L_t[k,m]\) corresponds to azimuth \(\psi_t+10k^\circ\) and elevation \(\phi_m\), where \(\psi_t\) is the UAV yaw. The scan is indexed in this yaw-aligned sensor frame; roll and pitch are excluded from the ray orientation. A range \(d\) is encoded as the clipped proximity \(R_L-d\), so larger values indicate closer geometry.
+where \(K_{\mathrm{dyn}}=5\) is the capacity of the dynamic-obstacle observation. The LiDAR tensor contains 36 horizontal directions at \(10^\circ\) resolution and four elevation angles \(\{-10^\circ,0^\circ,10^\circ,20^\circ\}\). Entry \(L_t[k,m]\) corresponds to azimuth \(\psi_t+10k^\circ\) and elevation \(\phi_m\), where \(\psi_t\) is the UAV yaw. The scan is indexed in this yaw-aligned sensor frame; roll and pitch are excluded from the ray orientation. A range \(d\) is encoded as the clipped proximity \(R_L-d\), so larger values indicate closer geometry.
 
 The navigation vector is
 \begin{equation}
@@ -362,7 +362,7 @@ where \(\hat{\mathbf{r}}_{g,t}^{G}\) is the unit goal direction, \(d_{g,t}^{xy}\
 
 For dynamic obstacle \(i\), let
 \(\mathbf{r}_{i,t}=\mathbf{p}_{i,t}^{o}-\mathbf{p}_t\).
-Up to \(N_d\) in-range obstacles are ordered by increasing horizontal center distance and represented by
+Up to \(K_{\mathrm{dyn}}\) in-range obstacles are ordered by increasing horizontal center distance and represented by
 \begin{equation}
 	\mathbf{d}_{i,t}=
 	\left[
@@ -494,23 +494,23 @@ To make \(\mathbf{z}_t\) informative about the consequences of the selected acti
 	\hat{\mathbf{y}}_t^{(h)}
 	=g_\phi^{(h)}(\mathbf{z}_t,\tilde{\mathbf{a}}_t)
 	=\left[
-	\hat{c}_t^{(h)},\hat{s}_t^{(h)},
+		\hat{c}_t^{(h)},\hat{b}_{\mathrm{stuck},t}^{(h)},
 	\hat{f}_t^{(h)},\hat{p}_t^{(h)}
 	\right],
 	\label{eq:multi_horizon_prediction}
 \end{equation}
-where \(\hat{c}_t^{(h)}\) and \(\hat{s}_t^{(h)}\) are collision and persistent-stuck logits, and \(\hat{f}_t^{(h)}\) and \(\hat{p}_t^{(h)}\) predict minimum forward clearance and cumulative goal progress. Targets are obtained from the collected transition sequence:
+where \(\hat{c}_t^{(h)}\) and \(\hat{b}_{\mathrm{stuck},t}^{(h)}\) are collision and persistent-stuck logits, and \(\hat{f}_t^{(h)}\) and \(\hat{p}_t^{(h)}\) predict minimum forward clearance and cumulative goal progress. Targets are obtained from the collected transition sequence:
 \begin{align}
 	c_t^{(h)}&=\max_{1\leq k\leq h}c_{t+k},
 	&
-	s_t^{(h)}&=\max_{1\leq k\leq h}s_{t+k},
+	b_{\mathrm{stuck},t}^{(h)}&=\max_{1\leq k\leq h}b_{\mathrm{stuck},t+k},
 	\nonumber\\
 	f_t^{(h)}&=\min_{1\leq k\leq h}f_{t+k},
 	&
 	p_t^{(h)}&=\sum_{k=1}^{h}\Delta d_{t+k},
 	\label{eq:multi_horizon_targets}
 \end{align}
-with all aggregations truncated at episode termination. Only the current action is supplied explicitly; later actions follow the rollout policy. Hence, multi-step outputs represent outcomes of the current action under policy continuation rather than under a prescribed action sequence.
+where \(c_t\) and \(b_{\mathrm{stuck},t}\) are the per-step binary collision and persistent-stuck indicators, respectively, and all aggregations are truncated at episode termination. Only the current action is supplied explicitly; later actions follow the rollout policy. Hence, multi-step outputs represent outcomes of the current action under policy continuation rather than under a prescribed action sequence.
 
 For compactness, let
 \(\tilde{f}_t^{(h)}=\operatorname{symlog}(f_t^{(h)})\) and
@@ -522,7 +522,10 @@ The predictive objective averages the four tasks over all horizons:
 	\mathcal{L}_{\mathrm{MH}}
 	=\frac{1}{|\mathcal{H}|}\sum_{h\in\mathcal{H}}\bigl[
 	&\ell_{\mathrm{BCE}}(\hat{c}_t^{(h)},c_t^{(h)})\\
-	&+\ell_{\mathrm{BCE}}(\hat{s}_t^{(h)},s_t^{(h)})\\
+	&+\ell_{\mathrm{BCE}}\!\left(
+		\hat{b}_{\mathrm{stuck},t}^{(h)},
+		b_{\mathrm{stuck},t}^{(h)}
+	\right)\\
 	&+\ell_{\mathrm{SL1}}(\hat{f}_t^{(h)},\tilde{f}_t^{(h)})\\
 	&+\ell_{\mathrm{SL1}}(\hat{p}_t^{(h)},\tilde{p}_t^{(h)})
 	\bigr].
@@ -572,13 +575,13 @@ In this section, we compare the proposed method with several state-of-the-art ap
 
 The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $40\,\text{m}\times40\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
 
-For quantitative deployment evaluation, we conduct 100 trials for each method in each scenario. A new start--goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N=100$ be the number of trials, and let $N_{\mathrm{s}}$, $N_{\mathrm{c}}$, $N_{\mathrm{to}}$, $N_{\mathrm{d}}$, and $N_{\mathrm{e}}$ denote the numbers of successful, collided, timed-out, deadlocked, and post-deadlock successful trials, respectively. We report the following metrics:
+For quantitative deployment evaluation, we conduct 100 trials for each method in each scenario. A new start--goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N_{\mathrm{trial}}=100$ be the number of trials, and let $N_{\mathrm{succ}}$, $N_{\mathrm{coll}}$, $N_{\mathrm{timeout}}$, $N_{\mathrm{dead}}$, and $N_{\mathrm{esc}}$ denote the numbers of successful, collided, timed-out, deadlocked, and post-deadlock successful trials, respectively. We report the following metrics:
 \begin{itemize}
-    \item \textit{Success Rate} ($N_{\mathrm{s}}/N$): The fraction of trials in which the UAV reaches the goal before collision or timeout.
-    \item \textit{Collision Rate} ($N_{\mathrm{c}}/N$): The fraction of trials terminated by contact with a static or dynamic obstacle.
-    \item \textit{Timeout Rate} ($N_{\mathrm{to}}/N$): The fraction of trials that neither reach the goal nor collide within $180\,\text{s}$.
-    \item \textit{Deadlock Rate} ($N_{\mathrm{d}}/N$): The fraction of trials containing at least one deadlock event. A deadlock is registered when a forward obstacle co-occurs with goal progress no greater than $0.005\,\text{m}$ for 40 consecutive evaluation cycles ($2\,\text{s}$ at $20\,\text{Hz}$).
-    \item \textit{Post-Deadlock Escape Rate} ($N_{\mathrm{e}}/N_{\mathrm{d}}$): Among trials in which a deadlock is detected, the fraction that subsequently recover and reach the goal.
+    \item \textit{Success Rate} ($N_{\mathrm{succ}}/N_{\mathrm{trial}}$): The fraction of trials in which the UAV reaches the goal before collision or timeout.
+    \item \textit{Collision Rate} ($N_{\mathrm{coll}}/N_{\mathrm{trial}}$): The fraction of trials terminated by contact with a static or dynamic obstacle.
+    \item \textit{Timeout Rate} ($N_{\mathrm{timeout}}/N_{\mathrm{trial}}$): The fraction of trials that neither reach the goal nor collide within $180\,\text{s}$.
+    \item \textit{Deadlock Rate} ($N_{\mathrm{dead}}/N_{\mathrm{trial}}$): The fraction of trials containing at least one deadlock event. A deadlock is registered when a forward obstacle co-occurs with goal progress no greater than $0.005\,\text{m}$ for 40 consecutive evaluation cycles ($2\,\text{s}$ at $20\,\text{Hz}$).
+    \item \textit{Post-Deadlock Escape Rate} ($N_{\mathrm{esc}}/N_{\mathrm{dead}}$): Among trials in which a deadlock is detected, the fraction that subsequently recover and reach the goal.
 \end{itemize}
 \begin{table}[t]
     \centering
@@ -614,143 +617,48 @@ For quantitative deployment evaluation, we conduct 100 trials for each method in
 Together, these metrics distinguish direct navigation success from collision failures, time-limit failures, local trapping, and recovery after trapping.
 
 \subsection{Simulation Results} \label{subsec:Results and Discussions}
-% \vspace{-0.4cm}	
-\renewcommand{\arraystretch}{1.2}     % 调整表格行间距
-\setlength{\tabcolsep}{4pt}          % 调整列间距
-  \begin{table*}[htp]
-	\centering
-	\vspace{-0.3cm} 
-	\caption{Comparison of several metrics over different experiment settings.}
-	\label{tab:result}
-	\vspace{-0.2cm} % 可以调整上下的间距
-    % \resizebox %保证表格不会溢出页面宽度
-	\resizebox{\textwidth}{!}{
-	\begin{tabular}{
-		% M{1.1cm}  % Scenario
-		M{1.3cm}  % map
-		M{1.1cm}  % robots  and  obstacles
-		M{1.15cm}  % RL-RVO
-		M{0.75cm}  % PCA
-		M{0.75cm}  % ORCA
-		M{0.75cm}  % RVO
-		M{0.75cm} % ours
-		M{1.15cm}  % RL-RVO
-		M{0.75cm}  % PCA
-		M{0.75cm}  % ORCA
-		M{0.75cm}  % RVO
-		M{0.75cm} % ours
-		M{1.15cm}  % RL-RVO
-		M{0.75cm}  % PCA
-		M{0.75cm}  % ORCA
-		M{0.75cm}  % RVO
-		M{0.75cm} % ours
-		M{1.15cm}  % RL-RVO
-		M{0.75cm}  % PCA
-		M{0.75cm}  % ORCA
-		M{0.75cm}  % RVO
-		M{0.75cm} % ours
-    }
-	\toprule\toprule
-	% \multirow{2.5}{*}{\textbf{Scenario}} & 
-	% \multirow{2}{*}{\textbf{Scene}} & 
-	% \multirow{1}{*}{\textbf{Method}} &
-	\multicolumn{2}{c}{\textbf{Environments}} & 
-	\multicolumn{5}{c}{\textbf{Success Rate}} &
-	\multicolumn{5}{c}{\textbf{Average Speed (m/s)}} & 
-	% \multicolumn{5}{c}{\textbf{Travel Time (s)}} & 
-	\multicolumn{5}{c}{\textbf{Average Travel Distance (m)}} & 
-	\multicolumn{5}{c}{\textbf{Average Computation Time (ms)}} \\
-	\cmidrule(lr){1-2}
-	\cmidrule(lr){3-7}
-	\cmidrule(lr){8-12}
-	\cmidrule(lr){13-17}
-	\cmidrule(lr){18-22}
-	  \textbf{Map (m$^2$)} & \textbf{$N$$_r$ / $N$$_o$} 
-	  & \textbf{RL-RVO} & \textbf{PCA} & \textbf{ORCA} & \textbf{RVO}& \textbf{Ours}
-	  & \textbf{RL-RVO} & \textbf{PCA} & \textbf{ORCA} & \textbf{RVO}& \textbf{Ours}
-	  & \textbf{RL-RVO} & \textbf{PCA} & \textbf{ORCA} & \textbf{RVO}& \textbf{Ours}
-	  & \textbf{RL-RVO} & \textbf{PCA} & \textbf{ORCA} & \textbf{RVO}& \textbf{Ours}
-	   \\
-	\midrule
-
-%   \multirow{11}{*}{\begin{tabular}[c]{@{}c@{}}Circle\\\end{tabular}}
-   5 \(\times\) 5 & 5 / 0      %\textbf
-    & 1.00 		& 1.00 			& 0.00 		& 1.00 		 	& \textbf{1.00} 
-    & 1.04 		& \textbf{1.26} & - 		& 1.19 			& 1.05 
-    & 5.62 		& 5.57 			& - 		& \textbf{5.46} & 5.82 
-    % & 5.35 & 4.50 & - & \textbf{4.40} & \textbf{5.24} 
-    & 0.09 		& 14.34  		& - 		& 13.92 & \textbf{0.07}  \\
-   5 \(\times\) 5 & 10 / 0      %\textbf
-    & 0.85 			& \textbf{1.00}  	& 0.00 	& 0.00  & 0.99 
-    & 0.84 			& \textbf{1.17}		& - 	& - 	& 0.73 
-    & 6.23 			& \textbf{5.84} 				& -		& - 	& 7.03
-    % & 7.50 			& \textbf{4.40} 	& -		& - 	& 10.17 
-    & 0.17			& 20.34 			& - 	& - 	& \textbf{0.17}  \\
-   5 \(\times\) 5 & 10 / 2      %\textbf{}
-    & 0.85 			& 0.63 					& 0.83 				& 0.76 	 & \textbf{0.96} 
-    & 0.84 			& \textbf{1.00}			& 0.36 				& 0.98	 & 0.78 
-    & \textbf{6.43}	& 9.81 					& 7.26		 		& 8.56	 & 7.43 
-    % & 7.45 			& \textbf{5.99} 		& 16.30 			& 6.33	 & 9.23 
-    & \textbf{0.17}	& 23.36					& 0.62 	& 22.66	 & 0.19  \\
-   10 \(\times\) 10 & 10 / 0
-    & 1.00 		& 1.00 			& 0.00 		& 0.00 		& \textbf{1.00} 
-    & 1.01 		& \textbf{1.31} & - 		& -		 	& 1.18 
-    & 10.85 		& \textbf{10.49} 		& - 		& -		 	& 11.23 
-    % & 9.94 		& 8.75 			& - 		& 10.70 	& \textbf{8.74} 
-    & 0.20 	& 19.67 		& - 		& -		 	& \textbf{0.18} \\
-   10 \(\times\) 10 & 10 / 5 
-    & 0.74 			& 0.91 			& 0.71 			& 0.77 		& \textbf{0.96} 
-    & 0.98 			& \textbf{1.23} & 0.85 			& 1.17 		& 1.11 
-    & \textbf{11.50}& 12.82 		& 14.27 			& 12.86 		& 12.02 
-    % & 10.96		& \textbf{9.05} & 14.4 			& 9.43 		& 9.94 
-    & 0.20			& 26.10 		& 0.51 & 25.67 	& \textbf{0.18}  \\
-   10 \(\times\) 10 & 10 / 10 
-    & 0.54 				& 0.66 			& 0.41 			& 0.69 & \textbf{0.87} 
-    & 0.94 				& \textbf{1.16} & 0.76 			& 1.14 & 1.13 
-    & 12.34			& 13.39 			& 17.27 			& 13.61 & \textbf{12.34} 
-    % & 14.83				& \textbf{9.65} 			& 19.3 			& 10.00 & 18.39 
-    & 0.20 			& 29.98 		& 0.69	& 29.56 	& \textbf{0.18}   \\
-   10 \(\times\) 10 & 20 / 5 
-    & 0.44 		& 0.28			& 0.33 			& 0.20 		& \textbf{0.93} 
-    & 0.84 		& \textbf{1.12} & 0.70 			& 1.04 		& 0.92 
-    & \textbf{12.34} 	& 18.20 		& 20.38 		& 19.64 		& 14.05 
-    % & 12.56 	& 11.71 		& 24.00 		& 12.2 		& \textbf{10.81} 
-    & 0.42 	& 29.41 		& 0.83 & 30.06 	& \textbf{0.36}   \\
-   20 \(\times\) 20 & 20 / 0 
-    & 0.82 		& \textbf{1.00} 	& 0.00 			& 1.00 	& 0.95 
-    & 0.96 		& \textbf{1.35} 	& - 			& 1.24 	& 1.22
-    & \textbf{21.65} 	& 25.87 			& - 		& 25.94 	& 22.68
-    % & 21.96 	& \textbf{15.7} 	& 24.30 		& - 	& 17.78
-    & 0.36 	& 20.31 			& -			 & 21.49 	& \textbf{0.35}  \\
-   20 \(\times\) 20 & 20 / 5 
-    & 0.63 			& 0.76 			& 0.83				& 0.24 			& \textbf{0.87}
-    & 0.99 			&\textbf{1.32} 	& 0.83 				& 1.21  		& 1.18
-    & \textbf{22.09} 		& 24.24 		& 25.44 			& 25.35			& 22.90 
-    % & 21.72 & \textbf{17.1} & 26.9 & 18.90 & 18.80 
-    & 0.38 		& 33.21		& 0.39 	& 34.90 		& \textbf{0.35} \\
-   20 \(\times\) 20 & 20 / 10 
-    & 0.52 		& 0.68 			& 0.72 				& 0.31 	& \textbf{0.73}
-    & 0.99 		& \textbf{1.28} & 0.83 				& 1.20 	& 1.18 
-    & \textbf{22.53} 	& 25.02			& 27.43				& 27.62 & 23.67
-    % & 21.77 	& \textbf{17.5} & 29.1 				& 19.1 	& 19.19 
-    & 0.38 	& 40.07 		& 0.44 	& 38.92 & \textbf{0.38}  \\
-   20 \(\times\) 20 & 20 / 20 
-    & 0.22 	& 0.00 	& 0.00 	& 0.00 	& \textbf{0.52} 
-    & 1.01 	& - 	& - 	& - 	& \textbf{1.18} 
-    & \textbf{25.02} & - 	& - 	& - 	& 25.15
-    % & 23.61 & - 	& - 	& - 	& \textbf{20.62} 
-    & 0.41 & - 	& - 	& - 	& \textbf{0.41} \\
-   20 \(\times\) 20 & 30 / 10 
-    & 0.16 		& 0.48 					& 0.49 			& 0.13 	& \textbf{0.53} 
-    & 0.98 		& \textbf{1.25} 		& 0.82 			& 1.15 	& 1.18 
-    & \textbf{25.09} 	& 26.84    		 		& 31.38			& 29.26 & 26.18
-    % & 24.28 	& \textbf{18.9} 		& 34.3 			& 24.40 & 21.83
-    & 0.53 		& 41.21 				& 0.54 			& 41.90 & \textbf{0.48} \\
-    \bottomrule\bottomrule
-
-   \end{tabular}
-   }      % end of resizebox
-   \vspace{-0.2cm} % 可以调整上下的间距
+\begin{table*}[t]
+    \centering
+    \caption{Quantitative comparison over 100 trials in four obstacle environments within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
+    \label{tab:result}
+    \footnotesize
+    \setlength{\tabcolsep}{3.5pt}
+    \renewcommand{\arraystretch}{1.08}
+    \begin{tabular}{@{}L{3.0cm}L{3.1cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.85cm}@{}}
+        \toprule
+        \textbf{Environment} &
+        \textbf{Method} &
+        \makecell{\textbf{Success}\\\textbf{Rate (\%)} \(\uparrow\)} &
+        \makecell{\textbf{Collision}\\\textbf{Rate (\%)} \(\downarrow\)} &
+        \makecell{\textbf{Timeout}\\\textbf{Rate (\%)} \(\downarrow\)} &
+        \makecell{\textbf{Deadlock}\\\textbf{Rate (\%)} \(\downarrow\)} &
+        \makecell{\textbf{Post-}\\\textbf{Deadlock}\\\textbf{Escape}\\\textbf{Rate (\%)} \(\uparrow\)} \\
+        \midrule
+        \multirow{4}{*}{\makecell[l]{Static obstacles\\($N_{\mathrm{stat}}=70$)}}
+            & NavRL & -- & -- & -- & -- & -- \\
+            & ForesightNav & -- & -- & -- & -- & -- \\
+            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
+            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \midrule
+        \multirow{4}{*}{\makecell[l]{Dynamic obstacles\\($N_{\mathrm{dyn}}=60$)}}
+            & NavRL & -- & -- & -- & -- & -- \\
+            & ForesightNav & -- & -- & -- & -- & -- \\
+            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
+            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \midrule
+        \multirow{4}{*}{\makecell[l]{Mixed static and\\dynamic obstacles\\($N_{\mathrm{stat}}=20$)\\($N_{\mathrm{dyn}}=40$)}}
+            & NavRL & -- & -- & -- & -- & -- \\
+            & ForesightNav & -- & -- & -- & -- & -- \\
+            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
+            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \midrule
+        \multirow{4}{*}{\makecell[l]{Static obstacles and large\\non-convex structures}}
+            & NavRL & -- & -- & -- & -- & -- \\
+            & ForesightNav & -- & -- & -- & -- & -- \\
+            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
+            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \bottomrule
+    \end{tabular}
 \end{table*}
 
 \begin{figure}[thpb]
@@ -793,31 +701,30 @@ In summary, under circular scenarios with dynamic obstacles exhibiting motion un
 % 	\label{fig_fanhua}
 % 	\vspace{0.2cm}
 % \end{figure}
-\vspace{-0.25cm}
-\begin{table}[htbp]  
-	\setlength{\abovecaptionskip}{-0.1cm}
-	\setlength{\belowcaptionskip}{-0.1cm}
-	\centering 
-	\caption{Large-scale robot swarm navigation} 
-	\label{table3}
-	\begin{center}
-	\begin{tabular}{cccccc}    
-		\toprule\toprule
-		\multirow{1}{*}{\textbf{Robot Number}}
-		& Methods &Success Rate &Average Speed (m/s) \\    
-	    \midrule
-		\multirow{2}{*}{\begin{tabular}[c]{@{}c@{}}40\\\end{tabular}}
-		 &RL-RVO     &0.25   &1.05\\  
-		 &Ours    &\textbf{0.74}  &\textbf{1.24}\\   
-		\midrule
-		\multirow{2}{*}{\begin{tabular}[c]{@{}c@{}}60\\\end{tabular}}
-		 & RL-RVO     &0.07   &1.03\\ 
-		 & Ours   &\textbf{0.58}  &\textbf{1.26} \\  
-			 
-		% \midrule
-	    \bottomrule\bottomrule   
-	\end{tabular}  
-	\end{center}
+\begin{table}[t]
+    \centering
+    \caption{Effect of the deployment-time safety shield over 100 trials in a purely dynamic-obstacle environment within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
+    \label{table3}
+    \footnotesize
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.10}
+    \begin{tabular}{@{}L{2.0cm}M{1.1cm}M{1.4cm}M{1.4cm}M{1.4cm}@{}}
+        \toprule
+        \textbf{Method} &
+        \textbf{Shield} &
+        \makecell{\textbf{Success}\\\textbf{Rate (\%)} \(\uparrow\)} &
+        \makecell{\textbf{Collision}\\\textbf{Rate (\%)} \(\downarrow\)} &
+        \makecell{\textbf{Timeout}\\\textbf{Rate (\%)} \(\downarrow\)} \\
+        \midrule
+        \multirow{2}{*}{NavRL}
+            & Off & -- & -- & -- \\
+            & On  & -- & -- & -- \\
+        \midrule
+        \multirow{2}{*}{ForesightNav}
+            & Off & -- & -- & -- \\
+            & On  & -- & -- & -- \\
+        \bottomrule
+    \end{tabular}
 \end{table}
 
 To evaluate the generalizability of our SwarmNav, we further test large-scale robot swarm navigation in circular scenarios. In this set of simulations, we aim to compare the generalization capability of reinforcement learning-based methods; therefore, we only compare the proposed method with the RL-RVO algorithm~\cite{han2022rvo}. Considering the sensitivity of RL-RVO to dynamic obstacles, obstacles were excluded from this comparison, and the swarm sizes were set to 40 and 60 robots. For each swarm size, 100 independent trials were conducted, and the success rate and average speed are reported in Table~\ref{table3}.
