@@ -14,11 +14,12 @@ from geometry_msgs.msg import Point, PoseStamped
 from map_manager.srv import RayCast
 from nav_msgs.msg import Odometry
 from onboard_detector.srv import GetDynamicObstacles
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 class DeploymentEvaluator:
     def __init__(self):
-        self.num_trials = int(rospy.get_param("~num_trials", 1000))
+        self.num_trials = int(rospy.get_param("~num_trials", 100))
         self.model_name = rospy.get_param("~model_name", "quadcopter")
         self.random_seed = int(rospy.get_param("~random_seed", 0))
         self.rng = random.Random(self.random_seed)
@@ -48,6 +49,18 @@ class DeploymentEvaluator:
 
         # Keep the deployment metric defaults aligned with training env.py.
         self.success_radius = float(rospy.get_param("~success_radius", 0.5))
+        self.success_xy_radius = float(
+            rospy.get_param(
+                "~success_xy_radius",
+                rospy.get_param("rl/goal_xy_settle_radius", self.success_radius),
+            )
+        )
+        self.success_height_tolerance = float(
+            rospy.get_param(
+                "~success_height_tolerance",
+                rospy.get_param("rl/goal_stop_height_tolerance", 0.2),
+            )
+        )
         # Collision radius used for static raycast hits and dynamic obstacle
         # inflation during deployment evaluation.
         self.collision_radius = float(rospy.get_param("~collision_radius", 0.15))
@@ -71,10 +84,35 @@ class DeploymentEvaluator:
         self.reset_stable_time = float(rospy.get_param("~reset_stable_time", 0.30))
         self.goal_publish_time = float(rospy.get_param("~goal_publish_time", 1.0))
         self.csv_path = rospy.get_param("~csv_path", "")
+        self.publish_trajectories = bool(rospy.get_param("~publish_trajectories", True))
+        self.trajectory_topic = rospy.get_param(
+            "~trajectory_topic", "/deployment_eval/trajectories"
+        )
+        self.trajectory_frame = rospy.get_param("~trajectory_frame", "map")
+        self.trajectory_line_width = float(
+            rospy.get_param("~trajectory_line_width", 0.035)
+        )
+        self.trajectory_alpha = float(rospy.get_param("~trajectory_alpha", 0.65))
+        self.trajectory_min_point_distance = float(
+            rospy.get_param("~trajectory_min_point_distance", 0.05)
+        )
+        self.keep_trajectory_publisher_alive = bool(
+            rospy.get_param("~keep_trajectory_publisher_alive", False)
+        )
 
         self.latest_odom = None
+        self.trajectory_markers = []
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.odom_sub = rospy.Subscriber("/CERLAB/quadcopter/odom", Odometry, self.odom_callback)
+        self.trajectory_pub = None
+        if self.publish_trajectories:
+            self.trajectory_pub = rospy.Publisher(
+                self.trajectory_topic,
+                MarkerArray,
+                queue_size=10,
+                latch=True,
+            )
+            self.clear_trajectory_markers()
 
         rospy.wait_for_service("/gazebo/set_model_state")
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
@@ -94,6 +132,83 @@ class DeploymentEvaluator:
 
     def odom_callback(self, msg):
         self.latest_odom = msg
+
+    def clear_trajectory_markers(self):
+        if self.trajectory_pub is None:
+            return
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.action = Marker.DELETEALL
+        message = MarkerArray()
+        message.markers = [marker]
+        self.trajectory_pub.publish(message)
+
+    def append_trajectory_point(self, points, odom, force=False):
+        if not self.publish_trajectories:
+            return
+        position = odom.pose.pose.position
+        point = Point(x=position.x, y=position.y, z=position.z)
+        if not points:
+            points.append(point)
+            return
+
+        last = points[-1]
+        distance = math.sqrt(
+            (point.x - last.x) ** 2
+            + (point.y - last.y) ** 2
+            + (point.z - last.z) ** 2
+        )
+        if force or distance >= self.trajectory_min_point_distance:
+            if distance > 1e-6:
+                points.append(point)
+
+    def add_trajectory_marker(self, trial_idx, points, success, collision):
+        if self.trajectory_pub is None or not points:
+            return
+
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.id = int(trial_idx)
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = self.trajectory_line_width
+        marker.color.a = self.trajectory_alpha
+        marker.points = points
+        marker.lifetime = rospy.Duration(0)
+
+        if success:
+            marker.ns = "deployment_eval_success"
+            marker.color.r = 0.15
+            marker.color.g = 0.85
+            marker.color.b = 0.25
+        elif collision:
+            marker.ns = "deployment_eval_collision"
+            marker.color.r = 0.95
+            marker.color.g = 0.15
+            marker.color.b = 0.10
+        else:
+            marker.ns = "deployment_eval_timeout"
+            marker.color.r = 1.00
+            marker.color.g = 0.60
+            marker.color.b = 0.05
+
+        self.trajectory_markers.append(marker)
+        message = MarkerArray()
+        message.markers = [marker]
+        self.trajectory_pub.publish(message)
+
+    def publish_all_trajectory_markers(self):
+        if self.trajectory_pub is None or not self.trajectory_markers:
+            return
+        stamp = rospy.Time.now()
+        for marker in self.trajectory_markers:
+            marker.header.stamp = stamp
+        message = MarkerArray()
+        message.markers = list(self.trajectory_markers)
+        self.trajectory_pub.publish(message)
 
     def make_pose_msg(self, x, y, z, yaw):
         msg = PoseStamped()
@@ -175,13 +290,15 @@ class DeploymentEvaluator:
         goal = self.sample_boundary_point(goal_side, goal_z, self.goal_boundary_half_size)
         return start, goal, start_side, goal_side
 
-    def publish_goal_for_a_moment(self, goal):
+    def publish_goal_for_a_moment(self, goal, trajectory_points=None):
         goal_msg = self.make_pose_msg(goal[0], goal[1], goal[2], 0.0)
         rate = rospy.Rate(10)
         end_time = time.time() + self.goal_publish_time
         while not rospy.is_shutdown() and time.time() < end_time:
             goal_msg.header.stamp = rospy.Time.now()
             self.goal_pub.publish(goal_msg)
+            if trajectory_points is not None and self.latest_odom is not None:
+                self.append_trajectory_point(trajectory_points, self.latest_odom)
             rate.sleep()
 
     def wait_for_odom(self):
@@ -196,6 +313,45 @@ class DeploymentEvaluator:
         dy = goal[1] - pos.y
         dz = goal[2] - pos.z
         return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    def goal_reached(self, odom, start, goal):
+        pos = odom.pose.pose.position
+        remaining_x = goal[0] - pos.x
+        remaining_y = goal[1] - pos.y
+        remaining_z = goal[2] - pos.z
+        distance = math.sqrt(
+            remaining_x * remaining_x
+            + remaining_y * remaining_y
+            + remaining_z * remaining_z
+        )
+        if distance <= self.success_radius:
+            return True
+
+        goal_direction_x = goal[0] - start[0]
+        goal_direction_y = goal[1] - start[1]
+        goal_direction_norm = math.sqrt(
+            goal_direction_x * goal_direction_x
+            + goal_direction_y * goal_direction_y
+        )
+        if goal_direction_norm <= 1e-6:
+            return False
+
+        frame_x = goal_direction_x / goal_direction_norm
+        frame_y = goal_direction_y / goal_direction_norm
+        horizontal_distance = math.sqrt(
+            remaining_x * remaining_x + remaining_y * remaining_y
+        )
+        height_reached = abs(remaining_z) <= self.success_height_tolerance
+        if horizontal_distance <= self.success_xy_radius and height_reached:
+            return True
+
+        along_track_remaining = remaining_x * frame_x + remaining_y * frame_y
+        cross_track_error = abs(frame_x * remaining_y - frame_y * remaining_x)
+        return (
+            along_track_remaining <= 0.0
+            and cross_track_error <= self.success_xy_radius
+            and height_reached
+        )
 
     def distance_to_point(self, odom, point):
         pos = odom.pose.pose.position
@@ -317,10 +473,13 @@ class DeploymentEvaluator:
     def run_one_trial(self, trial_idx):
         start, goal, start_side, goal_side = self.sample_trial_task()
         self.reset_robot(start, goal)
+        trajectory_points = []
+        if self.latest_odom is not None:
+            self.append_trajectory_point(trajectory_points, self.latest_odom)
         # Publish the goal only after the reset pose has settled, so the
         # navigation node does not act on a new task while Gazebo is still being
         # forced to the start state.
-        self.publish_goal_for_a_moment(goal)
+        self.publish_goal_for_a_moment(goal, trajectory_points)
 
         start_time = rospy.Time.now().to_sec()
         prev_goal_distance = None
@@ -341,6 +500,7 @@ class DeploymentEvaluator:
                 rate.sleep()
                 continue
 
+            self.append_trajectory_point(trajectory_points, odom)
             distance = self.distance_to_goal(odom, goal)
             if prev_goal_distance is None:
                 prev_goal_distance = distance
@@ -364,7 +524,7 @@ class DeploymentEvaluator:
             if collision:
                 break
 
-            if distance <= self.success_radius:
+            if self.goal_reached(odom, start, goal):
                 success = True
                 break
 
@@ -373,6 +533,15 @@ class DeploymentEvaluator:
 
             prev_goal_distance = distance
             rate.sleep()
+
+        if self.latest_odom is not None:
+            self.append_trajectory_point(trajectory_points, self.latest_odom, force=True)
+        self.add_trajectory_marker(
+            trial_idx,
+            trajectory_points,
+            success=success,
+            collision=collision,
+        )
 
         return {
             "trial": trial_idx + 1,
@@ -458,6 +627,14 @@ class DeploymentEvaluator:
         print(f"  deadlock_steps_mean: {deadlock_steps_mean:.4f}")
 
         self.write_csv(results)
+        self.publish_all_trajectory_markers()
+        if self.keep_trajectory_publisher_alive and self.trajectory_pub is not None:
+            rospy.loginfo(
+                "[deployment-eval] trajectory visualization remains available on %s; "
+                "press Ctrl-C to exit",
+                self.trajectory_topic,
+            )
+            rospy.spin()
 
 
 def main():

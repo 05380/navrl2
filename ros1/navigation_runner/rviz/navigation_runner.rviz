@@ -137,6 +137,16 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
+      Marker Topic: /deployment_eval/trajectories
+      Name: Evaluation Trajectories
+      Namespaces:
+        deployment_eval_collision: true
+        deployment_eval_success: true
+        deployment_eval_timeout: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
       Marker Topic: /rl_navigation/goal
       Name: MarkerArray
       Namespaces:

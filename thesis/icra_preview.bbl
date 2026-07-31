@@ -1,0 +1,174 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{#1}
+\csname url@rmstyle\endcsname
+\providecommand{\newblock}{\relax}
+\providecommand{\bibinfo}[2]{#2}
+\providecommand\BIBentrySTDinterwordspacing{\spaceskip=0pt\relax}
+\providecommand\BIBentryALTinterwordstretchfactor{4}
+\providecommand\BIBentryALTinterwordspacing{\spaceskip=\fontdimen2\font plus
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
+\providecommand\BIBforeignlanguage[2]{{%
+\expandafter\ifx\csname l@#1\endcsname\relax
+\typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
+\typeout{** loaded for the language `#1'. Using the pattern for}%
+\typeout{** the default language instead.}%
+\else
+\language=\csname l@#1\endcsname
+\fi
+#2}}
+
+\bibitem{ego_planner}
+X.~Zhou, Z.~Wang, H.~Ye, C.~Xu, and F.~Gao, ``{EGO-Planner}: An {ESDF}-free
+  gradient-based local planner for quadrotors,'' \emph{IEEE Robotics and
+  Automation Letters}, vol.~6, no.~2, pp. 478--485, 2021.
+
+\bibitem{faster}
+J.~Tordesillas, B.~T. Lopez, M.~Everett, and J.~P. How, ``{FASTER}: Fast and
+  safe trajectory planner for navigation in unknown environments,'' \emph{IEEE
+  Transactions on Robotics}, vol.~38, no.~2, pp. 922--938, 2022.
+
+\bibitem{vigo}
+Z.~Xu, Y.~Xiu, X.~Zhan, B.~Chen, and K.~Shimada, ``{ViGO}: Vision-aided {UAV}
+  navigation and dynamic obstacle avoidance using gradient-based {B}-spline
+  trajectory optimization,'' in \emph{Proceedings of the IEEE International
+  Conference on Robotics and Automation}, 2023, pp. 10\,699--10\,705.
+
+\bibitem{cadrl}
+Y.~F. Chen, M.~Liu, M.~Everett, and J.~P. How, ``Decentralized
+  non-communicating multiagent collision avoidance with deep reinforcement
+  learning,'' in \emph{Proceedings of the IEEE International Conference on
+  Robotics and Automation}, 2017, pp. 285--292.
+
+\bibitem{long2018}
+P.~Long, T.~Fan, X.~Liao, W.~Liu, H.~Zhang, and J.~Pan, ``Towards optimally
+  decentralized multi-robot collision avoidance via deep reinforcement
+  learning,'' in \emph{Proceedings of the IEEE International Conference on
+  Robotics and Automation}, 2018, pp. 6252--6259.
+
+\bibitem{navrl}
+Z.~Xu, X.~Han, H.~Shen, H.~Jin, and K.~Shimada, ``{NavRL}: Learning safe flight
+  in dynamic environments,'' \emph{IEEE Robotics and Automation Letters},
+  vol.~10, no.~4, pp. 3668--3675, 2025.
+
+\bibitem{fiorini1998vo}
+P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using
+  velocity obstacles,'' \emph{The International Journal of Robotics Research},
+  vol.~17, no.~7, pp. 760--772, 1998.
+
+\bibitem{orca}
+J.~van~den Berg, S.~J. Guy, M.~Lin, and D.~Manocha, ``Reciprocal n-body
+  collision avoidance,'' in \emph{Robotics Research}, ser. Springer Tracts in
+  Advanced Robotics.\hskip 1em plus 0.5em minus 0.4em\relax Springer, 2011,
+  vol.~70, pp. 3--19.
+
+\bibitem{drl_vo}
+Z.~Xie and P.~M. Dames, ``{DRL-VO}: Learning to navigate through crowded
+  dynamic scenes using velocity obstacles,'' \emph{IEEE Transactions on
+  Robotics}, vol.~39, no.~4, pp. 2700--2719, 2023.
+
+\bibitem{navrep}
+D.~Dugas, J.~Nieto, R.~Siegwart, and J.~J. Chung, ``{NavRep}: Unsupervised
+  representations for reinforcement learning of robot navigation in dynamic
+  human environments,'' in \emph{Proceedings of the IEEE International
+  Conference on Robotics and Automation}, 2021, pp. 7829--7835.
+
+\bibitem{rgl}
+C.~Chen, S.~Hu, P.~Nikdel, G.~Mori, and M.~Savva, ``Relational graph learning
+  for crowd navigation,'' in \emph{Proceedings of the IEEE/RSJ International
+  Conference on Intelligent Robots and Systems}, 2020, pp. 10\,007--10\,013,
+  arXiv:1909.13165.
+
+\bibitem{badgr}
+G.~Kahn, P.~Abbeel, and S.~Levine, ``{BADGR}: An autonomous self-supervised
+  learning-based navigation system,'' \emph{IEEE Robotics and Automation
+  Letters}, vol.~6, no.~2, pp. 1312--1319, 2021, arXiv:2002.05700.
+
+\bibitem{prm_rl}
+A.~Faust, O.~Ramirez, M.~Fiser, K.~Oslund, A.~Francis, J.~Davidson, and
+  L.~Tapia, ``{PRM-RL}: Long-range robotic navigation tasks by combining
+  reinforcement learning and sampling-based planning,'' in \emph{Proceedings of
+  the IEEE International Conference on Robotics and Automation}, 2018, pp.
+  5113--5120.
+
+\bibitem{kastner2021waypoint}
+L.~K{\"a}stner, X.~Zhao, T.~Buiyan, J.~Li, Z.~Shen, J.~Lambrecht, and C.~Marx,
+  ``Connecting deep-reinforcement-learning-based obstacle avoidance with
+  conventional global planners using waypoint generators,'' in
+  \emph{Proceedings of the IEEE/RSJ International Conference on Intelligent
+  Robots and Systems}, 2021, pp. 1213--1220.
+
+\bibitem{semnani2020multiagent}
+S.~H. Semnani, H.~Liu, M.~Everett, A.~de~Ruiter, and J.~P. How, ``Multi-agent
+  motion planning for dense and dynamic environments via deep reinforcement
+  learning,'' \emph{IEEE Robotics and Automation Letters}, vol.~5, no.~2, pp.
+  3221--3226, 2020, arXiv:2001.06627.
+
+\bibitem{thananjeyan2021recovery}
+B.~Thananjeyan, A.~Balakrishna, S.~Nair, M.~Luo, K.~Srinivasan, M.~Hwang, J.~E.
+  Gonzalez, J.~Ibarz, C.~Finn, and K.~Goldberg, ``Recovery {RL}: Safe
+  reinforcement learning with learned recovery zones,'' \emph{IEEE Robotics and
+  Automation Letters}, vol.~6, no.~3, pp. 4915--4922, 2021.
+
+\bibitem{kochdumper2023projection}
+N.~Kochdumper, H.~Krasowski, X.~Wang, S.~Bak, and M.~Althoff, ``Provably safe
+  reinforcement learning via action projection using reachability analysis and
+  polynomial zonotopes,'' \emph{IEEE Open Journal of Control Systems}, vol.~2,
+  pp. 79--92, 2023.
+
+\bibitem{he2020demonstration}
+L.~He, N.~Aouf, J.~F. Whidborne, and B.~Song, ``Deep reinforcement learning
+  based local planner for {UAV} obstacle avoidance using demonstration data,''
+  \emph{arXiv preprint arXiv:2008.02521}, 2020.
+
+\bibitem{loquercio2021wild}
+A.~Loquercio, E.~Kaufmann, R.~Ranftl, M.~M{\"u}ller, V.~Koltun, and
+  D.~Scaramuzza, ``Learning high-speed flight in the wild,'' \emph{Science
+  Robotics}, vol.~6, no.~59, p. eabg5810, 2021.
+
+\bibitem{lee2025privileged}
+J.~Lee, A.~Rathod, K.~Goel, J.~Stecklein, and W.~Tabib, ``Quadrotor navigation
+  using reinforcement learning with privileged information,'' \emph{arXiv
+  preprint arXiv:2509.08177}, 2025.
+
+\bibitem{han2022rvo}
+R.~Han, S.~Chen, S.~Wang, Z.~Zhang, R.~Gao, Q.~Hao, and J.~Pan, ``Reinforcement
+  learned distributed multi-robot navigation with reciprocal velocity obstacle
+  shaped rewards,'' \emph{IEEE Robotics and Automation Letters}, vol.~7, no.~3,
+  pp. 5896--5903, 2022.
+
+\bibitem{sutton2011horde}
+R.~S. Sutton, J.~Modayil, M.~Delp, T.~Degris, P.~M. Pilarski, A.~White, and
+  D.~Precup, ``Horde: A scalable real-time architecture for learning knowledge
+  from unsupervised sensorimotor interaction,'' in \emph{Proceedings of the
+  International Conference on Autonomous Agents and Multiagent Systems}, 2011,
+  pp. 761--768.
+
+\bibitem{jaderberg2017unreal}
+M.~Jaderberg, V.~Mnih, W.~M. Czarnecki, T.~Schaul, J.~Z. Leibo, D.~Silver, and
+  K.~Kavukcuoglu, ``Reinforcement learning with unsupervised auxiliary tasks,''
+  in \emph{International Conference on Learning Representations}, 2017,
+  arXiv:1611.05397.
+
+\bibitem{schwarzer2021spr}
+M.~Schwarzer, A.~Anand, R.~Goel, R.~D. Hjelm, A.~Courville, and P.~Bachman,
+  ``Data-efficient reinforcement learning with self-predictive
+  representations,'' in \emph{International Conference on Learning
+  Representations}, 2021, arXiv:2007.05929.
+
+\bibitem{ppo}
+J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov, ``Proximal
+  policy optimization algorithms,'' \emph{arXiv preprint arXiv:1707.06347},
+  2017.
+
+\bibitem{rvo2008}
+J.~van~den Berg, M.~C. Lin, and D.~Manocha, ``Reciprocal velocity obstacles for
+  real-time multi-agent navigation,'' in \emph{Proceedings of the IEEE
+  International Conference on Robotics and Automation}, 2008, pp. 1928--1935.
+
+\bibitem{point_lio}
+D.~He, W.~Xu, N.~Chen, F.~Kong, C.~Yuan, and F.~Zhang, ``{Point-LIO}: Robust
+  high-bandwidth light detection and ranging inertial odometry,''
+  \emph{Advanced Intelligent Systems}, vol.~5, no.~7, p. 2200459, 2023.
+
+\end{thebibliography}
