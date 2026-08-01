@@ -3,7 +3,7 @@
     <arg name="use_prebuilt_map" default="false" />
     <arg name="prebuilt_map_file" default="$(find uav_simulator)/worlds/generated_env/generated_env.pcd" />
     <arg name="use_real_detector" default="false" />
-    <arg name="use_safety_shield" default="false" />
+    <arg name="use_safety_shield" default="true" />
     <arg name="always_use_policy" default="false" />
     <arg name="use_goal_z" default="true" />
     <arg name="show_rollout_traj" default="false" />

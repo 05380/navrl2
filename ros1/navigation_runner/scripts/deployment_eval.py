@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import colorsys
 import csv
 import math
 import os
@@ -14,6 +15,7 @@ from geometry_msgs.msg import Point, PoseStamped
 from map_manager.srv import RayCast
 from nav_msgs.msg import Odometry
 from onboard_detector.srv import GetDynamicObstacles
+from std_msgs.msg import ColorRGBA, Int32MultiArray
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -73,6 +75,21 @@ class DeploymentEvaluator:
         self.stuck_front_angle_deg = float(rospy.get_param("~stuck_front_angle_deg", 35.0))
         self.stuck_front_tan = math.tan(math.radians(self.stuck_front_angle_deg))
         self.stuck_front_height = float(rospy.get_param("~stuck_front_height", 0.75))
+        self.deadlock_recovery_window = max(
+            1, int(rospy.get_param("~deadlock_recovery_window", 180))
+        )
+        self.deadlock_recovery_min_displacement = max(
+            0.0,
+            float(rospy.get_param("~deadlock_recovery_min_displacement", 0.3)),
+        )
+        self.deadlock_recovery_min_goal_progress = max(
+            0.0,
+            float(rospy.get_param("~deadlock_recovery_min_goal_progress", 0.2)),
+        )
+        self.deadlock_recovery_min_clearance_gain = max(
+            0.0,
+            float(rospy.get_param("~deadlock_recovery_min_clearance_gain", 0.2)),
+        )
         self.lidar_range = float(rospy.get_param("~lidar_range", 4.0))
         self.lidar_vfov_min = float(rospy.get_param("~lidar_vfov_min", -10.0))
         self.lidar_vfov_max = float(rospy.get_param("~lidar_vfov_max", 20.0))
@@ -88,6 +105,9 @@ class DeploymentEvaluator:
         self.trajectory_topic = rospy.get_param(
             "~trajectory_topic", "/deployment_eval/trajectories"
         )
+        self.trajectory_selection_topic = rospy.get_param(
+            "~trajectory_selection_topic", "/deployment_eval/trajectory_selection"
+        )
         self.trajectory_frame = rospy.get_param("~trajectory_frame", "map")
         self.trajectory_line_width = float(
             rospy.get_param("~trajectory_line_width", 0.06)
@@ -96,6 +116,15 @@ class DeploymentEvaluator:
         self.trajectory_color_r = float(rospy.get_param("~trajectory_color_r", 0.0))
         self.trajectory_color_g = float(rospy.get_param("~trajectory_color_g", 0.0))
         self.trajectory_color_b = float(rospy.get_param("~trajectory_color_b", 0.50))
+        self.failed_trajectory_color_r = float(
+            rospy.get_param("~failed_trajectory_color_r", 0.90)
+        )
+        self.failed_trajectory_color_g = float(
+            rospy.get_param("~failed_trajectory_color_g", 0.05)
+        )
+        self.failed_trajectory_color_b = float(
+            rospy.get_param("~failed_trajectory_color_b", 0.05)
+        )
         self.trajectory_min_point_distance = float(
             rospy.get_param("~trajectory_min_point_distance", 0.05)
         )
@@ -117,12 +146,26 @@ class DeploymentEvaluator:
             )
         )
         self.full_map_voxel_size = float(
-            rospy.get_param("~full_map_voxel_size", 0.20)
+            rospy.get_param("~full_map_voxel_size", 0.10)
         )
         if self.full_map_voxel_size <= 0.0:
             raise ValueError("~full_map_voxel_size must be positive")
-        self.static_map_alpha = float(rospy.get_param("~static_map_alpha", 0.65))
-        self.dynamic_map_alpha = float(rospy.get_param("~dynamic_map_alpha", 0.85))
+        self.static_map_alpha = float(rospy.get_param("~static_map_alpha", 1.0))
+        self.static_map_color_min_z = rospy.get_param(
+            "~static_map_color_min_z", None
+        )
+        self.static_map_color_max_z = rospy.get_param(
+            "~static_map_color_max_z", None
+        )
+        self.publish_dynamic_bounding_boxes = bool(
+            rospy.get_param("~publish_dynamic_bounding_boxes", True)
+        )
+        self.dynamic_bbox_line_width = float(
+            rospy.get_param("~dynamic_bbox_line_width", 0.06)
+        )
+        self.dynamic_bbox_padding = float(
+            rospy.get_param("~dynamic_bbox_padding", 0.03)
+        )
         self.keep_trajectory_publisher_alive = bool(
             rospy.get_param("~keep_trajectory_publisher_alive", True)
         )
@@ -130,12 +173,14 @@ class DeploymentEvaluator:
         self.latest_odom = None
         self.latest_model_states = None
         self.trajectory_markers = []
+        self.selected_trajectory_trials = None
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.odom_sub = rospy.Subscriber("/CERLAB/quadcopter/odom", Odometry, self.odom_callback)
         self.model_states_sub = rospy.Subscriber(
             "/gazebo/model_states", ModelStates, self.model_states_callback, queue_size=1
         )
         self.trajectory_pub = None
+        self.trajectory_selection_sub = None
         if self.publish_trajectories:
             self.trajectory_pub = rospy.Publisher(
                 self.trajectory_topic,
@@ -144,6 +189,12 @@ class DeploymentEvaluator:
                 latch=True,
             )
             self.clear_trajectory_markers()
+            self.trajectory_selection_sub = rospy.Subscriber(
+                self.trajectory_selection_topic,
+                Int32MultiArray,
+                self.trajectory_selection_callback,
+                queue_size=1,
+            )
         self.environment_pub = None
         if self.publish_full_environment:
             self.environment_pub = rospy.Publisher(
@@ -205,6 +256,38 @@ class DeploymentEvaluator:
         message.markers = [marker]
         self.trajectory_pub.publish(message)
 
+    def trajectory_selection_callback(self, msg):
+        requested_trials = sorted(set(int(value) for value in msg.data))
+        if not requested_trials:
+            self.selected_trajectory_trials = None
+            rospy.loginfo(
+                "[deployment-eval] trajectory selection cleared; displaying all trials"
+            )
+        else:
+            valid_trials = [
+                trial
+                for trial in requested_trials
+                if 1 <= trial <= self.num_trials
+            ]
+            invalid_trials = sorted(set(requested_trials) - set(valid_trials))
+            if invalid_trials:
+                rospy.logwarn(
+                    "[deployment-eval] ignoring invalid trajectory trial IDs: %s "
+                    "(valid range: 1-%d)",
+                    invalid_trials,
+                    self.num_trials,
+                )
+            self.selected_trajectory_trials = {
+                trial - 1 for trial in valid_trials
+            }
+            rospy.loginfo(
+                "[deployment-eval] displaying trajectory trials: %s",
+                valid_trials if valid_trials else "none",
+            )
+
+        if self.trajectory_markers:
+            self.publish_selected_trajectory_markers(clear_existing=True)
+
     def clear_environment_markers(self):
         if self.environment_pub is None:
             return
@@ -248,18 +331,24 @@ class DeploymentEvaluator:
         marker.pose.orientation.w = 1.0
         marker.scale.x = self.trajectory_line_width
         marker.color.a = self.trajectory_alpha
-        marker.color.r = self.trajectory_color_r
-        marker.color.g = self.trajectory_color_g
-        marker.color.b = self.trajectory_color_b
         marker.points = points
         marker.lifetime = rospy.Duration(0)
 
         if success:
             marker.ns = "deployment_eval_success"
+            marker.color.r = self.trajectory_color_r
+            marker.color.g = self.trajectory_color_g
+            marker.color.b = self.trajectory_color_b
         elif collision:
             marker.ns = "deployment_eval_collision"
+            marker.color.r = self.failed_trajectory_color_r
+            marker.color.g = self.failed_trajectory_color_g
+            marker.color.b = self.failed_trajectory_color_b
         else:
             marker.ns = "deployment_eval_timeout"
+            marker.color.r = self.failed_trajectory_color_r
+            marker.color.g = self.failed_trajectory_color_g
+            marker.color.b = self.failed_trajectory_color_b
 
         start_marker = self.make_trajectory_endpoint_marker(
             trial_idx,
@@ -277,7 +366,11 @@ class DeploymentEvaluator:
         )
         trial_markers = [marker, start_marker, end_marker]
         self.trajectory_markers.extend(trial_markers)
-        if self.publish_trajectories_during_trials:
+        trial_selected = (
+            self.selected_trajectory_trials is None
+            or trial_idx in self.selected_trajectory_trials
+        )
+        if self.publish_trajectories_during_trials and trial_selected:
             message = MarkerArray()
             message.markers = trial_markers
             self.trajectory_pub.publish(message)
@@ -307,13 +400,32 @@ class DeploymentEvaluator:
         return marker
 
     def publish_all_trajectory_markers(self):
+        self.publish_selected_trajectory_markers(clear_existing=True)
+
+    def publish_selected_trajectory_markers(self, clear_existing=False):
         if self.trajectory_pub is None or not self.trajectory_markers:
             return
+        if clear_existing:
+            self.clear_trajectory_markers()
+
+        markers = self.trajectory_markers
+        if self.selected_trajectory_trials is not None:
+            markers = [
+                marker
+                for marker in markers
+                if marker.id in self.selected_trajectory_trials
+            ]
+        if not markers:
+            rospy.logwarn(
+                "[deployment-eval] trajectory selection contains no available trials"
+            )
+            return
+
         stamp = rospy.Time.now()
-        for marker in self.trajectory_markers:
+        for marker in markers:
             marker.header.stamp = stamp
         message = MarkerArray()
-        message.markers = list(self.trajectory_markers)
+        message.markers = list(markers)
         self.trajectory_pub.publish(message)
 
     def load_full_map_points(self):
@@ -401,6 +513,19 @@ class DeploymentEvaluator:
     def make_static_environment_marker(self, points, stamp):
         if not points:
             return None
+
+        min_z = (
+            float(self.static_map_color_min_z)
+            if self.static_map_color_min_z is not None
+            else min(point.z for point in points)
+        )
+        max_z = (
+            float(self.static_map_color_max_z)
+            if self.static_map_color_max_z is not None
+            else max(point.z for point in points)
+        )
+        color_span = max(max_z - min_z, 1e-6)
+
         marker = Marker()
         marker.header.frame_id = self.trajectory_frame
         marker.header.stamp = stamp
@@ -412,11 +537,27 @@ class DeploymentEvaluator:
         marker.scale.x = self.full_map_voxel_size
         marker.scale.y = self.full_map_voxel_size
         marker.scale.z = self.full_map_voxel_size
-        marker.color.r = 0.38
-        marker.color.g = 0.40
-        marker.color.b = 0.43
+        # Match RViz's height-based rainbow rendering used for the live
+        # inflated voxel map: low voxels are red and high voxels are magenta.
+        marker.color.r = 1.0
+        marker.color.g = 1.0
+        marker.color.b = 1.0
         marker.color.a = self.static_map_alpha
         marker.points = points
+        marker.colors = []
+        for point in points:
+            normalized_height = min(max((point.z - min_z) / color_span, 0.0), 1.0)
+            red, green, blue = colorsys.hsv_to_rgb(
+                normalized_height * (5.0 / 6.0), 1.0, 1.0
+            )
+            marker.colors.append(
+                ColorRGBA(
+                    r=red,
+                    g=green,
+                    b=blue,
+                    a=self.static_map_alpha,
+                )
+            )
         marker.lifetime = rospy.Duration(0)
         return marker
 
@@ -430,29 +571,69 @@ class DeploymentEvaluator:
             return []
 
         markers = []
+        obstacle_id = 0
         for model_name, pose in zip(model_states.name, model_states.pose):
             geometry = self.dynamic_model_geometry(model_name)
             if geometry is None:
                 continue
-            marker_type, dimensions = geometry
-            marker = Marker()
-            marker.header.frame_id = self.trajectory_frame
-            marker.header.stamp = stamp
-            marker.ns = "deployment_eval_dynamic_obstacles"
-            marker.id = len(markers)
-            marker.type = marker_type
-            marker.action = Marker.ADD
-            marker.pose = pose
-            marker.scale.x = dimensions[0]
-            marker.scale.y = dimensions[1]
-            marker.scale.z = dimensions[2]
-            marker.color.r = 0.78
-            marker.color.g = 0.20
-            marker.color.b = 0.12
-            marker.color.a = self.dynamic_map_alpha
-            marker.lifetime = rospy.Duration(0)
-            markers.append(marker)
+            _, dimensions = geometry
+            if self.publish_dynamic_bounding_boxes:
+                markers.append(
+                    self.make_dynamic_bounding_box_marker(
+                        obstacle_id, pose, dimensions, stamp
+                    )
+                )
+            obstacle_id += 1
         return markers
+
+    def make_dynamic_bounding_box_marker(self, marker_id, pose, dimensions, stamp):
+        half_x = dimensions[0] / 2.0 + self.dynamic_bbox_padding
+        half_y = dimensions[1] / 2.0 + self.dynamic_bbox_padding
+        half_z = dimensions[2] / 2.0 + self.dynamic_bbox_padding
+        vertices = [
+            Point(x=-half_x, y=-half_y, z=-half_z),
+            Point(x=-half_x, y=half_y, z=-half_z),
+            Point(x=half_x, y=half_y, z=-half_z),
+            Point(x=half_x, y=-half_y, z=-half_z),
+            Point(x=-half_x, y=-half_y, z=half_z),
+            Point(x=-half_x, y=half_y, z=half_z),
+            Point(x=half_x, y=half_y, z=half_z),
+            Point(x=half_x, y=-half_y, z=half_z),
+        ]
+        edges = (
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
+        )
+
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = stamp
+        marker.ns = "deployment_eval_dynamic_bboxes"
+        marker.id = marker_id
+        marker.type = Marker.LINE_LIST
+        marker.action = Marker.ADD
+        marker.pose = pose
+        marker.scale.x = self.dynamic_bbox_line_width
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        marker.points = []
+        for start_idx, end_idx in edges:
+            marker.points.append(vertices[start_idx])
+            marker.points.append(vertices[end_idx])
+        marker.lifetime = rospy.Duration(0)
+        return marker
 
     def publish_environment_snapshot(self):
         if self.environment_pub is None:
@@ -464,7 +645,8 @@ class DeploymentEvaluator:
         )
         if static_marker is not None:
             markers.append(static_marker)
-        markers.extend(self.make_dynamic_environment_markers(stamp))
+        dynamic_markers = self.make_dynamic_environment_markers(stamp)
+        markers.extend(dynamic_markers)
         if not markers:
             rospy.logwarn("[deployment-eval] final environment snapshot is empty")
             return
@@ -476,7 +658,10 @@ class DeploymentEvaluator:
             "(%d static voxels, %d dynamic obstacles)",
             self.environment_topic,
             len(static_marker.points) if static_marker is not None else 0,
-            len(markers) - (1 if static_marker is not None else 0),
+            sum(
+                marker.ns == "deployment_eval_dynamic_bboxes"
+                for marker in dynamic_markers
+            ),
         )
 
     def make_pose_msg(self, x, y, z, yaw):
@@ -633,13 +818,13 @@ class DeploymentEvaluator:
         vel = odom.twist.twist.linear
         return math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z)
 
-    def get_static_front_obstacle(self, odom, goal):
+    def get_static_front_state(self, odom, goal):
         pos = odom.pose.pose.position
         goal_dx = goal[0] - pos.x
         goal_dy = goal[1] - pos.y
         goal_norm = math.sqrt(goal_dx * goal_dx + goal_dy * goal_dy)
         if goal_norm <= 1e-6:
-            return False
+            return False, self.lidar_range
         forward_x = goal_dx / goal_norm
         forward_y = goal_dy / goal_norm
         lateral_x = -forward_y
@@ -657,8 +842,10 @@ class DeploymentEvaluator:
                 self.lidar_hres,
             ).points
         except rospy.ServiceException:
-            return False
+            return False, self.lidar_range
 
+        front_obstacle = False
+        front_clearance = self.lidar_range
         for i in range(0, len(points), 3):
             rel_x = points[i] - pos.x
             rel_y = points[i + 1] - pos.y
@@ -673,8 +860,12 @@ class DeploymentEvaluator:
                 and lateral <= self.stuck_front_tan * max(forward, 1e-6)
                 and vertical <= self.stuck_front_height
             ):
-                return True
-        return False
+                front_obstacle = True
+                point_distance = math.sqrt(
+                    rel_x * rel_x + rel_y * rel_y + rel_z * rel_z
+                )
+                front_clearance = min(front_clearance, point_distance)
+        return front_obstacle, front_clearance
 
     def get_static_collision(self, odom):
         pos = odom.pose.pose.position
@@ -756,9 +947,20 @@ class DeploymentEvaluator:
         stuck_steps = 0
         deadlock_seen = False
         deadlock_time = None
+        deadlock_event_count = 0
+        recovered_deadlock_event_count = 0
+        recovered_from_deadlock = False
+        first_recovery_latency = None
+        recovery_armed = False
+        recovery_age = 0
+        recovery_anchor_xy = None
+        recovery_anchor_goal_distance = None
+        recovery_anchor_clearance = None
+        recovery_event_start_time = None
         success = False
         collision = False
         collision_type = ""
+        timed_out = False
 
         rate = rospy.Rate(self.eval_rate_hz)
         while not rospy.is_shutdown():
@@ -775,9 +977,12 @@ class DeploymentEvaluator:
                 prev_goal_distance = distance
 
             goal_progress = prev_goal_distance - distance
-            front_obstacle = self.get_static_front_obstacle(odom, goal)
-            small_progress_with_obstacle = goal_progress <= self.stuck_progress_eps and front_obstacle
-            if small_progress_with_obstacle:
+            front_obstacle, front_clearance = self.get_static_front_state(odom, goal)
+            blocked_low_progress = (
+                goal_progress <= self.stuck_progress_eps and front_obstacle
+            )
+            previous_stuck_counter = stuck_counter
+            if blocked_low_progress:
                 stuck_counter += 1
             else:
                 stuck_counter = 0
@@ -785,9 +990,49 @@ class DeploymentEvaluator:
             stuck_active = stuck_counter >= self.stuck_window
             if stuck_active:
                 stuck_steps += 1
-                if not deadlock_seen:
-                    deadlock_seen = True
+            crossed_deadlock_threshold = (
+                previous_stuck_counter < self.stuck_window
+                and stuck_counter >= self.stuck_window
+            )
+            if crossed_deadlock_threshold:
+                deadlock_seen = True
+                deadlock_event_count += 1
+                if deadlock_time is None:
                     deadlock_time = elapsed
+                recovery_armed = True
+                recovery_age = 0
+                recovery_anchor_xy = (odom.pose.pose.position.x, odom.pose.pose.position.y)
+                recovery_anchor_goal_distance = distance
+                recovery_anchor_clearance = front_clearance
+                recovery_event_start_time = elapsed
+
+            if recovery_armed:
+                recovery_age += 1
+                displacement = math.sqrt(
+                    (odom.pose.pose.position.x - recovery_anchor_xy[0]) ** 2
+                    + (odom.pose.pose.position.y - recovery_anchor_xy[1]) ** 2
+                )
+                goal_progress_since_deadlock = (
+                    recovery_anchor_goal_distance - distance
+                )
+                clearance_gain = front_clearance - recovery_anchor_clearance
+                recovery_evidence = (
+                    displacement >= self.deadlock_recovery_min_displacement
+                    and (
+                        goal_progress_since_deadlock
+                        >= self.deadlock_recovery_min_goal_progress
+                        or clearance_gain
+                        >= self.deadlock_recovery_min_clearance_gain
+                    )
+                )
+                if not blocked_low_progress and recovery_evidence:
+                    recovered_deadlock_event_count += 1
+                    recovered_from_deadlock = True
+                    if first_recovery_latency is None:
+                        first_recovery_latency = elapsed - recovery_event_start_time
+                    recovery_armed = False
+                elif recovery_age >= self.deadlock_recovery_window:
+                    recovery_armed = False
 
             collision, collision_type = self.get_collision(odom)
             if collision:
@@ -798,6 +1043,7 @@ class DeploymentEvaluator:
                 break
 
             if elapsed >= self.timeout:
+                timed_out = True
                 break
 
             prev_goal_distance = distance
@@ -825,9 +1071,16 @@ class DeploymentEvaluator:
             "success": success,
             "collision": collision,
             "collision_type": collision_type,
+            "timeout": timed_out,
             "deadlock": deadlock_seen,
-            "escaped_after_deadlock": deadlock_seen and success,
+            "recovered_from_deadlock": recovered_from_deadlock,
+            "post_deadlock_success": deadlock_seen and success,
             "deadlock_time": deadlock_time if deadlock_time is not None else "",
+            "first_recovery_latency": (
+                first_recovery_latency if first_recovery_latency is not None else ""
+            ),
+            "deadlock_events": deadlock_event_count,
+            "recovered_deadlock_events": recovered_deadlock_event_count,
             "deadlock_steps": stuck_steps,
             "duration": rospy.Time.now().to_sec() - start_time,
         }
@@ -852,14 +1105,18 @@ class DeploymentEvaluator:
             result = self.run_one_trial(i)
             results.append(result)
             rospy.loginfo(
-                "[deployment-eval] trial %02d/%02d | success=%s | collision=%s(%s) | deadlock=%s | escaped_after_deadlock=%s | duration=%.1fs | start=(%.1f, %.1f, %.1f) side=%d | goal=(%.1f, %.1f, %.1f) side=%d",
+                "[deployment-eval] trial %02d/%02d | success=%s | collision=%s(%s) | timeout=%s | deadlock=%s | recovered_from_deadlock=%s | deadlock_events=%d/%d recovered | post_deadlock_success=%s | duration=%.1fs | start=(%.1f, %.1f, %.1f) side=%d | goal=(%.1f, %.1f, %.1f) side=%d",
                 result["trial"],
                 self.num_trials,
                 result["success"],
                 result["collision"],
                 result["collision_type"],
+                result["timeout"],
                 result["deadlock"],
-                result["escaped_after_deadlock"],
+                result["recovered_from_deadlock"],
+                result["recovered_deadlock_events"],
+                result["deadlock_events"],
+                result["post_deadlock_success"],
                 result["duration"],
                 result["start_x"],
                 result["start_y"],
@@ -873,17 +1130,48 @@ class DeploymentEvaluator:
 
         success_count = sum(1 for item in results if item["success"])
         collision_count = sum(1 for item in results if item["collision"])
+        timeout_count = sum(1 for item in results if item["timeout"])
         deadlock_count = sum(1 for item in results if item["deadlock"])
-        escaped_count = sum(1 for item in results if item["escaped_after_deadlock"])
-        deadlock_steps_mean = sum(item["deadlock_steps"] for item in results) / float(self.num_trials)
+        recovered_trial_count = sum(
+            1 for item in results if item["recovered_from_deadlock"]
+        )
+        post_deadlock_success_count = sum(
+            1 for item in results if item["post_deadlock_success"]
+        )
+        deadlock_event_count = sum(item["deadlock_events"] for item in results)
+        recovered_deadlock_event_count = sum(
+            item["recovered_deadlock_events"] for item in results
+        )
+        total_deadlock_steps = sum(item["deadlock_steps"] for item in results)
+        deadlock_steps_mean_all = total_deadlock_steps / float(self.num_trials)
+        deadlock_steps_mean_detected = (
+            total_deadlock_steps / float(deadlock_count)
+            if deadlock_count > 0
+            else 0.0
+        )
 
         success_rate = success_count / float(self.num_trials)
         failure_count = self.num_trials - success_count
         failure_rate = failure_count / float(self.num_trials)
         collision_rate = collision_count / float(self.num_trials)
+        timeout_rate = timeout_count / float(self.num_trials)
         deadlock_rate = deadlock_count / float(self.num_trials)
         # Match utils.conditional_rate: no conditioned samples returns 0.0.
-        escape_rate = escaped_count / float(deadlock_count) if deadlock_count > 0 else 0.0
+        deadlock_recovery_rate = (
+            recovered_trial_count / float(deadlock_count)
+            if deadlock_count > 0
+            else 0.0
+        )
+        deadlock_event_recovery_rate = (
+            recovered_deadlock_event_count / float(deadlock_event_count)
+            if deadlock_event_count > 0
+            else 0.0
+        )
+        post_deadlock_success_rate = (
+            post_deadlock_success_count / float(deadlock_count)
+            if deadlock_count > 0
+            else 0.0
+        )
 
         print("")
         print("[deployment-eval] summary")
@@ -891,9 +1179,28 @@ class DeploymentEvaluator:
         print(f"  success_rate: {success_count}/{self.num_trials} = {success_rate:.4f}")
         print(f"  failure_rate: {failure_count}/{self.num_trials} = {failure_rate:.4f}")
         print(f"  collision_rate: {collision_count}/{self.num_trials} = {collision_rate:.4f}")
+        print(f"  timeout_rate: {timeout_count}/{self.num_trials} = {timeout_rate:.4f}")
         print(f"  deadlock_rate: {deadlock_count}/{self.num_trials} = {deadlock_rate:.4f}")
-        print(f"  escape_after_deadlock_rate: {escaped_count}/{deadlock_count} = {escape_rate:.4f}")
-        print(f"  deadlock_steps_mean: {deadlock_steps_mean:.4f}")
+        print(
+            "  deadlock_recovery_rate: "
+            f"{recovered_trial_count}/{deadlock_count} = "
+            f"{deadlock_recovery_rate:.4f}"
+        )
+        print(
+            "  deadlock_event_recovery_rate: "
+            f"{recovered_deadlock_event_count}/{deadlock_event_count} = "
+            f"{deadlock_event_recovery_rate:.4f}"
+        )
+        print(
+            "  post_deadlock_success_rate: "
+            f"{post_deadlock_success_count}/{deadlock_count} = "
+            f"{post_deadlock_success_rate:.4f}"
+        )
+        print(f"  deadlock_steps_mean_all_trials: {deadlock_steps_mean_all:.4f}")
+        print(
+            "  deadlock_steps_mean_deadlocked_trials: "
+            f"{deadlock_steps_mean_detected:.4f}"
+        )
 
         self.write_csv(results)
         self.publish_all_trajectory_markers()
@@ -904,9 +1211,10 @@ class DeploymentEvaluator:
         if self.keep_trajectory_publisher_alive and visualization_active:
             rospy.loginfo(
                 "[deployment-eval] final visualization remains available on %s and %s; "
-                "press Ctrl-C to exit",
+                "select trials via %s; press Ctrl-C to exit",
                 self.trajectory_topic,
                 self.environment_topic,
+                self.trajectory_selection_topic,
             )
             rospy.spin()
 

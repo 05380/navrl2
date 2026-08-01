@@ -152,7 +152,7 @@ Visualization Manager:
       Marker Topic: /deployment_eval/environment
       Name: Evaluation Environment
       Namespaces:
-        deployment_eval_dynamic_obstacles: true
+        deployment_eval_dynamic_bboxes: true
         deployment_eval_static_map: true
       Queue Size: 10
       Value: true
