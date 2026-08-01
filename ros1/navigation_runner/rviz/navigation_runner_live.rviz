@@ -54,14 +54,14 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/raycast
       Name: MarkerArray
       Namespaces:
         raycast_lines: true
         raycast_points: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -74,7 +74,7 @@ Visualization Manager:
       Color: 114; 159; 207
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -89,11 +89,11 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Class: rviz/RobotModel
       Collision Enabled: false
-      Enabled: false
+      Enabled: true
       Links:
         All Links Enabled: true
         Expand Joint Details: false
@@ -109,8 +109,8 @@ Visualization Manager:
       Robot Description: robot_description
       TF Prefix: ""
       Update Interval: 0
-      Value: false
-      Visual Enabled: false
+      Value: true
+      Visual Enabled: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
@@ -136,7 +136,7 @@ Visualization Manager:
       Unreliable: false
       Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /deployment_eval/trajectories
       Name: Evaluation Trajectories
       Namespaces:
@@ -146,47 +146,47 @@ Visualization Manager:
         deployment_eval_success: true
         deployment_eval_timeout: true
       Queue Size: 100
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /deployment_eval/environment
       Name: Evaluation Environment
       Namespaces:
         deployment_eval_dynamic_obstacles: true
         deployment_eval_static_map: true
       Queue Size: 10
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/goal
       Name: MarkerArray
       Namespaces:
         goal_point: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/in_range_dynamic_obstacles
       Name: MarkerArray
       Namespaces:
         dynamic_obstacles: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: false
+      Enabled: true
       Length: 1
       Name: Axes
       Radius: 0.10000000149011612
       Reference Frame: <Fixed Frame>
       Show Trail: false
-      Value: false
+      Value: true
     - Alpha: 1
       Axes Length: 0.5
       Axes Radius: 0.20000000298023224
       Class: rviz/Pose
       Color: 255; 25; 0
-      Enabled: false
+      Enabled: true
       Head Length: 0.30000001192092896
       Head Radius: 0.10000000149011612
       Name: Pose
@@ -196,9 +196,9 @@ Visualization Manager:
       Shape: Axes
       Topic: /CERLAB/quadcopter/pose
       Unreliable: false
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /onboard_detector/GT_obstacle_bbox
       Name: MarkerArray
       Namespaces:
@@ -243,16 +243,16 @@ Visualization Manager:
         GT osbtacles8: true
         GT osbtacles9: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/cmd
       Name: MarkerArray
       Namespaces:
         rl_action: true
         safe_action: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
       Enabled: false
       Marker Topic: /rl_navigation/safe_action_dynamic_obstacles
@@ -270,19 +270,19 @@ Visualization Manager:
       Queue Size: 100
       Value: false
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /onboard_detector/dynamic_bboxes
       Name: MarkerArray
       Namespaces:
         {}
       Queue Size: 100
-      Value: false
+      Value: true
     - Alpha: 1
       Axes Length: 0.30000001192092896
       Axes Radius: 0.20000000298023224
       Class: rviz/Pose
       Color: 255; 25; 0
-      Enabled: false
+      Enabled: true
       Head Length: 0.30000001192092896
       Head Radius: 0.10000000149011612
       Name: Pose
@@ -292,7 +292,7 @@ Visualization Manager:
       Shape: Axes
       Topic: /mavros/local_position/pose
       Unreliable: false
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -330,21 +330,21 @@ Visualization Manager:
       Queue Size: 100
       Value: false
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/safe_action_dynamic_obstacles
       Name: MarkerArray
       Namespaces:
         safe_action_dyn_obs: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /rl_navigation/safe_action_static_obstacles
       Name: MarkerArray
       Namespaces:
         safe_action_static_obs: true
       Queue Size: 100
-      Value: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 243; 243; 243

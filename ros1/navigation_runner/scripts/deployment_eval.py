@@ -8,7 +8,7 @@ import time
 
 import rospy
 import tf.transformations
-from gazebo_msgs.msg import ModelState
+from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
 from geometry_msgs.msg import Point, PoseStamped
 from map_manager.srv import RayCast
@@ -90,20 +90,51 @@ class DeploymentEvaluator:
         )
         self.trajectory_frame = rospy.get_param("~trajectory_frame", "map")
         self.trajectory_line_width = float(
-            rospy.get_param("~trajectory_line_width", 0.035)
+            rospy.get_param("~trajectory_line_width", 0.06)
         )
-        self.trajectory_alpha = float(rospy.get_param("~trajectory_alpha", 0.65))
+        self.trajectory_alpha = float(rospy.get_param("~trajectory_alpha", 0.90))
+        self.trajectory_color_r = float(rospy.get_param("~trajectory_color_r", 0.0))
+        self.trajectory_color_g = float(rospy.get_param("~trajectory_color_g", 0.0))
+        self.trajectory_color_b = float(rospy.get_param("~trajectory_color_b", 0.50))
         self.trajectory_min_point_distance = float(
             rospy.get_param("~trajectory_min_point_distance", 0.05)
         )
+        self.trajectory_endpoint_scale = float(
+            rospy.get_param("~trajectory_endpoint_scale", 0.20)
+        )
+        self.publish_trajectories_during_trials = bool(
+            rospy.get_param("~publish_trajectories_during_trials", False)
+        )
+        self.publish_full_environment = bool(
+            rospy.get_param("~publish_full_environment", True)
+        )
+        self.environment_topic = rospy.get_param(
+            "~environment_topic", "/deployment_eval/environment"
+        )
+        self.full_map_pcd = os.path.abspath(
+            os.path.expanduser(
+                rospy.get_param("~full_map_pcd", self.default_full_map_pcd())
+            )
+        )
+        self.full_map_voxel_size = float(
+            rospy.get_param("~full_map_voxel_size", 0.20)
+        )
+        if self.full_map_voxel_size <= 0.0:
+            raise ValueError("~full_map_voxel_size must be positive")
+        self.static_map_alpha = float(rospy.get_param("~static_map_alpha", 0.65))
+        self.dynamic_map_alpha = float(rospy.get_param("~dynamic_map_alpha", 0.85))
         self.keep_trajectory_publisher_alive = bool(
-            rospy.get_param("~keep_trajectory_publisher_alive", False)
+            rospy.get_param("~keep_trajectory_publisher_alive", True)
         )
 
         self.latest_odom = None
+        self.latest_model_states = None
         self.trajectory_markers = []
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.odom_sub = rospy.Subscriber("/CERLAB/quadcopter/odom", Odometry, self.odom_callback)
+        self.model_states_sub = rospy.Subscriber(
+            "/gazebo/model_states", ModelStates, self.model_states_callback, queue_size=1
+        )
         self.trajectory_pub = None
         if self.publish_trajectories:
             self.trajectory_pub = rospy.Publisher(
@@ -113,6 +144,15 @@ class DeploymentEvaluator:
                 latch=True,
             )
             self.clear_trajectory_markers()
+        self.environment_pub = None
+        if self.publish_full_environment:
+            self.environment_pub = rospy.Publisher(
+                self.environment_topic,
+                MarkerArray,
+                queue_size=1,
+                latch=True,
+            )
+            self.clear_environment_markers()
 
         rospy.wait_for_service("/gazebo/set_model_state")
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
@@ -133,6 +173,27 @@ class DeploymentEvaluator:
     def odom_callback(self, msg):
         self.latest_odom = msg
 
+    def model_states_callback(self, msg):
+        self.latest_model_states = msg
+
+    @staticmethod
+    def default_full_map_pcd():
+        relative_path = os.path.join(
+            "uav_simulator", "worlds", "generated_env", "generated_env.pcd"
+        )
+        candidates = [
+            os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", relative_path)
+            )
+        ]
+        for root in os.environ.get("ROS_PACKAGE_PATH", "").split(os.pathsep):
+            if root:
+                candidates.append(os.path.join(root, relative_path))
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+        return candidates[0]
+
     def clear_trajectory_markers(self):
         if self.trajectory_pub is None:
             return
@@ -143,6 +204,17 @@ class DeploymentEvaluator:
         message = MarkerArray()
         message.markers = [marker]
         self.trajectory_pub.publish(message)
+
+    def clear_environment_markers(self):
+        if self.environment_pub is None:
+            return
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.action = Marker.DELETEALL
+        message = MarkerArray()
+        message.markers = [marker]
+        self.environment_pub.publish(message)
 
     def append_trajectory_point(self, points, odom, force=False):
         if not self.publish_trajectories:
@@ -176,29 +248,63 @@ class DeploymentEvaluator:
         marker.pose.orientation.w = 1.0
         marker.scale.x = self.trajectory_line_width
         marker.color.a = self.trajectory_alpha
+        marker.color.r = self.trajectory_color_r
+        marker.color.g = self.trajectory_color_g
+        marker.color.b = self.trajectory_color_b
         marker.points = points
         marker.lifetime = rospy.Duration(0)
 
         if success:
             marker.ns = "deployment_eval_success"
-            marker.color.r = 0.15
-            marker.color.g = 0.85
-            marker.color.b = 0.25
         elif collision:
             marker.ns = "deployment_eval_collision"
-            marker.color.r = 0.95
-            marker.color.g = 0.15
-            marker.color.b = 0.10
         else:
             marker.ns = "deployment_eval_timeout"
-            marker.color.r = 1.00
-            marker.color.g = 0.60
-            marker.color.b = 0.05
 
-        self.trajectory_markers.append(marker)
-        message = MarkerArray()
-        message.markers = [marker]
-        self.trajectory_pub.publish(message)
+        start_marker = self.make_trajectory_endpoint_marker(
+            trial_idx,
+            points[0],
+            namespace="deployment_eval_start",
+            marker_type=Marker.SPHERE,
+            color=(0.05, 0.75, 0.20),
+        )
+        end_marker = self.make_trajectory_endpoint_marker(
+            trial_idx,
+            points[-1],
+            namespace="deployment_eval_end",
+            marker_type=Marker.CUBE,
+            color=(0.90, 0.10, 0.10),
+        )
+        trial_markers = [marker, start_marker, end_marker]
+        self.trajectory_markers.extend(trial_markers)
+        if self.publish_trajectories_during_trials:
+            message = MarkerArray()
+            message.markers = trial_markers
+            self.trajectory_pub.publish(message)
+
+    def make_trajectory_endpoint_marker(
+        self, trial_idx, point, namespace, marker_type, color
+    ):
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = namespace
+        marker.id = int(trial_idx)
+        marker.type = marker_type
+        marker.action = Marker.ADD
+        marker.pose.position.x = point.x
+        marker.pose.position.y = point.y
+        marker.pose.position.z = point.z
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = self.trajectory_endpoint_scale
+        marker.scale.y = self.trajectory_endpoint_scale
+        marker.scale.z = self.trajectory_endpoint_scale
+        marker.color.r = color[0]
+        marker.color.g = color[1]
+        marker.color.b = color[2]
+        marker.color.a = 1.0
+        marker.lifetime = rospy.Duration(0)
+        return marker
 
     def publish_all_trajectory_markers(self):
         if self.trajectory_pub is None or not self.trajectory_markers:
@@ -209,6 +315,169 @@ class DeploymentEvaluator:
         message = MarkerArray()
         message.markers = list(self.trajectory_markers)
         self.trajectory_pub.publish(message)
+
+    def load_full_map_points(self):
+        if not os.path.isfile(self.full_map_pcd):
+            rospy.logwarn(
+                "[deployment-eval] full-map PCD not found: %s", self.full_map_pcd
+            )
+            return []
+
+        fields = []
+        data_is_ascii = False
+        points_by_voxel = {}
+        try:
+            with open(self.full_map_pcd, "r") as pcd_file:
+                for raw_line in pcd_file:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if not data_is_ascii:
+                        tokens = line.split()
+                        key = tokens[0].upper()
+                        if key == "FIELDS":
+                            fields = tokens[1:]
+                        elif key == "DATA":
+                            if len(tokens) < 2 or tokens[1].lower() != "ascii":
+                                rospy.logwarn(
+                                    "[deployment-eval] only ASCII PCD files are supported: %s",
+                                    self.full_map_pcd,
+                                )
+                                return []
+                            data_is_ascii = True
+                        continue
+
+                    values = line.split()
+                    if fields:
+                        x_idx = fields.index("x")
+                        y_idx = fields.index("y")
+                        z_idx = fields.index("z")
+                    else:
+                        x_idx, y_idx, z_idx = 0, 1, 2
+                    x = float(values[x_idx])
+                    y = float(values[y_idx])
+                    z = float(values[z_idx])
+                    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+                        continue
+                    voxel = (
+                        int(math.floor(x / self.full_map_voxel_size)),
+                        int(math.floor(y / self.full_map_voxel_size)),
+                        int(math.floor(z / self.full_map_voxel_size)),
+                    )
+                    if voxel not in points_by_voxel:
+                        points_by_voxel[voxel] = Point(x=x, y=y, z=z)
+        except (OSError, ValueError, IndexError) as exc:
+            rospy.logwarn(
+                "[deployment-eval] failed to read full-map PCD %s: %s",
+                self.full_map_pcd,
+                exc,
+            )
+            return []
+
+        if not data_is_ascii:
+            rospy.logwarn(
+                "[deployment-eval] PCD has no ASCII DATA section: %s", self.full_map_pcd
+            )
+            return []
+        return list(points_by_voxel.values())
+
+    @staticmethod
+    def dynamic_model_geometry(model_name):
+        parts = model_name.rsplit("_", 3)
+        if len(parts) == 4:
+            prefix = parts[0]
+            try:
+                size_x, size_y, size_z = (float(value) for value in parts[1:])
+            except ValueError:
+                return None
+            if prefix.startswith("dynamic_box"):
+                return Marker.CUBE, (size_x, size_y, size_z)
+            if prefix.startswith("dynamic_cylinder"):
+                return Marker.CYLINDER, (size_x, size_y, size_z)
+        if model_name.lower().startswith("person"):
+            return Marker.CYLINDER, (0.5, 0.5, 1.8)
+        return None
+
+    def make_static_environment_marker(self, points, stamp):
+        if not points:
+            return None
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = stamp
+        marker.ns = "deployment_eval_static_map"
+        marker.id = 0
+        marker.type = Marker.CUBE_LIST
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = self.full_map_voxel_size
+        marker.scale.y = self.full_map_voxel_size
+        marker.scale.z = self.full_map_voxel_size
+        marker.color.r = 0.38
+        marker.color.g = 0.40
+        marker.color.b = 0.43
+        marker.color.a = self.static_map_alpha
+        marker.points = points
+        marker.lifetime = rospy.Duration(0)
+        return marker
+
+    def make_dynamic_environment_markers(self, stamp):
+        model_states = self.latest_model_states
+        if model_states is None:
+            rospy.logwarn(
+                "[deployment-eval] /gazebo/model_states is unavailable; "
+                "the final environment snapshot contains static obstacles only."
+            )
+            return []
+
+        markers = []
+        for model_name, pose in zip(model_states.name, model_states.pose):
+            geometry = self.dynamic_model_geometry(model_name)
+            if geometry is None:
+                continue
+            marker_type, dimensions = geometry
+            marker = Marker()
+            marker.header.frame_id = self.trajectory_frame
+            marker.header.stamp = stamp
+            marker.ns = "deployment_eval_dynamic_obstacles"
+            marker.id = len(markers)
+            marker.type = marker_type
+            marker.action = Marker.ADD
+            marker.pose = pose
+            marker.scale.x = dimensions[0]
+            marker.scale.y = dimensions[1]
+            marker.scale.z = dimensions[2]
+            marker.color.r = 0.78
+            marker.color.g = 0.20
+            marker.color.b = 0.12
+            marker.color.a = self.dynamic_map_alpha
+            marker.lifetime = rospy.Duration(0)
+            markers.append(marker)
+        return markers
+
+    def publish_environment_snapshot(self):
+        if self.environment_pub is None:
+            return
+        stamp = rospy.Time.now()
+        markers = []
+        static_marker = self.make_static_environment_marker(
+            self.load_full_map_points(), stamp
+        )
+        if static_marker is not None:
+            markers.append(static_marker)
+        markers.extend(self.make_dynamic_environment_markers(stamp))
+        if not markers:
+            rospy.logwarn("[deployment-eval] final environment snapshot is empty")
+            return
+        message = MarkerArray()
+        message.markers = markers
+        self.environment_pub.publish(message)
+        rospy.loginfo(
+            "[deployment-eval] published final environment snapshot on %s "
+            "(%d static voxels, %d dynamic obstacles)",
+            self.environment_topic,
+            len(static_marker.points) if static_marker is not None else 0,
+            len(markers) - (1 if static_marker is not None else 0),
+        )
 
     def make_pose_msg(self, x, y, z, yaw):
         msg = PoseStamped()
@@ -628,11 +897,16 @@ class DeploymentEvaluator:
 
         self.write_csv(results)
         self.publish_all_trajectory_markers()
-        if self.keep_trajectory_publisher_alive and self.trajectory_pub is not None:
+        self.publish_environment_snapshot()
+        visualization_active = (
+            self.trajectory_pub is not None or self.environment_pub is not None
+        )
+        if self.keep_trajectory_publisher_alive and visualization_active:
             rospy.loginfo(
-                "[deployment-eval] trajectory visualization remains available on %s; "
+                "[deployment-eval] final visualization remains available on %s and %s; "
                 "press Ctrl-C to exit",
                 self.trajectory_topic,
+                self.environment_topic,
             )
             rospy.spin()
 

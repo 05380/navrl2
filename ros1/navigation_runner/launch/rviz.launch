@@ -1,3 +1,4 @@
 <launch>
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find navigation_runner)/rviz/navigation_runner.rviz" required="true"/>
+    <arg name="config" default="$(find navigation_runner)/rviz/navigation_runner_live.rviz" />
+    <node name="rviz_live" pkg="rviz" type="rviz" args="-d $(arg config)" required="false"/>
 </launch>

@@ -6,7 +6,7 @@
     <arg name="use_safety_shield" default="false" />
     <arg name="always_use_policy" default="false" />
     <arg name="use_goal_z" default="true" />
-    <arg name="show_rollout_traj" default="true" />
+    <arg name="show_rollout_traj" default="false" />
     <arg name="rollout_traj_dt" default="0.2" />
     <arg name="rollout_traj_horizon" default="2.0" />
     <arg name="rviz" default="true" />
