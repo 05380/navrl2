@@ -65,6 +65,22 @@ class PPO(TensorDictModuleBase):
         else:
             self.auxiliary_predictor = None
 
+        behavior_cloning_cfg = cfg.feature_extractor.get("behavior_cloning", {})
+        self.behavior_cloning_enabled = bool(behavior_cloning_cfg.get("enabled", False))
+        self.behavior_cloning_loss_weight = float(behavior_cloning_cfg.get("loss_weight", 0.0))
+        self.behavior_cloning_batch_size = max(int(behavior_cloning_cfg.get("batch_size", 256)), 1)
+        self.behavior_cloning_min_buffer_size = max(
+            int(behavior_cloning_cfg.get("min_buffer_size", self.behavior_cloning_batch_size)),
+            1,
+        )
+        self.behavior_cloning_max_log_prob = float(
+            behavior_cloning_cfg.get("max_log_prob", 10.0)
+        )
+        self.behavior_cloning_max_nll = max(
+            float(behavior_cloning_cfg.get("max_nll", 30.0)),
+            1.0,
+        )
+
         # Actor etwork
         self.actor = ProbabilisticActor(
             TensorDictModule(BetaActor(self.action_dim), ["_feature"], ["alpha", "beta"]),
@@ -88,7 +104,8 @@ class PPO(TensorDictModuleBase):
         feature_extractor_params = list(self.feature_extractor.parameters())
         if self.auxiliary_predictor is not None:
             feature_extractor_params += list(self.auxiliary_predictor.parameters())
-        self.feature_extractor_optim = torch.optim.Adam(feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
+        self.feature_extractor_params = feature_extractor_params
+        self.feature_extractor_optim = torch.optim.Adam(self.feature_extractor_params, lr=cfg.feature_extractor.learning_rate)
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor.learning_rate)
         self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=cfg.critic.learning_rate,)
 
@@ -272,7 +289,44 @@ class PPO(TensorDictModuleBase):
             "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
         }, [])
 
-    def train(self, tensordict):
+    def _compute_behavior_cloning_loss(self, demonstration_batch, reference_feature):
+        zero = reference_feature.sum() * 0.0
+        if (
+            not self.behavior_cloning_enabled
+            or self.behavior_cloning_loss_weight <= 0.0
+            or demonstration_batch is None
+        ):
+            return zero, TensorDict({
+                "behavior_cloning_loss": zero.detach(),
+                "behavior_cloning_nll": zero.detach(),
+                "behavior_cloning_confidence": zero.detach(),
+                "behavior_cloning_active": zero.detach(),
+            }, [])
+
+        self.feature_extractor(demonstration_batch)
+        action_dist = self.actor.get_dist(demonstration_batch)
+        target_action = demonstration_batch["teacher_action_normalized"].detach()
+        confidence = demonstration_batch["teacher_confidence"].detach().clamp(0.0, 1.0)
+        log_prob = action_dist.log_prob(target_action)
+
+        # Beta densities can exceed one, while boundary targets can also produce
+        # very small densities. Bound both tails to keep this auxiliary term stable.
+        nll = -log_prob.clamp(
+            min=-self.behavior_cloning_max_nll,
+            max=self.behavior_cloning_max_log_prob,
+        )
+        confidence_sum = confidence.sum().clamp_min(1e-6)
+        raw_loss = (confidence * nll).sum() / confidence_sum
+        behavior_cloning_loss = self.behavior_cloning_loss_weight * raw_loss
+        active = torch.ones((), device=behavior_cloning_loss.device)
+        return behavior_cloning_loss, TensorDict({
+            "behavior_cloning_loss": behavior_cloning_loss.detach(),
+            "behavior_cloning_nll": raw_loss.detach(),
+            "behavior_cloning_confidence": confidence.mean().detach(),
+            "behavior_cloning_active": active,
+        }, [])
+
+    def train(self, tensordict, demonstration_buffer=None):
         # tensordict: (num_env, num_frames, dim), batchsize = num_env * num_frames
         next_tensordict = tensordict["next"]
         with torch.no_grad():
@@ -301,14 +355,24 @@ class PPO(TensorDictModuleBase):
         for epoch in range(self.cfg.training_epoch_num):
             batch = make_batch(tensordict, self.cfg.num_minibatches)
             for minibatch in batch:
-                infos.append(self._update(minibatch))
+                demonstration_batch = None
+                if (
+                    self.behavior_cloning_enabled
+                    and demonstration_buffer is not None
+                    and len(demonstration_buffer) >= self.behavior_cloning_min_buffer_size
+                ):
+                    demonstration_batch = demonstration_buffer.sample(
+                        self.behavior_cloning_batch_size,
+                        self.device,
+                    )
+                infos.append(self._update(minibatch, demonstration_batch))
         infos = torch.stack(infos).to_tensordict()
         
         infos = infos.apply(torch.mean, batch_size=[])
         return {k: v.item() for k, v in infos.items()}    
 
     
-    def _update(self, tensordict): # tensordict shape (batch_size, )
+    def _update(self, tensordict, demonstration_batch=None): # tensordict shape (batch_size, )
         self.feature_extractor(tensordict)
 
         # Get action from the current policy
@@ -335,9 +399,13 @@ class PPO(TensorDictModuleBase):
         critic_loss_original = self.critic_loss_fn(ret, value)
         critic_loss = torch.max(critic_loss_clipped, critic_loss_original)
         auxiliary_loss, auxiliary_info = self._compute_auxiliary_loss(tensordict)
+        behavior_cloning_loss, behavior_cloning_info = self._compute_behavior_cloning_loss(
+            demonstration_batch,
+            tensordict["_feature"],
+        )
 
         # Total Loss
-        loss = entropy_loss + actor_loss + critic_loss + auxiliary_loss
+        loss = entropy_loss + actor_loss + critic_loss + auxiliary_loss + behavior_cloning_loss
 
         # Optimize
         self.feature_extractor_optim.zero_grad()
@@ -345,6 +413,7 @@ class PPO(TensorDictModuleBase):
         self.critic_optim.zero_grad()
         loss.backward()
 
+        feature_grad_norm = nn.utils.clip_grad.clip_grad_norm_(self.feature_extractor_params, max_norm=5.)
         actor_grad_norm = nn.utils.clip_grad.clip_grad_norm_(self.actor.parameters(), max_norm=5.) # to prevent gradient growing too large
         critic_grad_norm = nn.utils.clip_grad.clip_grad_norm_(self.critic.parameters(), max_norm=5.)
         self.feature_extractor_optim.step()
@@ -355,9 +424,11 @@ class PPO(TensorDictModuleBase):
             "actor_loss": actor_loss,
             "critic_loss": critic_loss,
             "entropy": entropy_loss,
+            "feature_grad_norm": feature_grad_norm,
             "actor_grad_norm": actor_grad_norm,
             "critic_grad_norm": critic_grad_norm,
             "explained_var": explained_var,
         }, [])
         info.update(auxiliary_info)
+        info.update(behavior_cloning_info)
         return info

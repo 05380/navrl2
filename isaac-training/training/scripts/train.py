@@ -15,6 +15,8 @@ from omni_drones.utils.torchrl import SyncDataCollector, EpisodeStats
 from torchrl.envs.transforms import TransformedEnv, Compose
 from utils import evaluate, resolve_eval_style, summarize_episode_stats
 from torchrl.envs.utils import ExplorationType
+from demonstration_buffer import DemonstrationBuffer
+from wall_follow_teacher import TeacherRolloutPolicy, WallFollowTeacher
 
 
 
@@ -79,7 +81,9 @@ def main(cfg):
         )
 
     run.define_metric("env_frames")
+    run.define_metric("ppo_env_frames")
     run.define_metric("eval/*", step_metric="env_frames")
+    run.define_metric("teacher/*", step_metric="env_frames")
     for metric_name in [
         "train/stall_reward_mean",
         "train/stall/reward_mean",
@@ -150,6 +154,11 @@ def main(cfg):
         "auxiliary_future_clearance_loss",
         "auxiliary_future_collision_loss",
         "auxiliary_future_stuck_loss",
+        "behavior_cloning_loss",
+        "behavior_cloning_nll",
+        "behavior_cloning_confidence",
+        "behavior_cloning_active",
+        "feature_grad_norm",
     ]:#
         run.define_metric(metric_name, step_metric="env_frames")
 
@@ -180,6 +189,59 @@ def main(cfg):
                 print("[NavRL]: unexpected keys:", unexpected_keys)
         print("[NavRL]: loaded checkpoint from: ", checkpoint_path)
 
+    collector_policy = policy
+    demonstration_buffer = None
+    teacher_rollout_policy = None
+    teacher_env_count = 0
+    teacher_cfg = cfg.get("wall_teacher", {})
+    behavior_cloning_cfg = cfg.algo.feature_extractor.get("behavior_cloning", {})
+    teacher_enabled = bool(teacher_cfg.get("enabled", False))
+    behavior_cloning_enabled = bool(behavior_cloning_cfg.get("enabled", False))
+    if teacher_enabled and behavior_cloning_enabled and int(cfg.env.num_envs) > 1:
+        requested_count = int(teacher_cfg.get("num_envs", 0))
+        if requested_count <= 0:
+            requested_count = max(
+                int(round(float(cfg.env.num_envs) * float(teacher_cfg.get("env_fraction", 0.0)))),
+                1,
+            )
+        maximum_count = max(int(teacher_cfg.get("max_envs", requested_count)), 1)
+        teacher_env_count = min(requested_count, maximum_count, int(cfg.env.num_envs) - 1)
+
+        teacher_env_mask = torch.zeros(
+            int(cfg.env.num_envs),
+            dtype=torch.bool,
+            device=cfg.device,
+        )
+        teacher_env_mask[:teacher_env_count] = True
+        demonstration_buffer = DemonstrationBuffer(
+            capacity=int(behavior_cloning_cfg.get("buffer_capacity", 100000)),
+            balanced_sampling=bool(behavior_cloning_cfg.get("balanced_sampling", True)),
+        )
+        wall_teacher = WallFollowTeacher(
+            cfg=teacher_cfg,
+            sensor_cfg=cfg.sensor,
+            vo_cfg=cfg.reward.vo,
+            num_envs=int(cfg.env.num_envs),
+            teacher_env_mask=teacher_env_mask,
+            action_limit=float(cfg.algo.actor.action_limit),
+            dt=float(env.dt),
+            device=cfg.device,
+        )
+        teacher_rollout_policy = TeacherRolloutPolicy(
+            base_policy=policy,
+            teacher=wall_teacher,
+            demonstration_buffer=demonstration_buffer,
+        )
+        collector_policy = teacher_rollout_policy
+        print(
+            f"[NavRL]: wall teacher enabled in {teacher_env_count} environments; "
+            f"{int(cfg.env.num_envs) - teacher_env_count} environments remain on-policy."
+        )
+    elif teacher_enabled and not behavior_cloning_enabled:
+        print("[NavRL]: wall teacher disabled because behavior cloning is disabled.")
+    elif teacher_enabled and int(cfg.env.num_envs) <= 1:
+        print("[NavRL]: wall teacher disabled because at least one on-policy environment is required.")
+
     # Episode Stats Collector
     episode_stats_keys = [
         k for k in transformed_env.observation_spec.keys(True, True) 
@@ -190,28 +252,47 @@ def main(cfg):
     # RL Data Collector
     collector = SyncDataCollector(
         transformed_env,
-        policy=policy, 
+        policy=collector_policy,
         frames_per_batch=cfg.env.num_envs * cfg.algo.training_frame_num, 
         total_frames=cfg.max_frame_num,
         device=cfg.device,
         return_same_td=True, # update the return tensordict inplace (should set to false if we need to use replace buffer)
         exploration_type=ExplorationType.RANDOM, # sample from normal distribution
     )
+    if teacher_env_count > 0:
+        if not hasattr(collector.policy, "demonstration_buffer"):
+            raise RuntimeError("Collector policy lost the wall-teacher demonstration buffer.")
+        teacher_rollout_policy = collector.policy
+        demonstration_buffer = collector.policy.demonstration_buffer
 
     # Training Loop
     for i, data in enumerate(collector):
         # print("data: ", data)
         # print("============================")
         # Log Info
-        info = {"env_frames": collector._frames, "rollout_fps": collector._fps}
+        if not data.batch_size or int(data.batch_size[0]) != int(cfg.env.num_envs):
+            raise RuntimeError(
+                "Wall-teacher isolation requires collector batches ordered as "
+                "[num_envs, rollout_steps, ...]."
+            )
+        ppo_data = data[teacher_env_count:] if teacher_env_count > 0 else data
+        ppo_env_count = int(cfg.env.num_envs) - teacher_env_count
+        info = {
+            "env_frames": collector._frames,
+            "ppo_env_frames": (i + 1) * ppo_env_count * int(cfg.algo.training_frame_num),
+            "rollout_fps": collector._fps,
+        }
 
         # Train Policy
-        train_loss_stats = policy.train(data)
+        train_loss_stats = policy.train(ppo_data, demonstration_buffer)
+        collector.update_policy_weights_()
         info.update(train_loss_stats) # log training loss info
+        if teacher_rollout_policy is not None:
+            info.update(teacher_rollout_policy.pop_metrics())
 
         # Calculate and log training episode stats
-        episode_stats.add(data)
-        if len(episode_stats) >= transformed_env.num_envs: # evaluate once if all agents finished one episode
+        episode_stats.add(ppo_data)
+        if len(episode_stats) >= ppo_env_count: # evaluate once if all on-policy agents finished one episode
             stats = summarize_episode_stats(episode_stats.pop(), prefix="train")
             info.update(stats)
             train_metric_parts = []
