@@ -242,7 +242,7 @@ Under constant relative velocity, define the scaled relative trajectory
 	\begin{split}
 	\mathbf{q}_{i,j,t+1}(s,\mathbf{v})
 	=\mathbf{D}_{i,j}^{-1}\bigl[
-	\mathbf{r}_{i,j,t+1}
+	\mathbf{r}_{i,j,t+1}+
 	s(\mathbf{v}^{o}_{i,t+1}-\mathbf{v})
 	\bigr].
 	\end{split}
@@ -303,12 +303,11 @@ A primitive with \(C_{i,j,t+1}\leq0\) is already inside the inflated region and 
 The overall post-transition risk is
 \(\rho^{\mathrm{VO}}_{t+1}=\max_{i,j}\rho_{i,j,t+1}\) over retained primitives. The maximum emphasizes the most imminent conflict, keeps the risk bounded in \([0,1]\), and prevents its magnitude from scaling with the number of primitives. This training-time measure assumes constant relative velocity over the finite horizon and does not constitute a formal safety guarantee.
 
-\begin{figure}[thpb]
+\begin{figure*}[thpb]
 	\centering
-  \includegraphics[width=0.95\columnwidth]{fig_rvo.pdf}  
-  \caption{\label{fig_rvo} The reciprocal velocity obstacle \(RVO_B^A(\mathbf{v}_B, \mathbf{v}_A)\) of robot \(B\) to robot \(A\).} 
-%   \vspace{-0.2cm}
-\end{figure}
+  \includegraphics[width=0.96\textwidth]{fig_3d_vo_geometry.pdf}
+  \caption{\label{fig_3d_vo_geometry} Geometry of the finite-horizon TTC-aware 3D-VO model for one retained obstacle primitive. (a) The post-transition relative trajectory first intersects the anisotropically inflated safety region at \(T_{i,j,t+1}\). (b) The corresponding realized UAV velocity lies inside the finite-horizon velocity obstacle; the \(s=H\) cap excludes relative motions that cannot reach the safety region within the prediction horizon. The open end denotes continuation toward larger relative speeds before intersection with the bounded action space. ForesightNav evaluates this membership analytically and does not construct the set or project the policy action during training.}
+\end{figure*}
 
 \subsection{Reinforcement-Learning Formulation}\label{subsec:rl}
 
