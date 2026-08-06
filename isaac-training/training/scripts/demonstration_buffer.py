@@ -13,9 +13,18 @@ class DemonstrationBuffer:
 
     OBSERVATION_KEYS = ("state", "lidar", "direction", "dynamic_obstacle")
 
-    def __init__(self, capacity: int, balanced_sampling: bool = True):
+    def __init__(
+        self,
+        capacity: int,
+        balanced_sampling: bool = True,
+        phase_balance_exponent: float = 0.5,
+    ):
         self.capacity = max(int(capacity), 1)
         self.balanced_sampling = bool(balanced_sampling)
+        self.phase_balance_exponent = min(
+            max(float(phase_balance_exponent), 0.0),
+            1.0,
+        )
         self._storage: Dict[str, torch.Tensor] = {}
         self._size = 0
         self._position = 0
@@ -99,24 +108,19 @@ class DemonstrationBuffer:
             return torch.randint(self._size, (batch_size,), device="cpu")
 
         phases = self._storage["teacher_phase"][: self._size]
-        available_phases = torch.unique(phases)
+        available_phases, inverse, counts = torch.unique(
+            phases,
+            return_inverse=True,
+            return_counts=True,
+        )
         if available_phases.numel() <= 1:
             return torch.randint(self._size, (batch_size,), device="cpu")
 
-        per_phase = max(batch_size // int(available_phases.numel()), 1)
-        sampled = []
-        for phase in available_phases:
-            candidates = (phases == phase).nonzero(as_tuple=False).squeeze(-1)
-            choice = torch.randint(candidates.numel(), (per_phase,), device="cpu")
-            sampled.append(candidates[choice])
-
-        indices = torch.cat(sampled, dim=0)
-        if indices.numel() < batch_size:
-            remainder = torch.randint(self._size, (batch_size - indices.numel(),), device="cpu")
-            indices = torch.cat([indices, remainder], dim=0)
-        elif indices.numel() > batch_size:
-            indices = indices[torch.randperm(indices.numel())[:batch_size]]
-        return indices[torch.randperm(indices.numel())]
+        # exponent=0 is uniform per record; exponent=1 gives equal total mass
+        # to every phase. The default square-root correction improves coverage
+        # without repeatedly cloning a handful of rare transition records.
+        sample_weights = counts[inverse].float().pow(-self.phase_balance_exponent)
+        return torch.multinomial(sample_weights, batch_size, replacement=True)
 
     def sample(self, batch_size: int, device) -> TensorDict:
         if self._size == 0:
@@ -162,6 +166,7 @@ class DemonstrationBuffer:
         return {
             "capacity": self.capacity,
             "balanced_sampling": self.balanced_sampling,
+            "phase_balance_exponent": self.phase_balance_exponent,
             "size": self._size,
             "position": self._position,
             "storage": {key: value.clone() for key, value in self._storage.items()},
@@ -171,6 +176,10 @@ class DemonstrationBuffer:
         if int(state["capacity"]) != self.capacity:
             raise ValueError("Demonstration buffer capacity does not match the saved state.")
         self.balanced_sampling = bool(state["balanced_sampling"])
+        self.phase_balance_exponent = min(
+            max(float(state.get("phase_balance_exponent", 0.5)), 0.0),
+            1.0,
+        )
         self._size = int(state["size"])
         self._position = int(state["position"])
         self._storage = {

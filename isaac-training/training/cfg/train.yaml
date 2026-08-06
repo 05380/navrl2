@@ -93,38 +93,49 @@ wall_teacher:
   fit_min_span: 1.4
   fit_max_hypotheses: 128
   fit_min_confidence: 0.25
+  segment_max_range_jump: 0.65
+  segment_max_point_gap: 0.85
+  segment_min_points: 5
   tracking_continuity_weight: 0.8
   normal_smoothing: 0.65
   corner_angle_deg: 35.0
   max_missing_fit_steps: 20
 
-  parallel_speed: 0.8
+  parallel_speed: 1.0
   reference_clearance: 1.0
   clearance_gain: 1.2
   max_toward_wall_speed: 0.2
   max_away_wall_speed: 0.8
   height_gain: 0.6
   max_vertical_speed: 0.5
-  action_smoothing: 0.55
+  action_smoothing: 0.40
   side_goal_weight: 1.0
   side_clearance_weight: 0.8
   side_velocity_weight: 0.25
   side_clearance_angle_deg: 35.0
+  leave_goal_speed: 1.2
+  leave_goal_blend: 0.75
 
   min_follow_steps: 25
   min_follow_distance: 0.5
   min_goal_progress: 0.2
-  leave_requires_goal_progress: false
+  leave_requires_goal_progress: true
   goal_clear_angle_deg: 18.0
   goal_clear_steps: 8
   max_follow_steps: 500
-  max_side_switches: 0
+  max_side_switches: 1
 
   dynamic_width_resolution: 0.25
   dynamic_spanning_height: 4.0
   dynamic_point_margin: 0.25
   dynamic_risk_limit: 0.0
+  static_sweep_horizon: 1.0
+  static_sweep_steps: 10
+  static_safety_radius: 0.40
+  static_confidence_margin: 0.30
+  static_away_speeds: [0.35, 0.70]
   demo_min_confidence: 0.2
+  demo_min_action_speed: 0.35
   action_epsilon: 1e-4
 
 stuck:

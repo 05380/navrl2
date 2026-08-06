@@ -216,6 +216,9 @@ def main(cfg):
         demonstration_buffer = DemonstrationBuffer(
             capacity=int(behavior_cloning_cfg.get("buffer_capacity", 100000)),
             balanced_sampling=bool(behavior_cloning_cfg.get("balanced_sampling", True)),
+            phase_balance_exponent=float(
+                behavior_cloning_cfg.get("phase_balance_exponent", 0.5)
+            ),
         )
         wall_teacher = WallFollowTeacher(
             cfg=teacher_cfg,

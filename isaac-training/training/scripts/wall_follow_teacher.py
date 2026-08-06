@@ -118,29 +118,46 @@ class WallFollowTeacher:
         self.fit_min_span = max(float(_cfg_get(cfg, "fit_min_span", 0.6)), 1e-3)
         self.fit_max_hypotheses = max(int(_cfg_get(cfg, "fit_max_hypotheses", 128)), 1)
         self.fit_min_confidence = min(max(float(_cfg_get(cfg, "fit_min_confidence", 0.25)), 0.0), 1.0)
+        self.segment_max_range_jump = max(
+            float(_cfg_get(cfg, "segment_max_range_jump", 0.65)),
+            1e-3,
+        )
+        self.segment_max_point_gap = max(
+            float(_cfg_get(cfg, "segment_max_point_gap", 0.85)),
+            1e-3,
+        )
+        self.segment_min_points = max(
+            int(_cfg_get(cfg, "segment_min_points", self.fit_min_inliers)),
+            2,
+        )
         self.tracking_continuity_weight = max(float(_cfg_get(cfg, "tracking_continuity_weight", 0.8)), 0.0)
         self.normal_smoothing = min(max(float(_cfg_get(cfg, "normal_smoothing", 0.65)), 0.0), 0.99)
         self.corner_angle = float(_cfg_get(cfg, "corner_angle_deg", 35.0))
         self.max_missing_fit_steps = max(int(_cfg_get(cfg, "max_missing_fit_steps", 20)), 1)
 
-        self.parallel_speed = max(float(_cfg_get(cfg, "parallel_speed", 0.8)), 0.0)
+        self.parallel_speed = max(float(_cfg_get(cfg, "parallel_speed", 1.0)), 0.0)
         self.reference_clearance = max(float(_cfg_get(cfg, "reference_clearance", 1.0)), 0.05)
         self.clearance_gain = max(float(_cfg_get(cfg, "clearance_gain", 1.2)), 0.0)
         self.max_toward_wall_speed = max(float(_cfg_get(cfg, "max_toward_wall_speed", 0.2)), 0.0)
         self.max_away_wall_speed = max(float(_cfg_get(cfg, "max_away_wall_speed", 0.8)), 0.0)
         self.height_gain = max(float(_cfg_get(cfg, "height_gain", 0.6)), 0.0)
         self.max_vertical_speed = max(float(_cfg_get(cfg, "max_vertical_speed", 0.5)), 0.0)
-        self.action_smoothing = min(max(float(_cfg_get(cfg, "action_smoothing", 0.55)), 0.0), 0.99)
+        self.action_smoothing = min(max(float(_cfg_get(cfg, "action_smoothing", 0.40)), 0.0), 0.99)
         self.side_goal_weight = float(_cfg_get(cfg, "side_goal_weight", 1.0))
         self.side_clearance_weight = float(_cfg_get(cfg, "side_clearance_weight", 0.8))
         self.side_velocity_weight = float(_cfg_get(cfg, "side_velocity_weight", 0.25))
         self.side_clearance_angle = float(_cfg_get(cfg, "side_clearance_angle_deg", 35.0))
+        self.leave_goal_speed = max(float(_cfg_get(cfg, "leave_goal_speed", 1.2)), 0.0)
+        self.leave_goal_blend = min(
+            max(float(_cfg_get(cfg, "leave_goal_blend", 0.75)), 0.0),
+            1.0,
+        )
 
         self.min_follow_steps = max(int(_cfg_get(cfg, "min_follow_steps", 25)), 0)
         self.min_follow_distance = max(float(_cfg_get(cfg, "min_follow_distance", 0.5)), 0.0)
         self.min_goal_progress = max(float(_cfg_get(cfg, "min_goal_progress", 0.2)), 0.0)
         self.leave_requires_goal_progress = bool(
-            _cfg_get(cfg, "leave_requires_goal_progress", False)
+            _cfg_get(cfg, "leave_requires_goal_progress", True)
         )
         self.goal_clear_angle = float(_cfg_get(cfg, "goal_clear_angle_deg", 18.0))
         self.goal_clear_steps = max(int(_cfg_get(cfg, "goal_clear_steps", 8)), 1)
@@ -151,7 +168,28 @@ class WallFollowTeacher:
         self.dynamic_spanning_height = max(float(_cfg_get(cfg, "dynamic_spanning_height", 4.0)), 1e-3)
         self.dynamic_point_margin = max(float(_cfg_get(cfg, "dynamic_point_margin", 0.25)), 0.0)
         self.dynamic_risk_limit = min(max(float(_cfg_get(cfg, "dynamic_risk_limit", 0.15)), 0.0), 1.0)
+        self.static_sweep_horizon = max(
+            float(_cfg_get(cfg, "static_sweep_horizon", 1.0)),
+            self.dt,
+        )
+        self.static_sweep_steps = max(int(_cfg_get(cfg, "static_sweep_steps", 10)), 1)
+        self.static_safety_radius = max(
+            float(_cfg_get(cfg, "static_safety_radius", 0.40)),
+            0.0,
+        )
+        self.static_confidence_margin = max(
+            float(_cfg_get(cfg, "static_confidence_margin", 0.30)),
+            1e-3,
+        )
+        self.static_away_speeds = tuple(
+            max(float(speed), 0.0)
+            for speed in _cfg_get(cfg, "static_away_speeds", [0.35, 0.70])
+        )
         self.demo_min_confidence = min(max(float(_cfg_get(cfg, "demo_min_confidence", 0.2)), 0.0), 1.0)
+        self.demo_min_action_speed = max(
+            float(_cfg_get(cfg, "demo_min_action_speed", 0.35)),
+            0.0,
+        )
         self.action_epsilon = min(max(float(_cfg_get(cfg, "action_epsilon", 1e-4)), 1e-7), 0.1)
         self.vo_horizon = max(float(_cfg_get(vo_cfg, "horizon", 2.1)), 1e-6)
         self.vo_tau = max(float(_cfg_get(vo_cfg, "tau", 0.75)), 1e-6)
@@ -236,11 +274,11 @@ class WallFollowTeacher:
         )
         return position, velocity, width, height, valid
 
-    def _reconstruct_static_points(
+    def _reconstruct_static_point_grid(
         self,
         lidar: torch.Tensor,
         dynamic_obstacle: torch.Tensor,
-    ) -> torch.Tensor:
+    ):
         scan = lidar.squeeze(0)
         distances = (self.lidar_range - scan).clamp(0.0, self.lidar_range)
         points = distances.unsqueeze(-1) * self.ray_directions
@@ -249,17 +287,19 @@ class WallFollowTeacher:
         elevation_mask = torch.zeros_like(hit)
         elevation_mask[:, self.fit_elevation_indices] = True
         horizontal_distance = points[..., :2].norm(dim=-1)
-        valid = (
+        fit_valid = (
             hit
             & elevation_mask
             & (horizontal_distance >= self.fit_min_distance)
             & (horizontal_distance <= self.fit_max_distance)
             & (points[..., 2] >= self.fit_ground_min_z)
         )
+        safety_valid = hit.clone()
 
         flat_points = points.reshape(-1, 3)
-        valid_flat = valid.reshape(-1)
-        if valid_flat.any():
+        fit_valid_flat = fit_valid.reshape(-1)
+        safety_valid_flat = safety_valid.reshape(-1)
+        if safety_valid_flat.any():
             dyn_position, _, dyn_width, dyn_height, dyn_valid = self._dynamic_geometry(dynamic_obstacle)
             if dyn_valid.any():
                 point_delta = flat_points.unsqueeze(1) - dyn_position.unsqueeze(0)
@@ -270,8 +310,108 @@ class WallFollowTeacher:
                     dyn_height.unsqueeze(0) / 2.0 + self.dynamic_point_margin
                 )
                 dynamic_hit = (inside_xy & inside_z & dyn_valid.unsqueeze(0)).any(dim=1)
-                valid_flat = valid_flat & (~dynamic_hit)
-        return flat_points[valid_flat]
+                fit_valid_flat = fit_valid_flat & (~dynamic_hit)
+                safety_valid_flat = safety_valid_flat & (~dynamic_hit)
+        return (
+            points,
+            fit_valid_flat.reshape_as(fit_valid),
+            safety_valid_flat.reshape_as(safety_valid),
+        )
+
+    def _reconstruct_static_points(
+        self,
+        lidar: torch.Tensor,
+        dynamic_obstacle: torch.Tensor,
+    ) -> torch.Tensor:
+        points, fit_valid, _ = self._reconstruct_static_point_grid(lidar, dynamic_obstacle)
+        return points.reshape(-1, 3)[fit_valid.reshape(-1)]
+
+    def segment_static_points(
+        self,
+        points: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> List[torch.Tensor]:
+        """Split a horizontal LiDAR ring into contiguous static-surface segments."""
+        if points.ndim != 3 or valid.shape != points.shape[:2]:
+            raise ValueError("points and valid must have shapes [azimuth, elevation, 3] and [azimuth, elevation].")
+
+        horizontal_distance = points[..., :2].norm(dim=-1)
+        masked_distance = torch.where(
+            valid,
+            horizontal_distance,
+            torch.full_like(horizontal_distance, float("inf")),
+        )
+        representative_range, representative_elevation = masked_distance.min(dim=1)
+        beam_indices = torch.arange(points.shape[0], device=points.device)
+        representative_xy = points[beam_indices, representative_elevation, :2]
+        active = valid.any(dim=1)
+        adjacent_connected = (
+            active[:-1]
+            & active[1:]
+            & (
+                torch.abs(representative_range[1:] - representative_range[:-1])
+                <= self.segment_max_range_jump
+            )
+            & (
+                (representative_xy[1:] - representative_xy[:-1]).norm(dim=-1)
+                <= self.segment_max_point_gap
+            )
+        )
+        active_flags = active.detach().cpu().tolist()
+        connected_flags = adjacent_connected.detach().cpu().tolist()
+
+        index_groups: List[List[int]] = []
+        current_group: List[int] = []
+        for beam_index in range(points.shape[0]):
+            if not active_flags[beam_index]:
+                if current_group:
+                    index_groups.append(current_group)
+                    current_group = []
+                continue
+            if current_group and not connected_flags[beam_index - 1]:
+                index_groups.append(current_group)
+                current_group = []
+            current_group.append(beam_index)
+        if current_group:
+            index_groups.append(current_group)
+
+        wrap_connected = False
+        if points.shape[0] > 1 and active_flags[0] and active_flags[-1]:
+            wrap_connected = bool(
+                (
+                    torch.abs(representative_range[0] - representative_range[-1])
+                    <= self.segment_max_range_jump
+                )
+                .logical_and(
+                    (representative_xy[0] - representative_xy[-1]).norm()
+                    <= self.segment_max_point_gap
+                )
+                .item()
+            )
+        if (
+            len(index_groups) > 1
+            and index_groups[0][0] == 0
+            and index_groups[-1][-1] == points.shape[0] - 1
+            and wrap_connected
+        ):
+            index_groups[0] = index_groups[-1] + index_groups[0]
+            index_groups.pop()
+
+        segments = []
+        for indices in index_groups:
+            index_tensor = torch.as_tensor(indices, dtype=torch.long, device=points.device)
+            segment_points = points[index_tensor][valid[index_tensor]]
+            if segment_points.shape[0] >= self.segment_min_points:
+                segments.append(segment_points)
+        return segments
+
+    def _reconstruct_static_segments(
+        self,
+        lidar: torch.Tensor,
+        dynamic_obstacle: torch.Tensor,
+    ) -> List[torch.Tensor]:
+        points, fit_valid, _ = self._reconstruct_static_point_grid(lidar, dynamic_obstacle)
+        return self.segment_static_points(points, fit_valid)
 
     def _fit_one_line(self, points: torch.Tensor) -> Optional[LineFit]:
         point_count = int(points.shape[0])
@@ -358,6 +498,24 @@ class WallFollowTeacher:
             remaining = remaining[~fit.inliers]
             if remaining.shape[0] < self.fit_min_inliers:
                 break
+        return fits
+
+    def fit_segmented_lines_xy(
+        self,
+        point_segments: List[torch.Tensor],
+        max_lines_per_segment: int = 2,
+    ) -> List[LineFit]:
+        """Fit surfaces independently so disconnected clutter cannot form one line."""
+        fits: List[LineFit] = []
+        for segment in point_segments:
+            if segment.shape[0] < self.fit_min_inliers:
+                continue
+            fits.extend(
+                self.fit_lines_xy(
+                    segment[..., :2],
+                    max_lines=max_lines_per_segment,
+                )
+            )
         return fits
 
     @staticmethod
@@ -496,37 +654,98 @@ class WallFollowTeacher:
         risk = torch.where(valid, risk, torch.zeros_like(risk))
         return risk.max()
 
+    def _static_sweep_clearance(
+        self,
+        action: torch.Tensor,
+        static_points: torch.Tensor,
+    ) -> torch.Tensor:
+        if static_points.shape[0] == 0:
+            return torch.as_tensor(self.lidar_range, device=action.device)
+        sample_times = torch.linspace(
+            self.dt,
+            self.static_sweep_horizon,
+            self.static_sweep_steps,
+            device=action.device,
+            dtype=action.dtype,
+        )
+        relative_points = (
+            static_points.unsqueeze(0)
+            - sample_times[:, None, None] * action.reshape(1, 1, 3)
+        )
+        return relative_points.norm(dim=-1).min().clamp(max=self.lidar_range)
+
+    def _limit_horizontal_action(self, action: torch.Tensor) -> torch.Tensor:
+        limited = action.clone()
+        horizontal_norm = limited[:2].norm()
+        if horizontal_norm > self.action_limit:
+            limited[:2] *= self.action_limit / horizontal_norm
+        return limited.clamp(-self.action_limit, self.action_limit)
+
     def _select_dynamic_safe_action(
         self,
         teacher_action: torch.Tensor,
         policy_action: torch.Tensor,
         dynamic_obstacle: torch.Tensor,
+        static_points: Optional[torch.Tensor] = None,
+        wall_normal: Optional[torch.Tensor] = None,
     ):
-        candidates = []
-        for factor in (1.0, 0.75, 0.5, 0.25):
+        candidates = [self._limit_horizontal_action(teacher_action)]
+        demonstrable = [True]
+        if wall_normal is not None:
+            for away_speed in self.static_away_speeds:
+                candidate = teacher_action.clone()
+                candidate[:2] -= away_speed * wall_normal
+                candidates.append(self._limit_horizontal_action(candidate))
+                demonstrable.append(True)
+        for factor in (0.75, 0.5, 0.25):
             candidate = teacher_action.clone()
             candidate[:2] *= factor
-            candidates.append(candidate)
+            candidates.append(self._limit_horizontal_action(candidate))
+            demonstrable.append(True)
         stop = teacher_action.clone()
         stop[:2] = 0.0
-        candidates.extend([stop, policy_action.clamp(-self.action_limit, self.action_limit)])
+        candidates.extend(
+            [
+                self._limit_horizontal_action(stop),
+                policy_action.clamp(-self.action_limit, self.action_limit),
+            ]
+        )
+        demonstrable.extend([False, False])
         candidate_tensor = torch.stack(candidates, dim=0)
         risks = torch.stack(
             [self._vo_risk(candidate, dynamic_obstacle) for candidate in candidate_tensor],
             dim=0,
         )
-        safe = risks <= self.dynamic_risk_limit
+        if static_points is None:
+            static_clearances = torch.full_like(risks, float("inf"))
+            static_safety_radius = 0.0
+        else:
+            static_clearances = torch.stack(
+                [
+                    self._static_sweep_clearance(candidate, static_points)
+                    for candidate in candidate_tensor
+                ],
+                dim=0,
+            )
+            static_safety_radius = self.static_safety_radius
+        safe = (risks <= self.dynamic_risk_limit) & (
+            static_clearances >= static_safety_radius
+        )
         if safe.any():
             selected_index = int(safe.nonzero(as_tuple=False)[0].item())
-            dynamically_safe = True
+            selected_safe = True
         else:
             # A teacher action must never replace the policy with a command that
-            # fails the dynamic-obstacle check. The policy fallback is excluded
-            # from the demonstration buffer.
+            # fails either safety check. The policy fallback is excluded from
+            # the demonstration buffer.
             selected_index = len(candidates) - 1
-            dynamically_safe = False
-        selected_is_teacher = selected_index < len(candidates) - 1
-        return candidate_tensor[selected_index], risks[selected_index], dynamically_safe, selected_is_teacher
+            selected_safe = False
+        selected_is_teacher = (
+            demonstrable[selected_index]
+            and float(candidate_tensor[selected_index, :2].norm().item())
+            >= self.demo_min_action_speed
+        )
+        return candidate_tensor[selected_index], risks[selected_index], selected_safe, selected_is_teacher
 
     def _teacher_velocity(self, env_index: int, state: torch.Tensor) -> torch.Tensor:
         distance_error = self.wall_distance[env_index] - self.reference_clearance
@@ -538,6 +757,14 @@ class WallFollowTeacher:
             self.parallel_speed * self.wall_tangent[env_index]
             + normal_speed * self.wall_normal[env_index]
         )
+        if int(self.clear_counter[env_index].item()) > 0:
+            clear_fraction = min(
+                float(self.clear_counter[env_index].item()) / float(self.goal_clear_steps),
+                1.0,
+            )
+            blend = self.leave_goal_blend * clear_fraction
+            goal_velocity = self.leave_goal_speed * _normalize_xy(state[:2])
+            horizontal = (1.0 - blend) * horizontal + blend * goal_velocity
         horizontal_norm = horizontal.norm()
         if horizontal_norm > self.action_limit:
             horizontal = horizontal * (self.action_limit / horizontal_norm)
@@ -584,19 +811,27 @@ class WallFollowTeacher:
             "fit_successes": 0,
             "triggers": 0,
             "dynamic_rejections": 0,
+            "static_rejections": 0,
+            "safety_fallbacks": 0,
             "recoveries": 0,
             "side_switches": 0,
             "demo_candidates": 0,
+            "teacher_speed_sum": 0.0,
+            "static_clearance_sum": 0.0,
+            "recovery_goal_progress_sum": 0.0,
+            "recovery_follow_steps_sum": 0.0,
         }
 
         for env_index in self.teacher_env_indices:
             state = states[env_index]
             goal_direction = _normalize_xy(state[:2])
-            points = self._reconstruct_static_points(
+            point_grid, fit_valid, safety_valid = self._reconstruct_static_point_grid(
                 lidar[env_index],
                 dynamic_obstacles[env_index],
             )
-            points_xy = points[:, :2]
+            point_segments = self.segment_static_points(point_grid, fit_valid)
+            fit_points = point_grid.reshape(-1, 3)[fit_valid.reshape(-1)]
+            safety_points = point_grid.reshape(-1, 3)[safety_valid.reshape(-1)]
 
             entered_now = False
             corner_now = False
@@ -604,11 +839,15 @@ class WallFollowTeacher:
             selected_line: Optional[LineFit] = None
 
             if not bool(self.active[env_index].item()):
-                front_points = self._front_points(points, goal_direction)
-                if front_points.shape[0] >= self.fit_min_inliers:
+                front_segments = []
+                for segment in point_segments:
+                    front_points = self._front_points(segment, goal_direction)
+                    if front_points.shape[0] >= self.fit_min_inliers:
+                        front_segments.append(front_points)
+                if front_segments:
                     metrics["fit_attempts"] += 1
                     selected_line = self._select_initial_line(
-                        self.fit_lines_xy(front_points),
+                        self.fit_segmented_lines_xy(front_segments),
                         goal_direction,
                     )
                     if selected_line is not None:
@@ -639,7 +878,7 @@ class WallFollowTeacher:
                         normal,
                         goal_direction,
                         state[5:8],
-                        points,
+                        fit_points,
                     )
                     self.active[env_index] = True
                     self.blocked_counter[env_index] = 0
@@ -662,10 +901,10 @@ class WallFollowTeacher:
                     metrics["triggers"] += 1
 
             if bool(self.active[env_index].item()) and not entered_now:
-                if points_xy.shape[0] >= self.fit_min_inliers:
+                if point_segments:
                     metrics["fit_attempts"] += 1
                     selected_line = self._select_tracking_line(
-                        self.fit_lines_xy(points_xy),
+                        self.fit_segmented_lines_xy(point_segments),
                         self.wall_normal[env_index],
                     )
                     if selected_line is not None:
@@ -712,7 +951,11 @@ class WallFollowTeacher:
 
             self.follow_age[env_index] += 1
             self.follow_distance[env_index] += state[5:7].norm() * self.dt
-            goal_is_clear = self._goal_direction_clear(points, goal_direction, goal_distance[env_index])
+            goal_is_clear = self._goal_direction_clear(
+                fit_points,
+                goal_direction,
+                goal_distance[env_index],
+            )
             if goal_is_clear:
                 self.clear_counter[env_index] += 1
             else:
@@ -733,6 +976,12 @@ class WallFollowTeacher:
                 self.cooldown[env_index] = self.cooldown_steps
                 commit_pending[env_index] = True
                 metrics["recoveries"] += 1
+                metrics["recovery_goal_progress_sum"] += float(
+                    (self.hit_goal_distance[env_index] - goal_distance[env_index]).item()
+                )
+                metrics["recovery_follow_steps_sum"] += float(
+                    self.follow_age[env_index].item()
+                )
                 continue
 
             if int(self.follow_age[env_index].item()) >= self.max_follow_steps:
@@ -760,15 +1009,33 @@ class WallFollowTeacher:
                 continue
 
             raw_teacher_action = self._teacher_velocity(env_index, state)
-            selected_action, dynamic_risk, dynamically_safe, selected_is_teacher = (
+            base_dynamic_risk = self._vo_risk(
+                raw_teacher_action,
+                dynamic_obstacles[env_index],
+            )
+            base_static_clearance = self._static_sweep_clearance(
+                raw_teacher_action,
+                safety_points,
+            )
+            selected_action, dynamic_risk, selected_safe, selected_is_teacher = (
                 self._select_dynamic_safe_action(
                     raw_teacher_action,
                     policy_action[env_index],
                     dynamic_obstacles[env_index],
+                    static_points=safety_points,
+                    wall_normal=self.wall_normal[env_index],
                 )
             )
-            if not selected_is_teacher:
+            selected_static_clearance = self._static_sweep_clearance(
+                selected_action,
+                safety_points,
+            )
+            if float(base_dynamic_risk.item()) > self.dynamic_risk_limit:
                 metrics["dynamic_rejections"] += 1
+            if float(base_static_clearance.item()) < self.static_safety_radius:
+                metrics["static_rejections"] += 1
+            if not selected_is_teacher:
+                metrics["safety_fallbacks"] += 1
             self.previous_teacher_action[env_index] = selected_action
             teacher_action[env_index] = selected_action
             teacher_action_normalized[env_index] = (
@@ -791,14 +1058,24 @@ class WallFollowTeacher:
                     -self.missing_fit_steps[env_index].float() / self.max_missing_fit_steps
                 )
             dynamic_confidence = 1.0 - dynamic_risk / max(self.dynamic_risk_limit, 1e-6)
-            confidence[env_index] = (fit_confidence * dynamic_confidence.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+            static_confidence = (
+                (selected_static_clearance - self.static_safety_radius)
+                / self.static_confidence_margin
+            ).clamp(0.0, 1.0)
+            confidence[env_index] = (
+                fit_confidence
+                * dynamic_confidence.clamp(0.0, 1.0)
+                * static_confidence
+            ).clamp(0.0, 1.0)
             demo_valid[env_index] = (
-                dynamically_safe
+                selected_safe
                 and selected_is_teacher
                 and float(confidence[env_index].item()) >= self.demo_min_confidence
             )
             metrics["active_steps"] += 1
             metrics["demo_candidates"] += int(demo_valid[env_index].item())
+            metrics["teacher_speed_sum"] += float(selected_action.norm().item())
+            metrics["static_clearance_sum"] += float(selected_static_clearance.item())
 
         self.previous_goal_distance = goal_distance.clone()
         self.previous_episode_length = episode_length.clone()
@@ -903,18 +1180,33 @@ class TeacherRolloutPolicy(TensorDictModuleBase):
         teacher_steps = max(totals.get("teacher_steps", 0.0), 1.0)
         fit_attempts = max(totals.get("fit_attempts", 0.0), 1.0)
         active_steps = max(totals.get("active_steps", 0.0), 1.0)
+        triggers = max(totals.get("triggers", 0.0), 1.0)
+        recoveries = max(totals.get("recoveries", 0.0), 1.0)
         metrics = {
             "teacher/active_rate": totals.get("active_steps", 0.0) / teacher_steps,
             "teacher/fit_success_rate": totals.get("fit_successes", 0.0) / fit_attempts,
             "teacher/dynamic_rejection_rate": totals.get("dynamic_rejections", 0.0) / active_steps,
+            "teacher/static_rejection_rate": totals.get("static_rejections", 0.0) / active_steps,
+            "teacher/safety_fallback_rate": totals.get("safety_fallbacks", 0.0) / active_steps,
             "teacher/triggers": totals.get("triggers", 0.0),
             "teacher/recoveries": totals.get("recoveries", 0.0),
+            "teacher/recovery_rate": totals.get("recoveries", 0.0) / triggers,
             "teacher/side_switches": totals.get("side_switches", 0.0),
             "teacher/demo_written": totals.get("demo_written", 0.0),
             "teacher/demo_discarded": totals.get("demo_discarded", 0.0),
             "teacher/demo_buffer_size": float(len(self.demonstration_buffer)),
             "teacher/pending_demo_size": float(
                 sum(len(records) for records in self._pending_demonstrations)
+            ),
+            "teacher/action_speed_mean": totals.get("teacher_speed_sum", 0.0) / active_steps,
+            "teacher/static_clearance_mean": (
+                totals.get("static_clearance_sum", 0.0) / active_steps
+            ),
+            "teacher/recovery_goal_progress_mean": (
+                totals.get("recovery_goal_progress_sum", 0.0) / recoveries
+            ),
+            "teacher/recovery_follow_steps_mean": (
+                totals.get("recovery_follow_steps_sum", 0.0) / recoveries
             ),
         }
         for phase, count in self.demonstration_buffer.phase_counts().items():

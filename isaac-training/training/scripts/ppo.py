@@ -73,6 +73,10 @@ class PPO(TensorDictModuleBase):
             int(behavior_cloning_cfg.get("min_buffer_size", self.behavior_cloning_batch_size)),
             1,
         )
+        self.behavior_cloning_updates_per_iteration = max(
+            int(behavior_cloning_cfg.get("updates_per_iteration", 8)),
+            0,
+        )
         self.behavior_cloning_max_log_prob = float(
             behavior_cloning_cfg.get("max_log_prob", 10.0)
         )
@@ -352,12 +356,25 @@ class PPO(TensorDictModuleBase):
 
         # Training
         infos = []
+        total_updates = self.cfg.training_epoch_num * self.cfg.num_minibatches
+        bc_update_count = min(self.behavior_cloning_updates_per_iteration, total_updates)
+        if bc_update_count <= 0:
+            bc_update_indices = set()
+        elif bc_update_count == 1:
+            bc_update_indices = {0}
+        else:
+            bc_update_indices = {
+                int(round(index * (total_updates - 1) / (bc_update_count - 1)))
+                for index in range(bc_update_count)
+            }
+        update_index = 0
         for epoch in range(self.cfg.training_epoch_num):
             batch = make_batch(tensordict, self.cfg.num_minibatches)
             for minibatch in batch:
                 demonstration_batch = None
                 if (
-                    self.behavior_cloning_enabled
+                    update_index in bc_update_indices
+                    and self.behavior_cloning_enabled
                     and demonstration_buffer is not None
                     and len(demonstration_buffer) >= self.behavior_cloning_min_buffer_size
                 ):
@@ -366,6 +383,7 @@ class PPO(TensorDictModuleBase):
                         self.device,
                     )
                 infos.append(self._update(minibatch, demonstration_batch))
+                update_index += 1
         infos = torch.stack(infos).to_tensordict()
         
         infos = infos.apply(torch.mean, batch_size=[])
