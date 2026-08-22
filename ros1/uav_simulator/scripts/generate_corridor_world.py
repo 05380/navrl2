@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Generate a deterministic 10 m x 5 m Gazebo navigation benchmark."""
+"""Generate a deterministic 50 m x 5 m Gazebo navigation benchmark."""
 
 import argparse
 import heapq

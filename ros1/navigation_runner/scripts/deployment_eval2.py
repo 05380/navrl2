@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Deterministic evaluator for the LP-Nav 10 m x 5 m Gazebo benchmark."""
+"""Deterministic evaluator for the LP-Nav 50 m x 5 m Gazebo benchmark."""
 
 import colorsys
 import csv

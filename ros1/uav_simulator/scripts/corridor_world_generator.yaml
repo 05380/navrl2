@@ -37,10 +37,10 @@ pedestrians:
 
 task:
   left_region:
-    x: [-4.50, -3.85]
+    x: [-24.50, -23.85]
     y: [-1.85, 1.85]
   right_region:
-    x: [3.85, 4.50]
+    x: [23.85, 24.50]
     y: [-1.85, 1.85]
   static_spawn_clearance: 0.35
   pedestrian_spawn_clearance: 0.80
@@ -51,7 +51,7 @@ planning:
   uav_clearance: 0.40
 
 evaluation:
-  timeout: 60.0
+  timeout: 120.0
   rate_hz: 20.0
   success_radius: 0.50
   collision_radius: 0.30
