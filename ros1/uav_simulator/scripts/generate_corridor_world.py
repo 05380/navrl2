@@ -433,7 +433,7 @@ class CorridorWorldGenerator:
     def world_text(self, walls, obstacles, pedestrians):
         models = []
         for wall in walls:
-            models.append(self.box_sdf(wall, "0.35 0.38 0.42 1"))
+            models.append(self.box_sdf(wall, "0.55 0.75 0.90 1"))
         palette = (
             "0.25 0.55 0.75 1",
             "0.75 0.45 0.20 1",
@@ -468,7 +468,7 @@ class CorridorWorldGenerator:
         </collision>
         <visual name="visual">
           <geometry><plane><normal>0 0 1</normal><size>{ground_size_x} {ground_size_y}</size></plane></geometry>
-          <material><ambient>0.72 0.72 0.70 1</ambient><diffuse>0.72 0.72 0.70 1</diffuse></material>
+          <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
         </visual>
       </link>
     </model>

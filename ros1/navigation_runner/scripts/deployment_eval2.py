@@ -2,6 +2,7 @@
 
 """Deterministic evaluator for the LP-Nav 10 m x 5 m Gazebo benchmark."""
 
+import colorsys
 import csv
 import json
 import math
@@ -14,8 +15,10 @@ import rospy
 import tf.transformations
 from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import ColorRGBA, Int32MultiArray
+from visualization_msgs.msg import Marker, MarkerArray
 
 try:
     import yaml
@@ -216,6 +219,68 @@ class CorridorDeploymentEvaluator:
         self.dependency_timeout = float(rospy.get_param("~dependency_timeout", 60.0))
         self.require_dynamic_detector = bool(rospy.get_param("~require_dynamic_detector", True))
 
+        self.publish_trajectories = bool(rospy.get_param("~publish_trajectories", True))
+        self.trajectory_topic = str(
+            rospy.get_param("~trajectory_topic", "/deployment_eval/trajectories")
+        )
+        self.trajectory_selection_topic = str(
+            rospy.get_param(
+                "~trajectory_selection_topic",
+                "/deployment_eval/trajectory_selection",
+            )
+        )
+        self.environment_topic = str(
+            rospy.get_param("~environment_topic", "/deployment_eval/environment")
+        )
+        self.trajectory_frame = str(rospy.get_param("~trajectory_frame", "map"))
+        self.trajectory_line_width = float(
+            rospy.get_param("~trajectory_line_width", 0.06)
+        )
+        self.trajectory_alpha = float(rospy.get_param("~trajectory_alpha", 0.90))
+        self.trajectory_min_point_distance = float(
+            rospy.get_param("~trajectory_min_point_distance", 0.05)
+        )
+        self.trajectory_endpoint_scale = float(
+            rospy.get_param("~trajectory_endpoint_scale", 0.20)
+        )
+        self.publish_trajectories_during_trials = bool(
+            rospy.get_param("~publish_trajectories_during_trials", False)
+        )
+        self.publish_full_environment = bool(
+            rospy.get_param("~publish_full_environment", True)
+        )
+        self.full_map_pcd = os.path.abspath(
+            os.path.expanduser(
+                rospy.get_param(
+                    "~full_map_pcd",
+                    os.path.splitext(self.scenario_file)[0] + ".pcd",
+                )
+            )
+        )
+        self.full_map_voxel_size = float(
+            rospy.get_param("~full_map_voxel_size", 0.10)
+        )
+        if self.full_map_voxel_size <= 0.0:
+            raise ValueError("~full_map_voxel_size must be positive")
+        legacy_environment_alpha = float(
+            rospy.get_param("~static_environment_alpha", 1.0)
+        )
+        self.static_map_alpha = float(
+            rospy.get_param("~static_map_alpha", legacy_environment_alpha)
+        )
+        self.static_map_color_min_z = rospy.get_param(
+            "~static_map_color_min_z", None
+        )
+        self.static_map_color_max_z = rospy.get_param(
+            "~static_map_color_max_z", None
+        )
+        self.dynamic_bbox_line_width = float(
+            rospy.get_param("~dynamic_bbox_line_width", 0.06)
+        )
+        self.keep_trajectory_publisher_alive = bool(
+            rospy.get_param("~keep_trajectory_publisher_alive", True)
+        )
+
         self.min_altitude = float(rospy.get_param("~min_altitude", flight["min_altitude"]))
         self.max_altitude = float(rospy.get_param("~max_altitude", flight["max_altitude"]))
         self.height_range = tuple(float(value) for value in flight["start_goal_height_range"])
@@ -232,10 +297,37 @@ class CorridorDeploymentEvaluator:
         self.lock = threading.Lock()
         self.latest_odom = None
         self.model_names = set()
+        self.trajectory_markers = []
+        self.selected_trajectory_trials = None
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.model_state_pub = rospy.Publisher("/gazebo/set_model_state", ModelState, queue_size=20)
         self.odom_sub = rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.model_states_sub = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_callback, queue_size=1)
+        self.trajectory_pub = None
+        self.trajectory_selection_sub = None
+        if self.publish_trajectories:
+            self.trajectory_pub = rospy.Publisher(
+                self.trajectory_topic,
+                MarkerArray,
+                queue_size=10,
+                latch=True,
+            )
+            self.clear_trajectory_markers()
+            self.trajectory_selection_sub = rospy.Subscriber(
+                self.trajectory_selection_topic,
+                Int32MultiArray,
+                self.trajectory_selection_callback,
+                queue_size=1,
+            )
+        self.environment_pub = None
+        if self.publish_full_environment:
+            self.environment_pub = rospy.Publisher(
+                self.environment_topic,
+                MarkerArray,
+                queue_size=1,
+                latch=True,
+            )
+            self.clear_environment_markers()
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
         self.pedestrians = PedestrianController(
             self.scenario["pedestrians"],
@@ -269,6 +361,380 @@ class CorridorDeploymentEvaluator:
     def current_odom(self):
         with self.lock:
             return self.latest_odom
+
+    def clear_trajectory_markers(self):
+        if self.trajectory_pub is None:
+            return
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.action = Marker.DELETEALL
+        self.trajectory_pub.publish(MarkerArray(markers=[marker]))
+
+    def clear_environment_markers(self):
+        if self.environment_pub is None:
+            return
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.action = Marker.DELETEALL
+        self.environment_pub.publish(MarkerArray(markers=[marker]))
+
+    def trajectory_selection_callback(self, message):
+        requested_trials = sorted(set(int(value) for value in message.data))
+        if not requested_trials:
+            self.selected_trajectory_trials = None
+            rospy.loginfo(
+                "[deployment-eval2] trajectory selection cleared; displaying all trials"
+            )
+        else:
+            valid_trials = [
+                trial for trial in requested_trials if 1 <= trial <= self.num_trials
+            ]
+            invalid_trials = sorted(set(requested_trials) - set(valid_trials))
+            if invalid_trials:
+                rospy.logwarn(
+                    "[deployment-eval2] ignoring invalid trajectory trial IDs: %s "
+                    "(valid range: 1-%d)",
+                    invalid_trials,
+                    self.num_trials,
+                )
+            self.selected_trajectory_trials = set(valid_trials)
+            rospy.loginfo(
+                "[deployment-eval2] displaying trajectory trials: %s", valid_trials
+            )
+        self.publish_selected_trajectory_markers(clear_existing=True)
+
+    def append_trajectory_point(self, points, odom, force=False):
+        if self.trajectory_pub is None or odom is None:
+            return
+        position = odom.pose.pose.position
+        point = Point(x=position.x, y=position.y, z=position.z)
+        if not points:
+            points.append(point)
+            return
+        point_distance = distance_3d(
+            (point.x, point.y, point.z),
+            (points[-1].x, points[-1].y, points[-1].z),
+        )
+        if point_distance > 1e-6 and (
+            force or point_distance >= self.trajectory_min_point_distance
+        ):
+            points.append(point)
+
+    def make_trajectory_endpoint_marker(
+        self, trial_index, point, namespace, marker_type, color
+    ):
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = namespace
+        marker.id = int(trial_index)
+        marker.type = marker_type
+        marker.action = Marker.ADD
+        marker.pose.position = point
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = self.trajectory_endpoint_scale
+        marker.scale.y = self.trajectory_endpoint_scale
+        marker.scale.z = self.trajectory_endpoint_scale
+        marker.color.r = color[0]
+        marker.color.g = color[1]
+        marker.color.b = color[2]
+        marker.color.a = 1.0
+        marker.lifetime = rospy.Duration(0)
+        return marker
+
+    def add_trajectory_markers(self, trial_index, points, outcome):
+        if self.trajectory_pub is None or not points:
+            return
+        success = outcome == "success"
+        line = Marker()
+        line.header.frame_id = self.trajectory_frame
+        line.header.stamp = rospy.Time.now()
+        line.ns = (
+            "deployment_eval_success" if success else "deployment_eval_%s" % outcome
+        )
+        line.id = int(trial_index)
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.pose.orientation.w = 1.0
+        line.scale.x = self.trajectory_line_width
+        line.color.r = 0.0 if success else 0.90
+        line.color.g = 0.0 if success else 0.05
+        line.color.b = 0.50 if success else 0.05
+        line.color.a = self.trajectory_alpha
+        line.points = list(points)
+        line.lifetime = rospy.Duration(0)
+        markers = [
+            line,
+            self.make_trajectory_endpoint_marker(
+                trial_index,
+                points[0],
+                "deployment_eval_start",
+                Marker.SPHERE,
+                (0.05, 0.75, 0.20),
+            ),
+            self.make_trajectory_endpoint_marker(
+                trial_index,
+                points[-1],
+                "deployment_eval_end",
+                Marker.CUBE,
+                (0.90, 0.10, 0.10),
+            ),
+        ]
+        self.trajectory_markers.extend(markers)
+        selected = (
+            self.selected_trajectory_trials is None
+            or trial_index in self.selected_trajectory_trials
+        )
+        if self.publish_trajectories_during_trials and selected:
+            self.trajectory_pub.publish(MarkerArray(markers=markers))
+
+    def publish_selected_trajectory_markers(self, clear_existing=False):
+        if self.trajectory_pub is None:
+            return
+        if clear_existing:
+            self.clear_trajectory_markers()
+        markers = self.trajectory_markers
+        if self.selected_trajectory_trials is not None:
+            markers = [
+                marker
+                for marker in markers
+                if marker.id in self.selected_trajectory_trials
+            ]
+        if not markers:
+            if self.trajectory_markers:
+                rospy.logwarn(
+                    "[deployment-eval2] trajectory selection contains no available trials"
+                )
+            return
+        stamp = rospy.Time.now()
+        for marker in markers:
+            marker.header.stamp = stamp
+        self.trajectory_pub.publish(MarkerArray(markers=list(markers)))
+
+    def load_full_map_points(self):
+        if not os.path.isfile(self.full_map_pcd):
+            rospy.logwarn(
+                "[deployment-eval2] full-map PCD not found: %s; "
+                "falling back to solid scenario geometry",
+                self.full_map_pcd,
+            )
+            return []
+
+        fields = []
+        data_is_ascii = False
+        points_by_voxel = {}
+        try:
+            with open(self.full_map_pcd, "r") as pcd_file:
+                for raw_line in pcd_file:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if not data_is_ascii:
+                        tokens = line.split()
+                        key = tokens[0].upper()
+                        if key == "FIELDS":
+                            fields = tokens[1:]
+                        elif key == "DATA":
+                            if len(tokens) < 2 or tokens[1].lower() != "ascii":
+                                rospy.logwarn(
+                                    "[deployment-eval2] only ASCII PCD files are "
+                                    "supported: %s",
+                                    self.full_map_pcd,
+                                )
+                                return []
+                            data_is_ascii = True
+                        continue
+
+                    values = line.split()
+                    if fields:
+                        x_index = fields.index("x")
+                        y_index = fields.index("y")
+                        z_index = fields.index("z")
+                    else:
+                        x_index, y_index, z_index = 0, 1, 2
+                    x = float(values[x_index])
+                    y = float(values[y_index])
+                    z = float(values[z_index])
+                    if not (
+                        math.isfinite(x)
+                        and math.isfinite(y)
+                        and math.isfinite(z)
+                    ):
+                        continue
+                    voxel = (
+                        int(math.floor(x / self.full_map_voxel_size)),
+                        int(math.floor(y / self.full_map_voxel_size)),
+                        int(math.floor(z / self.full_map_voxel_size)),
+                    )
+                    if voxel not in points_by_voxel:
+                        points_by_voxel[voxel] = Point(x=x, y=y, z=z)
+        except (OSError, ValueError, IndexError) as error:
+            rospy.logwarn(
+                "[deployment-eval2] failed to read full-map PCD %s: %s; "
+                "falling back to solid scenario geometry",
+                self.full_map_pcd,
+                error,
+            )
+            return []
+
+        if not data_is_ascii:
+            rospy.logwarn(
+                "[deployment-eval2] PCD has no ASCII DATA section: %s; "
+                "falling back to solid scenario geometry",
+                self.full_map_pcd,
+            )
+            return []
+        return list(points_by_voxel.values())
+
+    def make_static_environment_marker(self, points, stamp):
+        if not points:
+            return None
+        min_z = (
+            float(self.static_map_color_min_z)
+            if self.static_map_color_min_z is not None
+            else min(point.z for point in points)
+        )
+        max_z = (
+            float(self.static_map_color_max_z)
+            if self.static_map_color_max_z is not None
+            else max(point.z for point in points)
+        )
+        color_span = max(max_z - min_z, 1e-6)
+
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = stamp
+        marker.ns = "deployment_eval_static_map"
+        marker.id = 0
+        marker.type = Marker.CUBE_LIST
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = self.full_map_voxel_size
+        marker.scale.y = self.full_map_voxel_size
+        marker.scale.z = self.full_map_voxel_size
+        marker.color.r = 1.0
+        marker.color.g = 1.0
+        marker.color.b = 1.0
+        marker.color.a = self.static_map_alpha
+        marker.points = points
+        for point in points:
+            normalized_height = min(
+                max((point.z - min_z) / color_span, 0.0), 1.0
+            )
+            red, green, blue = colorsys.hsv_to_rgb(
+                normalized_height * (5.0 / 6.0), 1.0, 1.0
+            )
+            marker.colors.append(
+                ColorRGBA(
+                    r=red,
+                    g=green,
+                    b=blue,
+                    a=self.static_map_alpha,
+                )
+            )
+        marker.lifetime = rospy.Duration(0)
+        return marker
+
+    def make_geometry_fallback_markers(self, stamp):
+        markers = []
+        for marker_id, box in enumerate(self.static_geometry):
+            marker = Marker()
+            marker.header.frame_id = self.trajectory_frame
+            marker.header.stamp = stamp
+            marker.ns = "deployment_eval_static_map"
+            marker.id = marker_id
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.pose.position.x = float(box["center"][0])
+            marker.pose.position.y = float(box["center"][1])
+            marker.pose.position.z = float(box["center"][2])
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = float(box["size"][0])
+            marker.scale.y = float(box["size"][1])
+            marker.scale.z = float(box["size"][2])
+            if box.get("kind") == "wall":
+                marker.color.r = 0.35
+                marker.color.g = 0.35
+                marker.color.b = 0.40
+            else:
+                marker.color.r = 0.15
+                marker.color.g = 0.45
+                marker.color.b = 0.85
+            marker.color.a = self.static_map_alpha
+            marker.lifetime = rospy.Duration(0)
+            markers.append(marker)
+        return markers
+
+    def make_dynamic_environment_markers(self, stamp):
+        markers = []
+        for marker_id, walker in enumerate(self.pedestrians.walkers):
+            half_x = walker.size[0] * 0.5
+            half_y = walker.size[1] * 0.5
+            half_z = walker.size[2] * 0.5
+            vertices = [
+                Point(x=-half_x, y=-half_y, z=-half_z),
+                Point(x=-half_x, y=half_y, z=-half_z),
+                Point(x=half_x, y=half_y, z=-half_z),
+                Point(x=half_x, y=-half_y, z=-half_z),
+                Point(x=-half_x, y=-half_y, z=half_z),
+                Point(x=-half_x, y=half_y, z=half_z),
+                Point(x=half_x, y=half_y, z=half_z),
+                Point(x=half_x, y=-half_y, z=half_z),
+            ]
+            edges = (
+                (0, 1), (1, 2), (2, 3), (3, 0),
+                (4, 5), (5, 6), (6, 7), (7, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            )
+            marker = Marker()
+            marker.header.frame_id = self.trajectory_frame
+            marker.header.stamp = stamp
+            marker.ns = "deployment_eval_dynamic_bboxes"
+            marker.id = marker_id
+            marker.type = Marker.LINE_LIST
+            marker.action = Marker.ADD
+            marker.pose.position.x = walker.position[0]
+            marker.pose.position.y = walker.position[1]
+            marker.pose.position.z = walker.position[2] + half_z
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = self.dynamic_bbox_line_width
+            marker.color.r = 0.0
+            marker.color.g = 0.80
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+            for start_index, end_index in edges:
+                marker.points.append(vertices[start_index])
+                marker.points.append(vertices[end_index])
+            marker.lifetime = rospy.Duration(0)
+            markers.append(marker)
+        return markers
+
+    def publish_environment_snapshot(self):
+        if self.environment_pub is None:
+            return
+        stamp = rospy.Time.now()
+        static_points = self.load_full_map_points()
+        static_marker = self.make_static_environment_marker(static_points, stamp)
+        if static_marker is None:
+            static_markers = self.make_geometry_fallback_markers(stamp)
+            static_description = "%d fallback objects" % len(static_markers)
+        else:
+            static_markers = [static_marker]
+            static_description = "%d height-colored voxels" % len(static_points)
+        dynamic_markers = self.make_dynamic_environment_markers(stamp)
+        self.environment_pub.publish(
+            MarkerArray(markers=static_markers + dynamic_markers)
+        )
+        rospy.loginfo(
+            "[deployment-eval2] published final environment snapshot on %s "
+            "(%s from %s, %d pedestrians)",
+            self.environment_topic,
+            static_description,
+            self.full_map_pcd,
+            len(dynamic_markers),
+        )
 
     @staticmethod
     def pose_message(point, yaw=0.0):
@@ -430,13 +896,17 @@ class CorridorDeploymentEvaluator:
         rospy.logwarn("[deployment-eval2] UAV reset did not settle within %.1f s", self.reset_wait)
         return False
 
-    def publish_goal(self, goal):
+    def publish_goal(self, goal, trajectory_points=None):
         message = self.pose_message(goal)
         rate = rospy.Rate(10.0)
         deadline = time.time() + self.goal_publish_time
         while not rospy.is_shutdown() and time.time() < deadline:
             message.header.stamp = rospy.Time.now()
             self.goal_pub.publish(message)
+            if trajectory_points is not None:
+                self.append_trajectory_point(
+                    trajectory_points, self.current_odom()
+                )
             self.pedestrians.publish(use_service=False)
             rate.sleep()
 
@@ -446,7 +916,9 @@ class CorridorDeploymentEvaluator:
         start, goal, direction = self.sample_task(trial_index, rng)
         phases = self.pedestrians.reset(rng, [start, goal], self.pedestrian_spawn_clearance)
         reset_stable = self.reset_robot(start, goal)
-        self.publish_goal(goal)
+        trajectory_points = []
+        self.append_trajectory_point(trajectory_points, self.current_odom())
+        self.publish_goal(goal, trajectory_points)
 
         rate = rospy.Rate(self.eval_rate_hz)
         start_time = rospy.Time.now().to_sec()
@@ -482,6 +954,7 @@ class CorridorDeploymentEvaluator:
                 rate.sleep()
                 continue
             point = self.odom_point(odom)
+            self.append_trajectory_point(trajectory_points, odom)
             elapsed = now - start_time
             goal_distance = distance_3d(point, goal)
             speed = self.odom_speed(odom)
@@ -554,7 +1027,10 @@ class CorridorDeploymentEvaluator:
                 outcome = "timeout"
             else:
                 outcome = "interrupted"
-        return {
+        self.append_trajectory_point(
+            trajectory_points, self.current_odom(), force=True
+        )
+        result = {
             "trial": trial_index,
             "trial_seed": trial_seed,
             "scenario": self.scenario["name"],
@@ -585,6 +1061,7 @@ class CorridorDeploymentEvaluator:
             "min_static_clearance": min_static_clearance,
             "min_dynamic_clearance": min_dynamic_clearance,
         }
+        return result, trajectory_points
 
     def write_csv(self, results):
         if not self.csv_path or not results:
@@ -645,8 +1122,11 @@ class CorridorDeploymentEvaluator:
         results = []
         try:
             for trial_index in range(1, self.num_trials + 1):
-                result = self.run_one_trial(trial_index)
+                result, trajectory_points = self.run_one_trial(trial_index)
                 results.append(result)
+                self.add_trajectory_markers(
+                    trial_index, trajectory_points, result["outcome"]
+                )
                 rospy.loginfo(
                     "[deployment-eval2] %d/%d outcome=%s deadlock=%s escaped=%s duration=%.2fs path=%.2fm",
                     trial_index,
@@ -661,6 +1141,20 @@ class CorridorDeploymentEvaluator:
             self.pedestrians.stop()
         self.write_csv(results)
         self.print_summary(results)
+        self.publish_selected_trajectory_markers(clear_existing=True)
+        self.publish_environment_snapshot()
+        visualization_active = (
+            self.trajectory_pub is not None or self.environment_pub is not None
+        )
+        if self.keep_trajectory_publisher_alive and visualization_active:
+            rospy.loginfo(
+                "[deployment-eval2] final visualization remains available on %s "
+                "and %s; select trials via %s; press Ctrl-C to exit",
+                self.trajectory_topic,
+                self.environment_topic,
+                self.trajectory_selection_topic,
+            )
+            rospy.spin()
 
 
 def main():

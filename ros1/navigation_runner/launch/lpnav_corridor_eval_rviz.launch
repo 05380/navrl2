@@ -1,0 +1,9 @@
+<launch>
+  <arg name="config" default="$(find navigation_runner)/rviz/lpnav_corridor_eval.rviz" />
+  <node
+    name="rviz_lpnav_corridor_eval"
+    pkg="rviz"
+    type="rviz"
+    args="-d $(arg config)"
+    required="false" />
+</launch>

@@ -4,6 +4,7 @@
   <arg name="scenario_file" default="$(find uav_simulator)/worlds/lpnav_corridor/$(arg scenario_name).yaml" />
   <arg name="map_file" default="$(find uav_simulator)/worlds/lpnav_corridor/$(arg scenario_name).pcd" />
   <arg name="use_prebuilt_map" default="false" />
+  <arg name="visualize_global_map" default="true" />
   <arg name="use_safety_shield" default="true" />
   <arg name="always_use_policy" default="false" />
   <arg name="rviz" default="true" />
@@ -12,6 +13,7 @@
   <arg name="num_trials" default="100" />
   <arg name="random_seed" default="1007" />
   <arg name="csv_path" default="/tmp/lpnav_corridor_eval.csv" />
+  <arg name="keep_trajectory_publisher_alive" default="true" />
 
   <include file="$(find uav_simulator)/launch/lpnav_corridor.launch">
     <arg name="scenario_name" value="$(arg scenario_name)" />
@@ -23,6 +25,7 @@
     <arg name="use_px4" value="false" />
     <arg name="use_prebuilt_map" value="$(arg use_prebuilt_map)" />
     <arg name="prebuilt_map_file" value="$(arg map_file)" />
+    <arg name="visualize_global_map" value="$(arg visualize_global_map)" />
     <arg name="use_real_detector" value="false" />
     <arg name="use_safety_shield" value="$(arg use_safety_shield)" />
     <arg name="always_use_policy" value="$(arg always_use_policy)" />
@@ -36,6 +39,7 @@
       <param name="random_seed" value="$(arg random_seed)" />
       <param name="csv_path" value="$(arg csv_path)" />
       <param name="dependency_timeout" value="120.0" />
+      <param name="keep_trajectory_publisher_alive" value="$(arg keep_trajectory_publisher_alive)" />
     </node>
   </group>
 </launch>
