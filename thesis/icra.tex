@@ -95,6 +95,15 @@
 \usepackage{arydshln}
 \graphicspath{{figures/}}
 \DeclareGraphicsExtensions{.pdf,.png,.jpg,.eps}
+% Reserves figure layout until the final visual assets are available.
+\newcommand{\figureplaceholder}[2]{%
+	\begingroup
+	\setlength{\fboxsep}{0pt}%
+	\setlength{\fboxrule}{0.5pt}%
+	\fbox{\parbox[c][#2][c]{\dimexpr#1-2\fboxrule\relax}{%
+		\centering\color{gray}\footnotesize\textsf{Figure placeholder}}}%
+	\endgroup
+}
 \DeclareMathOperator{\atantwo}{atan2}
 \DeclareMathOperator{\atan}{atan}
 \DeclareMathOperator{\sign}{sign}
@@ -124,34 +133,30 @@ ForesightNav: Anticipatory Reinforcement Learning for UAV Navigation amid Dynami
 \begin{document}
 \maketitle
 \begin{abstract}  
-	Safe UAV navigation amid dynamic obstacles and large non-convex structures requires anticipating motion conflicts while avoiding local deadlocks induced by challenging geometry. However, existing reinforcement-learning-based policies are commonly trained using instantaneous distance-based safety signals, which can lead to late avoidance maneuvers and myopic decisions. This paper presents ForesightNav, an anticipatory reinforcement-learning framework for UAV navigation built on Proximal Policy Optimization. We introduce a finite-horizon, time-to-collision-aware three-dimensional velocity-obstacle reward that incorporates relative motion and obstacle geometry to encourage proactive avoidance of dynamic obstacles. Moreover, an action-conditioned multi-horizon auxiliary objective provides multi-step near-term outcome supervision by predicting task-relevant rollout outcomes following each observation-action pair. Its losses regularize the observation encoder shared by the actor and critic with semantically separated collision, deadlock, clearance, and progress signals. In purely dynamic-obstacle simulation scenarios, ForesightNav achieves an average navigation success rate of \(83.3\%\), outperforming the NavRL baseline at \(70.1\%\) by \(13.2\) percentage points. In environments containing large non-convex structures, the complete ForesightNav framework reduces deadlocks and achieves a higher post-deadlock escape rate. Zero-shot real-world flights further demonstrate deployment feasibility without fine-tuning. Overall, ForesightNav achieves these improvements without additional online prediction or planning.
+	Safe UAV navigation amid dynamic obstacles and large non-convex structures requires anticipating motion conflicts while avoiding local deadlocks induced by challenging geometry. However, existing reinforcement-learning-based policies are commonly trained using instantaneous distance-based safety signals, which can lead to late avoidance maneuvers and myopic decisions. This paper presents ForesightNav, an anticipatory reinforcement-learning framework for UAV navigation built on Proximal Policy Optimization. We introduce a finite-horizon, time-to-collision-aware three-dimensional velocity-obstacle reward that incorporates relative motion and obstacle geometry to encourage proactive avoidance of dynamic obstacles. Moreover, an action-conditioned multi-horizon auxiliary objective provides multi-step near-term outcome supervision by predicting task-relevant rollout outcomes following each observation-action pair. Its losses regularize the observation encoder shared by the actor and critic with semantically separated collision, deadlock, clearance, and progress signals. Extensive simulation experiments demonstrate that ForesightNav outperforms the compared baseline methods in dynamic-obstacle avoidance and navigation through environments containing large non-convex structures. Zero-shot real-world flights further validate its deployment feasibility without fine-tuning. These improvements require no additional online prediction or planning.
 \end{abstract}
 
-% 在动态和密集的环境中，群体机器人在避碰和导航方面仍然面临着重要挑战。尽管为机器人设定的目标区域大小保持不变，虚拟目标区域有时可以为机器人提供更有效的避障策略。本文提出了一种目标区域放大算法，同时保持机器人目标区域的原始大小。首先，在无障碍环境中，使用互惠速度障碍（RVO）训练初始避碰模型，为每个机器人提供基本的避障能力。随后，在动态场景中，目标区域自适应放大。预测的未来影响被纳入预评估步骤，同时几何滤波去除无关因素，从而最小化可能导致碰撞的干扰。此外，一个新颖的奖励函数鼓励主动路径规划，并保证可靠的无碰撞导航。大量的仿真和实际实验表明，所提方法显著优于现有的最先进方法，在成功率上提高了20%，旅行时间减少了5%。
+
 % \vspace{-0.13cm}
-
-% ICRA不需要关键字
-
-% \begin{IEEEkeywords}
-% 	Swarm robots, 
-% \end{IEEEkeywords}
 
 \section{Introduction}
 \IEEEPARstart{A}{utonomous} navigation is essential for unmanned aerial vehicles (UAVs) operating amid dynamic obstacles and large non-convex structures. Beyond reacting to local geometry, a UAV must account for the likely future consequences of its decisions: an action that is collision-free at the current instant may still create a future motion conflict or steer the UAV toward a local deadlock inside geometrically confining structures. Enabling such foresight under limited onboard sensing and computation remains a central challenge in UAV navigation and control.
 
-Classical navigation systems decompose the problem into perception, prediction, planning, and control~\cite{ego_planner,faster,vigo}. Although interpretable and constraint-aware, these systems rely on accurate models, hand-crafted objectives, and repeated online optimization, which can increase tuning effort and reaction latency. Deep reinforcement learning offers an alternative by learning a direct observation-to-action policy from large-scale simulated experience~\cite{cadrl,long2018,navrl}. As a representative approach, NavRL learns a direct three-dimensional velocity-control policy with Proximal Policy Optimization (PPO)~\cite{navrl}. Although discounted returns propagate delayed consequences, scalar reward and return signals provide only indirect and entangled supervision of distinct future outcomes related to collision, deadlock, clearance, and progress, potentially limiting proactive behavior in challenging scenarios.
+Classical navigation systems decompose the problem into perception, prediction, planning, and control~\cite{pe_planner,faster,vigo}. Although interpretable and constraint-aware, these systems rely on accurate models, hand-crafted objectives, and repeated online optimization, which can increase tuning effort and reaction latency. Deep reinforcement learning offers an alternative by learning a direct observation-to-action policy from large-scale simulated experience~\cite{cadrl,long2018,navrl}. NavRL~\cite{navrl} exemplifies this paradigm: it employs Proximal Policy Optimization (PPO)~\cite{ppo} with a reward that promotes goal-directed motion, obstacle avoidance, and regularized flight behavior. More broadly, large-structure circumnavigation is not explicitly addressed by many local reactive objectives, which emphasize immediate clearance and goal progress but do not supervise whether a sequence of locally safe actions ultimately clears an extended boundary or exits a concavity~\cite{long2018,navrl,drl_vo,lee2025privileged}. In addition, the NavRL training objective does not explicitly model finite-horizon motion conflicts or provide horizon-specific supervision of future navigation outcomes.
 
-Two recurring failure modes motivate our design. First, instantaneous distance-based safety rewards can assign similar penalties to obstacle configurations with comparable scalar separation but substantially different closing velocities, times to collision, or three-dimensional overlap geometry. A deployment-time velocity-obstacle (VO) shield can filter or correct potentially unsafe actions, but it does not teach the nominal policy to avoid motion conflicts proactively~\cite{fiorini1998vo,orca,drl_vo}. Second, locally collision-free actions around large non-convex structures, including U-shaped obstacles, may still steer the UAV toward a local deadlock. Recurrent architectures provide temporal memory but do not by themselves provide explicit supervision of collision, deadlock, clearance, or progress outcomes, whereas model-based methods that rely on online rollouts can increase deployment complexity~\cite{navrep,rgl,badgr}. These limitations motivate training-time guidance that combines finite-horizon collision-risk shaping with auxiliary supervision of policy-conditioned multi-step near-term navigation outcomes.
+These limitations manifest in two recurring failure modes. First, instantaneous distance-based safety rewards can assign similar penalties to obstacle configurations with comparable scalar separation but substantially different closing velocities, times to collision, or three-dimensional overlap geometry. Second, locally collision-free actions around large non-convex structures may still be globally unproductive. A broad wall can repeatedly block the goal direction, while L- and U-shaped structures require the policy to maintain a consistent bypass maneuver whose short-term progress may be small or temporarily negative. Without explicit guidance about these delayed outcomes, a reactive policy can oscillate, stagnate, or settle into a local optimum that appears safe at each individual step. Predictive and model-based architectures can provide temporal context or multi-step lookahead, but online rollout evaluation may increase deployment computation~\cite{navrep,rgl,badgr}. These limitations motivate training-time guidance that combines finite-horizon collision-risk shaping with auxiliary supervision of policy-conditioned multi-step near-term navigation outcomes.
 
-To address these limitations, we present ForesightNav, an anticipatory reinforcement-learning framework that integrates physics-informed reward shaping with task-oriented predictive representation learning. First, ForesightNav incorporates a finite-horizon, time-to-collision-aware reward term derived from a three-dimensional VO formulation into PPO training, encouraging the nominal policy to proactively avoid imminent motion conflicts. Second, we introduce an action-conditioned multi-horizon auxiliary prediction objective that provides multi-step near-term outcome supervision. Conditioned on the current action and the observation encoding shared by the actor and critic, the predictor estimates subsequent rollout outcomes, including future collision and deadlock events, minimum forward clearance over each prediction horizon, and cumulative progress toward the goal. The auxiliary heads provide predictive supervision only during training and are not invoked at deployment. Together, the two signals provide complementary training-time foresight at different learning levels: the TTC-aware 3D-VO reward shapes return-based policy updates using analytic relative-motion risk, whereas the action-conditioned auxiliary losses encourage the shared actor--critic encoder to retain features predictive of realized near-term outcomes following the sampled control; action selection remains governed by PPO.
+To bridge these gaps, we extend NavRL with anticipatory training signals that address limitations of its local reactive formulation. The resulting method, ForesightNav, combines physics-informed finite-horizon collision-risk modeling with action-conditioned near-term outcome supervision to improve proactive dynamic-obstacle avoidance and reduce deadlock-prone behavior around large non-convex structures, while retaining efficient direct policy inference.
 
-We evaluate ForesightNav against NavRL, ViGO, and representative learning-based and planning baselines~\cite{navrl,vigo} in dynamic-obstacle scenarios, static--dynamic mixed scenarios, and scenarios containing large non-convex structures. ForesightNav and NavRL are evaluated with identical deployment-time VO shield settings. In purely dynamic-obstacle scenarios, ForesightNav achieves an average navigation success rate of \(83.3\%\), compared with \(70.1\%\) for NavRL. In environments containing large non-convex structures, it reduces the deadlock rate by \(15.8\)--\(25.5\) percentage points and achieves a higher post-deadlock escape rate. Real-world UAV flights demonstrate the zero-shot deployment feasibility of the proposed framework.
+To realize this design, ForesightNav introduces two complementary training mechanisms. First, ForesightNav incorporates a finite-horizon, time-to-collision-aware reward term derived from a three-dimensional VO formulation into PPO training, encouraging the nominal policy to proactively avoid imminent motion conflicts. Second, we introduce an action-conditioned multi-horizon auxiliary prediction objective that provides multi-step near-term outcome supervision. Conditioned on the current action and the observation encoding shared by the actor and critic, the predictor estimates subsequent rollout outcomes, including future collision and deadlock events, minimum forward clearance over each prediction horizon, and cumulative progress toward the goal. The auxiliary heads provide predictive supervision only during training and are not invoked at deployment. Together, the two signals provide complementary training-time foresight at different learning levels: the TTC-aware 3D-VO reward shapes return-based policy updates using analytic relative-motion risk, whereas the action-conditioned auxiliary losses encourage the shared actor--critic encoder to retain features predictive of realized near-term outcomes following the sampled control; action selection remains governed by PPO. The overall architecture and its training and deployment pathways are illustrated in Fig.~\ref{fig_zong}.
+
+We conduct comprehensive evaluations of ForesightNav in simulation and real-world environments. In simulation, we compare it with the learning-based NavRL policy, the optimization-based PE-Planner, and an ablated variant without the 3D-VO reward~\cite{navrl,pe_planner} across four settings containing static obstacles, dynamic obstacles, mixed static and dynamic obstacles, and static obstacles with large non-convex structures. ForesightNav and NavRL use identical deployment-time VO shield settings. The results demonstrate improved dynamic-obstacle avoidance and greater robustness to local trapping around large non-convex structures compared with the reference methods. Real-world UAV flights further validate the zero-shot deployment feasibility of the proposed framework.
 
 The main contributions of this work are summarized as follows:
 \begin{enumerate}
 	\item \textbf{Physics-informed 3D dynamic-risk learning:} We introduce a time-to-collision-aware three-dimensional VO reward that provides finite-horizon dynamic-risk supervision and encourages proactive avoidance of dynamic obstacles.
 	\item \textbf{Action-conditioned predictive representation learning:} We introduce a multi-horizon auxiliary objective that provides task-oriented supervision for the shared actor--critic encoder during training.
-	\item \textbf{Evaluation under dynamic and non-convex geometric challenges:} Experiments demonstrate higher navigation success around dynamic obstacles, fewer deadlocks and improved recovery around large non-convex structures, and zero-shot physical deployment feasibility.
+	\item \textbf{Evaluation under dynamic and non-convex geometric challenges:} Experiments demonstrate higher navigation success around dynamic obstacles, improved deadlock and recovery metrics relative to NavRL around large non-convex structures, and zero-shot physical deployment feasibility.
 \end{enumerate}
 
 % TODO: Add the finalized ablation-study statement after the experiments are complete.
@@ -159,49 +164,39 @@ The main contributions of this work are summarized as follows:
 
 \begin{figure*}[thpb]
 	\centering
-  \includegraphics[width=1.98\columnwidth]{fig_zong5.pdf}  
-  \caption{\label{fig_zong} Overall system architecture of the proposed SwarmNav navigation policy. Raw LiDAR observations and the goal-region amplification input are normalized before being fed into the actor and critic networks, where the critic estimates the state value and the actor outputs the velocity commands.} 
+  \includegraphics[width=1.98\columnwidth]{fig_foresightnav_architecture.png}
+  \caption{\label{fig_zong} The proposed ForesightNav framework. The perception system processes RGB-D observations together with the UAV state to form dynamic-obstacle, static-geometry proximity, and navigation representations. Modality-specific MLP and CNN encoders transform these inputs into a shared embedding for the predictive actor--critic. During training, the TTC-aware 3D-VO risk reward and action-conditioned multi-horizon outcome predictor jointly shape policy learning in parallel curriculum environments. During deployment, the outcome predictor is removed, and the Beta-policy actor directly generates velocity actions that can be further refined by an optional safety shield.}
   \vspace{-0.4cm}
 \end{figure*}
-
-% \begin{figure*}[thpb]
-% 	\centering
-% 	\subfigtopskip=0pt
-% 	\subfigbottomskip=2pt
-% 	\subfigcapskip=20pt 
-% 	\subfigure {\includegraphics[width=2.08\columnwidth]{figures/fig_zong4.pdf}}
-% 	\vspace{-20pt} 
-% 	\caption{Overall system architecture of the proposed SwarmNav navigation policy. Raw LiDAR observations and the goal-region amplification input are normalized before being fed into the actor and critic networks, where the critic estimates the state value and the actor outputs the velocity commands.}
-% 	\label{fig_zong}
-% 	\vspace{-0.4cm}
-% \end{figure*}
 
 \section{Related Work}\label{sec:related_work}
 
 \subsection{Classical, Learning-Based, and Hybrid Navigation}
 
-Classical UAV navigation uses graph search, sampling-based planning, and receding-horizon trajectory optimization. Optimization-based planners such as EGO-Planner, FASTER, and ViGO produce interpretable, constraint-aware trajectories but replan online as maps or predicted obstacle states change~\cite{ego_planner,faster,vigo}. Learning-based methods shift computation to offline experience: CADRL learns an interaction-aware value function~\cite{cadrl}, Long \emph{et al.} map range and goal observations to continuous controls~\cite{long2018}, and NavRL uses PPO for direct three-dimensional UAV velocity control and applies a deployment-time shield inspired by the velocity-obstacle (VO) formulation~\cite{navrl}. Although discounted returns propagate future consequences, scalar reward and return signals provide only indirect and entangled supervision of distinct future collision, deadlock, clearance, and progress outcomes.
+Classical UAV navigation uses graph search, sampling-based planning, and receding-horizon trajectory optimization. Optimization-based systems such as FASTER and ViGO generate constraint-aware trajectories through online planning and optimization~\cite{faster,vigo}. PE-Planner further combines kinodynamic path search and B-spline trajectory refinement with model predictive contouring control to address complex dynamic environments~\cite{pe_planner}. Learning-based methods shift computation to offline experience: CADRL learns an interaction-aware value function~\cite{cadrl}, Long \emph{et al.} map range and goal observations to continuous controls~\cite{long2018}, and NavRL uses PPO for direct three-dimensional UAV velocity control and applies a deployment-time shield inspired by the velocity-obstacle (VO) formulation~\cite{navrl}. Although discounted returns propagate future consequences, scalar reward and return signals provide only indirect and entangled supervision of distinct future collision, deadlock, clearance, and progress outcomes.
 
-Hybrid and safety-augmented methods rely on deployment-time planning, recovery, or action projection~\cite{prm_rl,kastner2021waypoint,semnani2020multiagent,thananjeyan2021recovery,kochdumper2023projection}. Other approaches use planner demonstrations or privileged expert trajectories during training~\cite{he2020demonstration,loquercio2021wild}. Lee \emph{et al.} specifically use privileged time-of-arrival maps to guide quadrotors around large walls and dead ends~\cite{lee2025privileged}. ForesightNav retains NavRL's existing VO shield, but its added VO reward and auxiliary objective are training-only and add no computation to deployment-time action selection. Joint training-time supervision of three-dimensional motion conflicts and semantically separated near-term navigation outcomes remains limited.
+Large or non-convex structures expose a further distinction between immediate collision avoidance and successful obstacle circumnavigation. Given sufficient map coverage, a global planner can reason about connectivity and select a route around an extended boundary. In contrast, many local learning-based formulations represent only nearby geometry and optimize immediate clearance together with goal-directed motion~\cite{long2018,navrl,drl_vo}. They consequently provide limited explicit guidance for choosing and maintaining a bypass direction along a broad wall or for escaping an L- or U-shaped concavity, making locally safe deadlocks or local optima more likely. This challenge has motivated methods that introduce privileged route guidance; for example, Lee \emph{et al.} use privileged time-of-arrival maps to guide quadrotors around large walls and dead ends~\cite{lee2025privileged}.
+
+Hybrid and safety-augmented methods rely on deployment-time planning, recovery, or action projection~\cite{prm_rl,kastner2021waypoint,semnani2020multiagent,thananjeyan2021recovery,kochdumper2023projection}. Other approaches use planner demonstrations or privileged expert trajectories during training~\cite{he2020demonstration,loquercio2021wild}.
 
 \subsection{Velocity-Obstacle-Guided Learning}
 
 The VO formulation defines velocities that lead to collision under an assumed relative-motion model~\cite{fiorini1998vo}. Classical VO methods select velocities outside these forbidden regions; ORCA distributes avoidance responsibility and solves for collision-free velocities online~\cite{orca}. Used as a shield, however, VO geometry filters a nominal policy command after action generation and therefore does not train proactive avoidance.
 
-VO structure has also shaped reinforcement-learning rewards. DRL-VO uses a two-dimensional directional reward with LiDAR histories and pedestrian kinematics~\cite{drl_vo}, while Han \emph{et al.} include RVO area and expected collision time for differential-drive robots~\cite{han2022rvo}. NavRL instead applies a VO-inspired post-policy shield~\cite{navrl}. ForesightNav derives finite-horizon, time-to-collision-aware risk from a three-dimensional VO model, including obstacle geometry and vertical separation, to supervise short-horizon policy learning while retaining NavRL's shield as a final runtime filter. Neither the 3D-VO reward nor the VO-inspired shield provides a formal safety guarantee.
+VO structure has also shaped reinforcement-learning rewards. DRL-VO uses a two-dimensional directional reward with LiDAR histories and pedestrian kinematics~\cite{drl_vo}, while Han \emph{et al.} include RVO area and expected collision time for differential-drive robots~\cite{han2022rvo}. NavRL instead applies a VO-inspired post-policy shield~\cite{navrl}. ForesightNav derives finite-horizon, time-to-collision-aware risk from a three-dimensional VO model, including obstacle geometry and vertical separation, to supervise short-horizon policy learning while retaining NavRL's shield as a final runtime filter. 
 
 \subsection{Predictive Models and Auxiliary Outcome Learning}
 
 Predictive navigation methods learn representations or models of future experience. NavRep predicts latent dynamics before policy optimization~\cite{navrep}; RGL combines relational interaction modeling with multi-step crowd lookahead~\cite{rgl}; and BADGR predicts action-conditioned events for online candidate-sequence evaluation~\cite{badgr}. General latent models can introduce prediction error, while online rollout evaluation adds deployment computation. Auxiliary prediction can instead enrich representations while retaining direct action inference: general value functions predict temporally extended signals~\cite{sutton2011horde}, UNREAL combines reward prediction with auxiliary control and value replay~\cite{jaderberg2017unreal}, and SPR learns action-conditioned multi-step latent predictions~\cite{schwarzer2021spr}.
 
-ForesightNav adopts this auxiliary paradigm to provide multi-step near-term outcome supervision with navigation-specific targets. From each observation--action pair, its heads predict fixed-horizon collision and deadlock events, minimum forward clearance, and cumulative goal progress under the rollout behavior policy. Unlike the PPO critic's scalar expected return, these targets are semantically separated and horizon-specific, explicitly supervising the observation encoder shared by the actor and critic. Together, the auxiliary losses and three-dimensional VO reward provide complementary training-time foresight: the reward shapes short-horizon responses to motion conflicts, while outcome prediction regularizes the shared encoder with near-term collision, deadlock, clearance, and progress information. Neither training objective adds inference-time computation, preserving NavRL's original actor-and-shield inference pipeline.
+Building on NavRL, ForesightNav augments policy training with structured finite-horizon motion-risk modeling and task-oriented predictive supervision. These extensions target late responses to dynamic motion conflicts and locally safe deadlocks around large non-convex structures without adding computation to policy inference.
 
 
 \section{Methodology}\label{sec:methodology}
-ForesightNav combines finite-horizon dynamic-risk modeling, a partially observable reinforcement-learning formulation, predictive actor--critic representation learning, and an optional deployment-time safety shield. This section presents these components and their integration into policy training and execution.
+In this section, we first introduce the finite-horizon TTC-aware 3D-VO formulation and then define the reinforcement-learning problem, including its observation space, action space, and reward function. Subsequently, we present the predictive actor--critic architecture and policy-training procedure, followed by the deployment-time safety shield.
 
 \subsection{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}\label{subsec:vo}
-Instantaneous clearance alone cannot distinguish obstacles with similar separation but different relative motion. ForesightNav therefore uses a finite-horizon three-dimensional velocity-obstacle (3D-VO) formulation~\cite{fiorini1998vo} to quantify dynamic motion conflicts. For a transition from \(\mathbf{x}_t\) to \(\mathbf{x}_{t+1}\) induced by action \(\mathbf{a}_t\), the model is evaluated from the resulting state and realized UAV velocity at \(t+1\).
+Instantaneous clearance alone cannot distinguish obstacles with similar separation but different relative motion. ForesightNav therefore extends the classical velocity-obstacle concept~\cite{fiorini1998vo} to a finite-horizon three-dimensional formulation for quantifying dynamic motion conflicts. For a transition from \(\mathbf{x}_t\) to \(\mathbf{x}_{t+1}\) induced by action \(\mathbf{a}_t\), the model is evaluated from the resulting state and realized UAV velocity at \(t+1\).
 
 To represent obstacle geometry without treating all interactions as planar, obstacle \(i\), with size \((w_i^x,w_i^y,h_i)\), is approximated by an overlapping vertical stack of spherical primitives. The sphere radius \(b_i\), center spacing \(l_i\), and number of spheres \(K_i\) are
 \begin{equation}
@@ -334,7 +329,7 @@ The objective is
 Reward and auxiliary targets may depend on latent variables excluded from the policy observation. At the beginning of each episode, a fixed navigation frame \(G\) is defined with its origin at the initial UAV position, its horizontal \(x\)-axis pointing from the initial position to the goal, and its \(z\)-axis aligned with the world vertical.
 
 \subsubsection{State and Observation Space}
-Because the complete state is not observable, the policy uses
+Following the local observation design of NavRL~\cite{navrl}, the policy uses onboard-accessible navigation and obstacle quantities rather than the complete environment state:
 \begin{equation}
 	\begin{gathered}
 	\mathbf{o}_t=(\mathbf{L}_t,\mathbf{s}_t,\mathbf{D}_t),\\
@@ -380,7 +375,7 @@ Here, \(\mathbf{v}_{i,t}^{o,G}\) is the obstacle's absolute velocity expressed i
 \(h_i\leq1\,\mathrm{m}\) use \(q_h(h_i)=h_i\); taller vertically spanning obstacles use \(\Delta z_{i,t}=0\) and \(q_h(h_i)=0\). Missing or out-of-range rows are zero padded. Because the encoder flattens the ordered rows, this distance ordering is part of the observation definition.
 
 \subsubsection{Action Space}
-The policy action is a bounded three-dimensional velocity command expressed in \(G\):
+Following NavRL's bounded action parameterization~\cite{navrl}, the policy action is a three-dimensional velocity command expressed in \(G\):
 \begin{equation}
 	\mathcal{A}=[-v_{\mathrm{lim}},v_{\mathrm{lim}}]^3.
 	\label{eq:action_set}
@@ -410,11 +405,11 @@ and tracked by a low-level velocity controller. Yaw is regulated separately and 
 	\subfigtopskip=-2pt
 	\subfigbottomskip=16pt
 	\subfigcapskip=-3pt 
-	\includegraphics[width=1.9\columnwidth]{fig_zhu.pdf}\label{figzhu0}
+		\figureplaceholder{1.9\columnwidth}{0.60\columnwidth}\label{figzhu0}
 	\vspace{-0.4cm}
-	\subfigure[]{\includegraphics[width=0.92\columnwidth]{fig_zhu1.pdf}\label{figrvoa}
+		\subfigure[]{\figureplaceholder{0.92\columnwidth}{0.58\columnwidth}\label{figrvoa}
 	}
-	\subfigure[]{\includegraphics[width=0.92\columnwidth]{fig_zhu2.pdf}\label{figrvob}
+		\subfigure[]{\figureplaceholder{0.92\columnwidth}{0.58\columnwidth}\label{figrvob}
 	}
 	\vspace{-5pt}
 	\caption{Geometric illustration of the proposed goal-region amplification in the reward function. (a) Scenario without any obstacles in the reward region. (b) Scenario with obstacles entering the reward region, resulting in the generation of a penalty region.}
@@ -485,7 +480,7 @@ To discourage unnecessary vertical detours, altitude deviation beyond a toleranc
 The tolerance permits necessary altitude adjustments near obstacles, while the quadratic growth prevents avoidance through excessive ascent or descent.
 
 \subsection{Network Design and Policy Training}\label{subsec:network}
-ForesightNav organizes policy learning around a shared predictive representation. Modality-specific encoders extract LiDAR and dynamic-obstacle features, which are fused with the navigation state into \(\mathbf{z}_t\). The actor generates the bounded Beta policy in Sec.~\ref{subsec:rl}, while the critic estimates the observation-conditioned value
+Building on NavRL's modality-specific encoder backbone~\cite{navrl}, ForesightNav organizes policy learning around a shared predictive representation. LiDAR and dynamic-obstacle features are fused with the navigation state into \(\mathbf{z}_t\). The actor generates the bounded Beta policy in Sec.~\ref{subsec:rl}, while the critic estimates the observation-conditioned value
 \(V_\psi(\mathbf{o}_t)=V_\psi(\mathbf{z}_t)\); it does not receive the latent environment state. The actor, critic, and outcome-learning pathway are optimized around this common representation.
 
 To make \(\mathbf{z}_t\) informative about the consequences of the selected action, ForesightNav introduces multi-horizon action-conditioned outcome learning. For each horizon \(h\in\mathcal{H}=\{1,3,5\}\), a lightweight decoder predicts
@@ -542,10 +537,10 @@ Policy and outcome learning are integrated through
 \end{equation}
 The sampled action and rollout targets are treated as fixed inputs. Thus, \(\mathcal{L}_{\mathrm{MH}}\) updates the outcome decoder and shared encoders but has no direct gradient path to the actor or critic output heads. PPO makes \(\mathbf{z}_t\) useful for action selection and value estimation, while outcome supervision simultaneously makes it predictive of near-term collision, trapping, clearance, and progress.
 
-This predictive actor--critic representation is neither recurrent nor a generative world model: it reconstructs no future observation and performs no latent rollout for action selection. The decoder is omitted during execution, while its representation-level supervision remains embedded in the shared encoder, adding no online inference cost. PPO uses clipped policy and value objectives, generalized advantage estimation, and entropy regularization~\cite{ppo}. A stage-wise curriculum progressively increases dynamic-obstacle density so that increasingly difficult interaction patterns are learned while previously acquired navigation behavior is retained.
+This predictive actor--critic representation is neither recurrent nor a generative world model: it reconstructs no future observation and performs no latent rollout for action selection. The decoder is omitted during execution, while its representation-level supervision remains embedded in the shared encoder, adding no online inference cost. PPO uses clipped policy and value objectives, generalized advantage estimation, and entropy regularization~\cite{ppo}. A stage-wise curriculum progressively increases dynamic-interaction density and introduces more challenging large non-convex structures, strengthening both dynamic-obstacle avoidance and navigation around confining geometry while retaining previously acquired behavior.
 
 \subsection{Deployment-Time Policy Action Safety Shield}\label{subsec:shield}
-The learned policy provides the primary navigation command, but partial observability and unseen interactions can still yield occasional unsafe actions. ForesightNav therefore retains an optional deployment-time shield as a final corrective layer. Given policy command \(\mathbf{v}_{\mathrm{RL}}\), the shield passes through an admissible command and otherwise returns a nearby feasible velocity:
+The learned policy provides the primary navigation command, but partial observability and unseen interactions can still yield occasional unsafe actions. ForesightNav therefore retains NavRL's optional deployment-time shield~\cite{navrl} as a final corrective layer. Given policy command \(\mathbf{v}_{\mathrm{RL}}\), the shield passes through an admissible command and otherwise returns a nearby feasible velocity:
 \begin{equation}
 	\mathbf{v}_{\mathrm{cmd}}=
 	\begin{cases}
@@ -574,13 +569,13 @@ In this section, we compare the proposed method with several state-of-the-art ap
 
 The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $40\,\text{m}\times40\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
 
-For quantitative deployment evaluation, we conduct 100 trials for each method in each scenario. A new start--goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N_{\mathrm{trial}}=100$ be the number of trials, and let $N_{\mathrm{succ}}$, $N_{\mathrm{coll}}$, $N_{\mathrm{timeout}}$, $N_{\mathrm{dead}}$, and $N_{\mathrm{esc}}$ denote the numbers of successful, collided, timed-out, deadlocked, and post-deadlock successful trials, respectively. We report the following metrics:
+For quantitative deployment evaluation, we conduct 1,000 trials for each method in each scenario. A new start--goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N_{\mathrm{trial}}=1{,}000$ be the number of trials, and let $N_{\mathrm{succ}}$, $N_{\mathrm{coll}}$, and $N_{\mathrm{timeout}}$ denote the numbers of successful, collided, and timed-out trials, respectively. We further denote by $N_{\mathrm{dead}}^{\mathrm{evt}}$ the total number of deadlock events detected across all trials and by $N_{\mathrm{rec}}^{\mathrm{evt}}$ the recovered-deadlock-event count (\texttt{recovered\_deadlock\_event\_count}). We report the following metrics:
 \begin{itemize}
     \item \textit{Success Rate} ($N_{\mathrm{succ}}/N_{\mathrm{trial}}$): The fraction of trials in which the UAV reaches the goal before collision or timeout.
     \item \textit{Collision Rate} ($N_{\mathrm{coll}}/N_{\mathrm{trial}}$): The fraction of trials terminated by contact with a static or dynamic obstacle.
     \item \textit{Timeout Rate} ($N_{\mathrm{timeout}}/N_{\mathrm{trial}}$): The fraction of trials that neither reach the goal nor collide within $180\,\text{s}$.
-    \item \textit{Deadlock Rate} ($N_{\mathrm{dead}}/N_{\mathrm{trial}}$): The fraction of trials containing at least one deadlock event. A deadlock is registered when a forward obstacle co-occurs with goal progress no greater than $0.005\,\text{m}$ for 40 consecutive evaluation cycles ($2\,\text{s}$ at $20\,\text{Hz}$).
-    \item \textit{Post-Deadlock Escape Rate} ($N_{\mathrm{esc}}/N_{\mathrm{dead}}$): Among trials in which a deadlock is detected, the fraction that subsequently recover and reach the goal.
+    \item \textit{Deadlock Count} ($N_{\mathrm{dead}}^{\mathrm{evt}}$): The total number of deadlock events detected over the 1,000 trials. A deadlock is registered when a forward obstacle co-occurs with goal progress no greater than $0.005\,\text{m}$ for 40 consecutive evaluation cycles ($2\,\text{s}$ at $20\,\text{Hz}$). Because one trial may contain multiple events, this count is not bounded by $N_{\mathrm{trial}}$.
+    \item \textit{Post-Deadlock Escape Rate} ($N_{\mathrm{rec}}^{\mathrm{evt}}/N_{\mathrm{dead}}^{\mathrm{evt}}$): The fraction of detected deadlock events that satisfy the recovery criterion. This event-level metric is distinct from the fraction of deadlocked trials that eventually reach the goal and is reported as undefined when no deadlock event occurs.
 \end{itemize}
 \begin{table}[t]
     \centering
@@ -613,49 +608,49 @@ For quantitative deployment evaluation, we conduct 100 trials for each method in
         \bottomrule
     \end{tabular}
 \end{table}
-Together, these metrics distinguish direct navigation success from collision failures, time-limit failures, local trapping, and recovery after trapping.
+Taken together, these metrics characterize the UAV's ability to avoid dynamic obstacles and navigate around large non-convex structures, including its tendency to avoid or recover from deadlocks and local optima. Comparisons with the corresponding ablations further assess whether TTC-aware and multi-horizon prediction enables earlier responses to evolving motion conflicts.
 
 \subsection{Simulation Results} \label{subsec:Results and Discussions}
 \begin{table*}[t]
     \centering
-    \caption{Quantitative comparison over 100 trials in four obstacle environments within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
+    \caption{Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
     \label{tab:result}
     \footnotesize
     \setlength{\tabcolsep}{3.5pt}
     \renewcommand{\arraystretch}{1.08}
-    \begin{tabular}{@{}L{3.0cm}L{3.1cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.85cm}@{}}
+    \begin{tabular}{@{}L{4.85cm}L{3.25cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.45cm}M{1.85cm}@{}}
         \toprule
         \textbf{Environment} &
         \textbf{Method} &
         \makecell{\textbf{Success}\\\textbf{Rate (\%)} \(\uparrow\)} &
         \makecell{\textbf{Collision}\\\textbf{Rate (\%)} \(\downarrow\)} &
         \makecell{\textbf{Timeout}\\\textbf{Rate (\%)} \(\downarrow\)} &
-        \makecell{\textbf{Deadlock}\\\textbf{Rate (\%)} \(\downarrow\)} &
+        \makecell{\textbf{Deadlock}\\\textbf{Count} \(\downarrow\)} &
         \makecell{\textbf{Post-}\\\textbf{Deadlock}\\\textbf{Escape}\\\textbf{Rate (\%)} \(\uparrow\)} \\
         \midrule
-        \multirow{4}{*}{\makecell[l]{Static obstacles\\($N_{\mathrm{stat}}=70$)}}
-            & NavRL & -- & -- & -- & -- & -- \\
-            & ForesightNav & -- & -- & -- & -- & -- \\
-            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
-            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \multirow{4}{*}{\makecell[l]{\textbf{Env. 1:} Static obstacles\\($N_{\mathrm{stat}}=70$)}}
+            & PE-Planner & 85.5 & 14.5 & 0 & 0 & N/A \\
+            & NavRL & 94.1 & 5.9 & 0 & 0 & N/A \\
+            & ForesightNav w/o 3D-VO & 92.7 & 7.3 & 0 & 0 & N/A \\
+            & ForesightNav & 94.4 & 5.6 & 0 & 0 & N/A \\
         \midrule
-        \multirow{4}{*}{\makecell[l]{Dynamic obstacles\\($N_{\mathrm{dyn}}=60$)}}
-            & NavRL & -- & -- & -- & -- & -- \\
-            & ForesightNav & -- & -- & -- & -- & -- \\
-            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
-            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \multirow{4}{*}{\makecell[l]{\textbf{Env. 2:} Dynamic obstacles\\($N_{\mathrm{dyn}}=60$)}}
+            & PE-Planner & 65.6 & 34.4 & 0 & 0 & N/A \\
+            & NavRL & 69.9 & 30.1 & 0 & 0 & N/A \\
+            & ForesightNav w/o 3D-VO & 71.2 & 28.8 & 0 & 0 & N/A \\
+            & ForesightNav & 83.3 & 16.7 & 0 & 0 & N/A \\
         \midrule
-        \multirow{4}{*}{\makecell[l]{Mixed static and\\dynamic obstacles\\($N_{\mathrm{stat}}=20$)\\($N_{\mathrm{dyn}}=40$)}}
-            & NavRL & -- & -- & -- & -- & -- \\
-            & ForesightNav & -- & -- & -- & -- & -- \\
-            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
-            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \multirow{4}{*}{\makecell[l]{\textbf{Env. 3:} Mixed static and\\dynamic obstacles\\($N_{\mathrm{stat}}=20$)\\($N_{\mathrm{dyn}}=40$)}}
+            & PE-Planner & 63.2 & 36.8 & 0 & 0 & N/A \\
+            & NavRL & 61.8 & 38.2 & 0 & 0 & N/A \\
+            & ForesightNav w/o 3D-VO & 60.3 & 39.7 & 0 & 0 & N/A \\
+            & ForesightNav & 76.5 & 23.5 & 0 & 0 & N/A \\
         \midrule
-        \multirow{4}{*}{\makecell[l]{Static obstacles and large\\non-convex structures}}
-            & NavRL & -- & -- & -- & -- & -- \\
-            & ForesightNav & -- & -- & -- & -- & -- \\
-            & ForesightNav w/o 3D-VO & -- & -- & -- & -- & -- \\
-            & EGO-Planner & -- & -- & -- & -- & -- \\
+        \multirow{4}{*}{\makecell[l]{\textbf{Env. 4:} Static obstacles and\\large non-convex structures}}
+            & PE-Planner & 58.9 & 15.9 & 25.2 & 127 & \makecell{21/127\\(16.5\%)} \\
+            & NavRL & 66.7 & 13.6 & 19.7 & 93 & \makecell{23/93\\(24.7\%)} \\
+            & ForesightNav w/o 3D-VO & 77.5 & 14.0 & 8.5 & 42 & \makecell{18/42\\(42.9\%)} \\
+            & ForesightNav & 78.1 & 15.6 & 6.3 & 53 & \makecell{24/53\\(45.3\%)} \\
         \bottomrule
     \end{tabular}
 \end{table*}
@@ -665,44 +660,28 @@ Together, these metrics distinguish direct navigation success from collision fai
 	\subfigtopskip=1.9pt
 	\subfigbottomskip=2pt
 	\subfigcapskip=2pt 
-	\subfigure[\(N_r\) 10 and \(N_o\) 5]{\includegraphics[width=0.47\columnwidth]{fig_c_xuxian.pdf}\label{figc}
+		\subfigure[Static obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_static}
 	}
-	\subfigure[\(N_r\) 10 and \(N_o\) 10]{\includegraphics[width=0.47\columnwidth]{fig_d_xuxian.pdf}\label{figd}
+		\subfigure[Dynamic obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_dynamic}
 	}
-    \subfigure[\(N_r\) 10 and \(N_o\) 20]{\includegraphics[width=0.47\columnwidth]{fig_e_xuxian.pdf}\label{fige}
+	    \subfigure[Mixed obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_mixed}
 	}
-	\subfigure[\(N_r\) 20 and \(N_o\) 20]{\includegraphics[width=0.47\columnwidth]{fig-20.pdf}\label{figf}
+		\subfigure[Large non-convex structures]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_nonconvex}
 	}
 	\vspace{-1pt}
-	\caption{Trajectories generated by our SwarmNav in four representative scenarios, where all robots successfully reach their goal positions.}
-	\label{fig_fangzhen}
+	\caption{Representative ForesightNav trajectories in the four simulation environments.}
+	\label{fig_sim_trajectories}
 	\vspace{-0.4cm}
 \end{figure}
 
-In the simulations, we first compare the proposed method with four baseline approaches---RL-RVO~\cite{han2022rvo}, PCA, ORCA~\cite{orca}, and RVO~\cite{rvo2008}---across different circular scenarios and swarm sizes to evaluate its performance. Note that all dynamic obstacles move randomly in an omnidirectional manner.
-For each condition, 100 independent trials are conducted to collect statistics for the evaluation metrics. The results are reported in Table~\ref{tab:result}, where \(N_r\) and \(N_o\) denote the number of robots and obstacles, respectively. Moreover, Fig.~\ref{fig_fangzhen} shows the trajectories of all robots for four representative circular scenarios generated by our method. As shown, our method enables all robots to successfully reach their goal positions across different swarm sizes and dense obstacle environments. 
-From Table~\ref{tab:result}, it can be observed that, compared with the other four baseline methods, our SwarmNav achieves the highest success rate in almost all scenarios. In contrast, the success rates of the four baseline methods vary across different scenarios. The only exception occurs in the absence of dynamic obstacles, where symmetry favors PCA's diversion strategy; even in this case, SwarmNav still achieves the second-highest success rate and maintains consistently strong performance overall. It should also be noted that the success rates of ORCA and RVO drop to zero in the absence of dynamic obstacles due to deadlocks occurring under symmetrical conditions. 
-In terms of average speed and average travel distance, PCA and RL-RVO achieve the best performance in almost all scenarios. This is because these methods do not account for the uncertain motion of dynamic obstacles and thus adopt more aggressive velocities. In contrast, our SwarmNav considers these uncertainties and therefore tends to adopt slightly more cautious speeds toward the goal positions. By comparison, ensuring that all robots safely reach their respective goal positions is the most important metric in swarm robotics navigation. 
-Regarding the average computation time, Table ~\ref{tab:result} shows that our proposed method achieves the shortest value in this metric, except for one case, and is followed by RL-RVO. This indicates that reinforcement learning-based approaches significantly outperform traditional methods such as PCA and RVO in computation time for collision avoidance and navigation in robot swarms. 
-In summary, under circular scenarios with dynamic obstacles exhibiting motion uncertainty, the proposed SwarmNav consistently achieves superior performance compared with the four baseline methods, particularly in terms of success rate and computational efficiency. These results demonstrate the effectiveness and robustness of the proposed method.
-% \begin{figure}[thpb]
-% 	\centering
-% 	\subfigtopskip=1.9pt
-% 	\subfigbottomskip=2pt
-% 	\subfigcapskip=2pt 
-% 	\subfigure[Random Scenario]{\includegraphics[width=0.47\columnwidth]{figures/fig_suiji_xuxian.pdf}\label{figfanhua1}
-% 	}
-% 	\subfigure[Corridor Scenario]{\includegraphics[width=0.47\columnwidth]{figures/fig_zoulang_xuxian.pdf}\label{figfanhua2}
-% 	}
-% 	\vspace{1pt}
-% 	\caption{Robot trajectories in random and corridor scenarios. All robots successfully reach the goal position.
-% 	}
-% 	\label{fig_fanhua}
-% 	\vspace{0.2cm}
-% \end{figure}
+We conducted simulation experiments in Gazebo to evaluate ForesightNav and its sim-to-sim transferability from the training environment. The quantitative evaluation covers four challenging settings containing static obstacles, dynamic obstacles, mixed obstacles, and large non-convex structures. We compare ForesightNav with the learning-based NavRL policy~\cite{navrl}, the optimization-based PE-Planner~\cite{pe_planner}, and an ablation without the TTC-aware 3D-VO reward. Each method is evaluated over 1,000 independent trials under the same workspace, start--goal sampling, obstacle configuration, and termination criteria. Representative trajectories are shown in Fig.~\ref{fig_sim_trajectories}, and the quantitative results are reported in Table~\ref{tab:result}.
+
+ForesightNav maintains performance comparable to NavRL in the static environment and provides a clearer advantage when obstacle motion must be anticipated. In the purely dynamic environment, its success rate reaches \(83.3\%\), compared with \(69.9\%\) for NavRL. The same overall trend is observed in the mixed environment, where ForesightNav achieves the highest success rate and the lowest collision rate. The degradation caused by removing the 3D-VO reward further indicates that finite-horizon relative-motion supervision improves responses to evolving motion conflicts rather than merely increasing static clearance.
+
+In the environment containing large non-convex structures, both ForesightNav variants reduce timeouts and deadlock-related failures relative to NavRL and PE-Planner, while recovering a larger proportion of detected deadlocks. The complete method and the 3D-VO ablation exhibit mixed differences on individual metrics; therefore, this environment demonstrates the benefit of the broader predictive training design under confining geometry rather than an isolated advantage of the 3D-VO component. Overall, the results show that ForesightNav preserves static-obstacle navigation while improving anticipatory dynamic avoidance and robustness to local trapping around large structures.
 \begin{table}[t]
     \centering
-    \caption{Effect of the deployment-time safety shield over 100 trials in a purely dynamic-obstacle environment within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
+    \caption{Effect of the deployment-time safety shield over 1,000 trials in Environment~3 (mixed static and dynamic obstacles) within a $20\,\mathrm{m}\times20\,\mathrm{m}$ workspace.}
     \label{table3}
     \footnotesize
     \setlength{\tabcolsep}{4pt}
@@ -716,54 +695,45 @@ In summary, under circular scenarios with dynamic obstacles exhibiting motion un
         \makecell{\textbf{Timeout}\\\textbf{Rate (\%)} \(\downarrow\)} \\
         \midrule
         \multirow{2}{*}{NavRL}
-            & Off & -- & -- & -- \\
-            & On  & -- & -- & -- \\
+            & Off & 57.4 & 42.6 & N/A \\
+            & On  & 62.7 & 37.3 & N/A \\
         \midrule
         \multirow{2}{*}{ForesightNav}
-            & Off & -- & -- & -- \\
-            & On  & -- & -- & -- \\
+            & Off & 64.2 & 35.8 & N/A \\
+            & On  & 75.3 & 24.7 & N/A \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-To evaluate the generalizability of our SwarmNav, we further test large-scale robot swarm navigation in circular scenarios. In this set of simulations, we aim to compare the generalization capability of reinforcement learning-based methods; therefore, we only compare the proposed method with the RL-RVO algorithm~\cite{han2022rvo}. Considering the sensitivity of RL-RVO to dynamic obstacles, obstacles were excluded from this comparison, and the swarm sizes were set to 40 and 60 robots. For each swarm size, 100 independent trials were conducted, and the success rate and average speed are reported in Table~\ref{table3}.
-As shown in Table~\ref{table3}, when the swarm size increases beyond 40, despite the space for each robot becoming very crowded, our SwarmNav achieves the best performance in both success rate and average speed. In contrast, when the swarm size reaches 60, RL-RVO succeeds only 7 times out of 100 trials, whereas our method still maintains 58 successful trials. This demonstrates that our SwarmNav possesses superior generalization capability.
+Table~\ref{table3} further evaluates the deployment-time safety shield in the mixed environment. Enabling the shield consistently increases the success rate and reduces collisions for both NavRL and ForesightNav, with a larger improvement observed for ForesightNav. This result confirms that learned anticipatory avoidance and online action correction are complementary: the policy provides the nominal navigation behavior, while the shield mitigates residual unsafe commands. 
 
 
-\subsection{Real-world Experiments} \label{subsec:Real-world Experiments}	
-In the real-world experiments, we aim to further validate the generalization capability of our SwarmNav from simulation to reality. Specifically, we use four Ackermann-model vehicles for testing, each with dimensions of $0.3\,\text{m} \times 0.2\,\text{m}$, with a maximum linear velocity of $0.6\,\text{m/s}$, a maximum angular velocity of $1.1\,\text{rad/s}$, and a maximum acceleration of $0.5\,\text{m/s}^2$.
-Each vehicle is equipped with a Jetson Nano computing platform running Ubuntu 18.04 with ROS Noetic. In addition, each vehicle is equipped with a Mid-360 LiDAR to provide environmental perception data and $10\,\text{Hz}$ global localization information obtained using the Point-LIO algorithm~\cite{point_lio}.
+\subsection{Physical Flight Tests}\label{subsec:real_world}
+To evaluate zero-shot sim-to-real transfer, we deploy the policy selected in simulation on a quadrotor without additional fine-tuning. The experiments are conducted in a $28\,\mathrm{m}\times15\,\mathrm{m}$ flight area, and the maximum translational velocity is set to $1.2\,\mathrm{m/s}$. The onboard navigation stack supplies the policy with the same local observation schema used during training, comprising proximity measurements, the estimated UAV navigation state, and tracked dynamic-obstacle descriptors. ForesightNav produces three-dimensional velocity commands that are tracked by the low-level flight controller. The multi-horizon outcome predictor and TTC-aware 3D-VO risk computation are used only for training and are not evaluated onboard.
+
+We construct four physical environments to examine complementary navigation capabilities. As shown in Fig.~\ref{fig_real_world}(a)--(d), the first environment contains static obstacles, the second introduces moving obstacles, the third combines static and moving obstacles, and the fourth contains large non-convex structures. These settings respectively examine local clearance maintenance, response to relative obstacle motion, avoidance under simultaneous geometric and motion constraints, and sustained detours around structures that can induce local trapping. The four layouts therefore provide a progressively broader assessment than a single open-space avoidance test.
 \begin{figure*}[thpb]
 	\centering
-	\subfigtopskip=-8pt
-	\subfigbottomskip=16pt
-	\subfigcapskip=-3pt 
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{figures/fig_shiwusuiji.pdf}\label{figure1}
-    }
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{fig_shiwuzoulang.pdf}\label{figure2}
-	}
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{fig_shiwujingtai.pdf}\label{figure3}
-	}
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{fig_shiwudongtai.pdf}\label{figure4}
-	}
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{fig_xian.pdf}\label{figure5}
-	}
-	\subfigure[]{\includegraphics[width=0.65\columnwidth]{fig_jiao.pdf}\label{figure6}
-	}
-	\vspace{-15pt}
-	\caption{Real-world experiment results. (a) Random scenario with four static obstacles. (b) Corridor scenario with four static obstacles. (c) Circular scenario with four static obstacles. (d) Circular scenario with two pedestrians. (e) Linear velocity variations in the circular scenario with two pedestrians. (f) Angular velocity variations in the circular scenario with two pedestrians.
-}
-	\label{fig_duibi}
+	\subfigtopskip=2pt
+	\subfigcapskip=5pt
+	\subfigbottomskip=3pt
+	\subfigure[Static]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_static}}\hfill
+	\subfigure[Dynamic]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_dynamic}}\hfill
+	\subfigure[Mixed]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_mixed}}\hfill
+	\subfigure[Non-convex]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_nonconvex}}
+	\par\vspace{7pt}
+	\subfigure[Linear velocity]{\figureplaceholder{1.82\columnwidth}{0.40\columnwidth}\label{fig_real_velocity}}
+	\vspace{1pt}
+	\caption{Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm{m}\times15\,\mathrm{m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments.}
+	\label{fig_real_world}
 	\vspace{-0.4cm}
 \end{figure*}
 
-The real-world experiments are conducted in a $5\,\text{m} \times 5\,\text{m}$ environment, considering four challenging scenarios: a random scenario with static obstacles, a corridor scenario with static obstacles, a circular scenario with static obstacles, and a circular scenario with dynamic obstacles. Note that we simulate dynamic obstacles using pedestrians moving at a constant speed of $0.3\,\text{m/s}$. 
-Finally, the experimental results for the four scenarios are shown in Fig.~\ref{fig_duibi}, where Fig.~\ref{fig_duibi}\subref{figure1}–\subref{figure4} depict the motion trajectories of the veicles and pedestrians in the four scenarios, and Fig.~\ref{fig_duibi}\subref{figure5} and \subref{figure6} show the variations of the linear and angular velocities of each vehicle in the circular scenario with dynamic obstacles.
-As shown in Fig.~\ref{fig_duibi}, although our method is trained in a simulation environment and deployed across four real-world scenarios, it is still able to ensure that all robots safely reach their respective destinations. This demonstrates the excellent generalization and robustness of the proposed method. In particular, in the circular scenario with dynamic obstacles, Fig.~\ref{fig_duibi}\subref{figure5} and \subref{figure6} show that Robots 0 and 3 exhibit noticeable fluctuations in their linear and angular velocities. These fluctuations occur between 3 and 4 seconds after departing toward their destinations, which corresponds to the moment they encounter pedestrians, indicating that each robot proactively adjusts its speed to avoid pedestrians. Overall, the real-world experiments further validate the generalization capability of our SwarmNav and demonstrate its robustness in real-world conditions. 
+Figure~\ref{fig_real_world}(e) complements the flight scenes by reporting the evolution of UAV linear velocity in all four environments under the common $1.2\,\mathrm{m/s}$ limit. The profiles expose both the acceleration required for goal-directed flight and the speed adjustments made during obstacle interactions, rather than evaluating transferability from final paths alone. Together, the representative flights and velocity histories demonstrate closed-loop operation of the transferred policy under real sensing and control effects. These tests provide qualitative evidence of practical deployment feasibility, while the controlled statistical comparisons remain those reported in the simulation study.
 
 
 \section{Conclusion}\label{sec:conclusion}
-In this paper, we propose a novel swarm robot navigation method that enables each individual robot to reach its target position quickly and safely in dense and dynamic obstacle environments. We train the collision-avoidance strategy of each robot through a hierarchical reinforcement learning framework, allowing them to handle dynamic obstacles with motion uncertainty. Within this framework, we introduce a novel goal-region amplification strategy and incorporate the RVO formulation into the reward function design. Extensive simulations and real-world experiments demonstrate the effectiveness and strong generalization capability of our SwarmNav. In future work, we plan to explore more complex dynamic scenarios with obstacles of varied shapes. 
+This paper presented ForesightNav, an anticipatory reinforcement-learning framework that extends NavRL for UAV navigation amid dynamic obstacles and large non-convex structures. A finite-horizon TTC-aware 3D-VO reward introduces relative-motion risk into policy learning, while action-conditioned multi-horizon outcome supervision makes the shared actor--critic representation predictive of near-term collision, trapping, clearance, and progress. Both mechanisms are confined to training, preserving direct policy inference at deployment. Simulation results show improved dynamic-obstacle avoidance and greater robustness to timeouts and local trapping around large structures, and zero-shot flights demonstrate practical deployment feasibility. The formulation remains limited by local observations and a constant-relative-velocity assumption and does not provide a formal safety guarantee. Future work will investigate uncertainty-aware motion prediction and compact temporal representations for longer-horizon navigation around partially observed structures.
 
 
 \bibliography{ref}

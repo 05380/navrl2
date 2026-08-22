@@ -1131,10 +1131,7 @@ class DeploymentEvaluator:
         success_count = sum(1 for item in results if item["success"])
         collision_count = sum(1 for item in results if item["collision"])
         timeout_count = sum(1 for item in results if item["timeout"])
-        deadlock_count = sum(1 for item in results if item["deadlock"])
-        recovered_trial_count = sum(
-            1 for item in results if item["recovered_from_deadlock"]
-        )
+        deadlocked_trial_count = sum(1 for item in results if item["deadlock"])
         post_deadlock_success_count = sum(
             1 for item in results if item["post_deadlock_success"]
         )
@@ -1142,34 +1139,21 @@ class DeploymentEvaluator:
         recovered_deadlock_event_count = sum(
             item["recovered_deadlock_events"] for item in results
         )
-        total_deadlock_steps = sum(item["deadlock_steps"] for item in results)
-        deadlock_steps_mean_all = total_deadlock_steps / float(self.num_trials)
-        deadlock_steps_mean_detected = (
-            total_deadlock_steps / float(deadlock_count)
-            if deadlock_count > 0
-            else 0.0
-        )
 
         success_rate = success_count / float(self.num_trials)
         failure_count = self.num_trials - success_count
         failure_rate = failure_count / float(self.num_trials)
         collision_rate = collision_count / float(self.num_trials)
         timeout_rate = timeout_count / float(self.num_trials)
-        deadlock_rate = deadlock_count / float(self.num_trials)
-        # Match utils.conditional_rate: no conditioned samples returns 0.0.
-        deadlock_recovery_rate = (
-            recovered_trial_count / float(deadlock_count)
-            if deadlock_count > 0
-            else 0.0
-        )
+        deadlocked_trial_rate = deadlocked_trial_count / float(self.num_trials)
         deadlock_event_recovery_rate = (
             recovered_deadlock_event_count / float(deadlock_event_count)
             if deadlock_event_count > 0
             else 0.0
         )
         post_deadlock_success_rate = (
-            post_deadlock_success_count / float(deadlock_count)
-            if deadlock_count > 0
+            post_deadlock_success_count / float(deadlocked_trial_count)
+            if deadlocked_trial_count > 0
             else 0.0
         )
 
@@ -1178,14 +1162,17 @@ class DeploymentEvaluator:
         print(f"  trials: {self.num_trials}")
         print(f"  success_rate: {success_count}/{self.num_trials} = {success_rate:.4f}")
         print(f"  failure_rate: {failure_count}/{self.num_trials} = {failure_rate:.4f}")
+        print(f"  collision_count: {collision_count}")
         print(f"  collision_rate: {collision_count}/{self.num_trials} = {collision_rate:.4f}")
+        print(f"  timeout_count: {timeout_count}")
         print(f"  timeout_rate: {timeout_count}/{self.num_trials} = {timeout_rate:.4f}")
-        print(f"  deadlock_rate: {deadlock_count}/{self.num_trials} = {deadlock_rate:.4f}")
+        print(f"  deadlocked_trial_count: {deadlocked_trial_count}")
         print(
-            "  deadlock_recovery_rate: "
-            f"{recovered_trial_count}/{deadlock_count} = "
-            f"{deadlock_recovery_rate:.4f}"
+            "  deadlocked_trial_rate: "
+            f"{deadlocked_trial_count}/{self.num_trials} = "
+            f"{deadlocked_trial_rate:.4f}"
         )
+        print(f"  deadlock_event_count: {deadlock_event_count}")
         print(
             "  deadlock_event_recovery_rate: "
             f"{recovered_deadlock_event_count}/{deadlock_event_count} = "
@@ -1193,13 +1180,8 @@ class DeploymentEvaluator:
         )
         print(
             "  post_deadlock_success_rate: "
-            f"{post_deadlock_success_count}/{deadlock_count} = "
+            f"{post_deadlock_success_count}/{deadlocked_trial_count} = "
             f"{post_deadlock_success_rate:.4f}"
-        )
-        print(f"  deadlock_steps_mean_all_trials: {deadlock_steps_mean_all:.4f}")
-        print(
-            "  deadlock_steps_mean_deadlocked_trials: "
-            f"{deadlock_steps_mean_detected:.4f}"
         )
 
         self.write_csv(results)

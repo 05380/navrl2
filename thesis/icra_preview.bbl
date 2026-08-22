@@ -18,10 +18,13 @@
 \fi
 #2}}
 
-\bibitem{ego_planner}
-X.~Zhou, Z.~Wang, H.~Ye, C.~Xu, and F.~Gao, ``{EGO-Planner}: An {ESDF}-free
-  gradient-based local planner for quadrotors,'' \emph{IEEE Robotics and
-  Automation Letters}, vol.~6, no.~2, pp. 478--485, 2021.
+\bibitem{pe_planner}
+\BIBentryALTinterwordspacing
+J.~Qiu, Q.~Liu, J.~Qin, D.~Cheng, Y.~Tian, and Q.~Ma, ``{PE-Planner}: A
+  performance-enhanced quadrotor motion planner for autonomous flight in
+  complex and dynamic environments,'' \emph{arXiv preprint arXiv:2403.12865},
+  2024. [Online]. Available: \url{https://arxiv.org/abs/2403.12865}
+\BIBentrySTDinterwordspacing
 
 \bibitem{faster}
 J.~Tordesillas, B.~T. Lopez, M.~Everett, and J.~P. How, ``{FASTER}: Fast and
@@ -51,21 +54,20 @@ Z.~Xu, X.~Han, H.~Shen, H.~Jin, and K.~Shimada, ``{NavRL}: Learning safe flight
   in dynamic environments,'' \emph{IEEE Robotics and Automation Letters},
   vol.~10, no.~4, pp. 3668--3675, 2025.
 
-\bibitem{fiorini1998vo}
-P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using
-  velocity obstacles,'' \emph{The International Journal of Robotics Research},
-  vol.~17, no.~7, pp. 760--772, 1998.
-
-\bibitem{orca}
-J.~van~den Berg, S.~J. Guy, M.~Lin, and D.~Manocha, ``Reciprocal n-body
-  collision avoidance,'' in \emph{Robotics Research}, ser. Springer Tracts in
-  Advanced Robotics.\hskip 1em plus 0.5em minus 0.4em\relax Springer, 2011,
-  vol.~70, pp. 3--19.
+\bibitem{ppo}
+J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov, ``Proximal
+  policy optimization algorithms,'' \emph{arXiv preprint arXiv:1707.06347},
+  2017.
 
 \bibitem{drl_vo}
 Z.~Xie and P.~M. Dames, ``{DRL-VO}: Learning to navigate through crowded
   dynamic scenes using velocity obstacles,'' \emph{IEEE Transactions on
   Robotics}, vol.~39, no.~4, pp. 2700--2719, 2023.
+
+\bibitem{lee2025privileged}
+J.~Lee, A.~Rathod, K.~Goel, J.~Stecklein, and W.~Tabib, ``Quadrotor navigation
+  using reinforcement learning with privileged information,'' \emph{arXiv
+  preprint arXiv:2509.08177}, 2025.
 
 \bibitem{navrep}
 D.~Dugas, J.~Nieto, R.~Siegwart, and J.~J. Chung, ``{NavRep}: Unsupervised
@@ -126,10 +128,16 @@ A.~Loquercio, E.~Kaufmann, R.~Ranftl, M.~M{\"u}ller, V.~Koltun, and
   D.~Scaramuzza, ``Learning high-speed flight in the wild,'' \emph{Science
   Robotics}, vol.~6, no.~59, p. eabg5810, 2021.
 
-\bibitem{lee2025privileged}
-J.~Lee, A.~Rathod, K.~Goel, J.~Stecklein, and W.~Tabib, ``Quadrotor navigation
-  using reinforcement learning with privileged information,'' \emph{arXiv
-  preprint arXiv:2509.08177}, 2025.
+\bibitem{fiorini1998vo}
+P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using
+  velocity obstacles,'' \emph{The International Journal of Robotics Research},
+  vol.~17, no.~7, pp. 760--772, 1998.
+
+\bibitem{orca}
+J.~van~den Berg, S.~J. Guy, M.~Lin, and D.~Manocha, ``Reciprocal n-body
+  collision avoidance,'' in \emph{Robotics Research}, ser. Springer Tracts in
+  Advanced Robotics.\hskip 1em plus 0.5em minus 0.4em\relax Springer, 2011,
+  vol.~70, pp. 3--19.
 
 \bibitem{han2022rvo}
 R.~Han, S.~Chen, S.~Wang, Z.~Zhang, R.~Gao, Q.~Hao, and J.~Pan, ``Reinforcement
@@ -155,20 +163,5 @@ M.~Schwarzer, A.~Anand, R.~Goel, R.~D. Hjelm, A.~Courville, and P.~Bachman,
   ``Data-efficient reinforcement learning with self-predictive
   representations,'' in \emph{International Conference on Learning
   Representations}, 2021, arXiv:2007.05929.
-
-\bibitem{ppo}
-J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov, ``Proximal
-  policy optimization algorithms,'' \emph{arXiv preprint arXiv:1707.06347},
-  2017.
-
-\bibitem{rvo2008}
-J.~van~den Berg, M.~C. Lin, and D.~Manocha, ``Reciprocal velocity obstacles for
-  real-time multi-agent navigation,'' in \emph{Proceedings of the IEEE
-  International Conference on Robotics and Automation}, 2008, pp. 1928--1935.
-
-\bibitem{point_lio}
-D.~He, W.~Xu, N.~Chen, F.~Kong, C.~Yuan, and F.~Zhang, ``{Point-LIO}: Robust
-  high-bandwidth light detection and ranging inertial odometry,''
-  \emph{Advanced Intelligent Systems}, vol.~5, no.~7, p. 2200459, 2023.
 
 \end{thebibliography}

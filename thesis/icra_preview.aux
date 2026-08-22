@@ -3,32 +3,34 @@
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \bibstyle{support/IEEEtran}
-\citation{ego_planner,faster,vigo}
+\citation{pe_planner,faster,vigo}
 \citation{cadrl,long2018,navrl}
 \citation{navrl}
-\citation{fiorini1998vo,orca,drl_vo}
+\citation{ppo}
+\citation{long2018,navrl,drl_vo,lee2025privileged}
 \citation{navrep,rgl,badgr}
-\citation{navrl,vigo}
 \providecommand \oddpage@label [2]{}
 \@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
-\citation{ego_planner,faster,vigo}
+\citation{navrl,pe_planner}
+\citation{faster,vigo}
+\citation{pe_planner}
 \citation{cadrl}
 \citation{long2018}
 \citation{navrl}
+\citation{long2018,navrl,drl_vo}
+\citation{lee2025privileged}
 \citation{prm_rl,kastner2021waypoint,semnani2020multiagent,thananjeyan2021recovery,kochdumper2023projection}
 \citation{he2020demonstration,loquercio2021wild}
-\citation{lee2025privileged}
 \citation{fiorini1998vo}
 \citation{orca}
-\citation{drl_vo}
-\citation{han2022rvo}
-\citation{navrl}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces  Overall system architecture of the proposed SwarmNav navigation policy. Raw LiDAR observations and the goal-region amplification input are normalized before being fed into the actor and critic networks, where the critic estimates the state value and the actor outputs the velocity commands.}}{2}{figure.1}\protected@file@percent }
-\newlabel{fig_zong}{{1}{2}{Overall system architecture of the proposed SwarmNav navigation policy. Raw LiDAR observations and the goal-region amplification input are normalized before being fed into the actor and critic networks, where the critic estimates the state value and the actor outputs the velocity commands}{figure.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces  The proposed ForesightNav framework. The perception system processes RGB-D observations together with the UAV state to form dynamic-obstacle, static-geometry proximity, and navigation representations. Modality-specific MLP and CNN encoders transform these inputs into a shared embedding for the predictive actor--critic. During training, the TTC-aware 3D-VO risk reward and action-conditioned multi-horizon outcome predictor jointly shape policy learning in parallel curriculum environments. During deployment, the outcome predictor is removed, and the Beta-policy actor directly generates velocity actions that can be further refined by an optional safety shield.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig_zong}{{1}{2}{The proposed ForesightNav framework. The perception system processes RGB-D observations together with the UAV state to form dynamic-obstacle, static-geometry proximity, and navigation representations. Modality-specific MLP and CNN encoders transform these inputs into a shared embedding for the predictive actor--critic. During training, the TTC-aware 3D-VO risk reward and action-conditioned multi-horizon outcome predictor jointly shape policy learning in parallel curriculum environments. During deployment, the outcome predictor is removed, and the Beta-policy actor directly generates velocity actions that can be further refined by an optional safety shield}{figure.1}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{2}{section.2}\protected@file@percent }
 \newlabel{sec:related_work}{{II}{2}{Related Work}{section.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Classical, Learning-Based, and Hybrid Navigation}{2}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Velocity-Obstacle-Guided Learning}{2}{subsection.2.2}\protected@file@percent }
+\citation{drl_vo}
+\citation{han2022rvo}
+\citation{navrl}
 \citation{navrep}
 \citation{rgl}
 \citation{badgr}
@@ -36,6 +38,7 @@
 \citation{jaderberg2017unreal}
 \citation{schwarzer2021spr}
 \citation{fiorini1998vo}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Velocity-Obstacle-Guided Learning}{3}{subsection.2.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Predictive Models and Auxiliary Outcome Learning}{3}{subsection.2.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {III}Methodology}{3}{section.3}\protected@file@percent }
 \newlabel{sec:methodology}{{III}{3}{Methodology}{section.3}{}}
@@ -49,6 +52,7 @@
 \newlabel{eq:scaled_relative_motion}{{6}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.6}{}}
 \newlabel{eq:vo_quadratic}{{7}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.7}{}}
 \newlabel{eq:ttc}{{9}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.9}{}}
+\citation{navrl}
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces  Geometry of the finite-horizon TTC-aware 3D-VO model for one retained obstacle primitive. (a) The post-transition relative trajectory first intersects the anisotropically inflated safety region at \(T_{i,j,t+1}\). (b) The corresponding realized UAV velocity lies inside the finite-horizon velocity obstacle; the \(s=H\) cap excludes relative motions that cannot reach the safety region within the prediction horizon. The open end denotes continuation toward larger relative speeds before intersection with the bounded action space. ForesightNav evaluates this membership analytically and does not construct the set or project the policy action during training.}}{4}{figure.2}\protected@file@percent }
 \newlabel{fig_3d_vo_geometry}{{2}{4}{Geometry of the finite-horizon TTC-aware 3D-VO model for one retained obstacle primitive. (a) The post-transition relative trajectory first intersects the anisotropically inflated safety region at \(T_{i,j,t+1}\). (b) The corresponding realized UAV velocity lies inside the finite-horizon velocity obstacle; the \(s=H\) cap excludes relative motions that cannot reach the safety region within the prediction horizon. The open end denotes continuation toward larger relative speeds before intersection with the bounded action space. ForesightNav evaluates this membership analytically and does not construct the set or project the policy action during training}{figure.2}{}}
 \newlabel{eq:vo_risk}{{10}{4}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.10}{}}
@@ -61,6 +65,7 @@
 \newlabel{eq:policy_observation}{{13}{4}{State and Observation Space}{equation.13}{}}
 \newlabel{eq:navigation_state}{{14}{4}{State and Observation Space}{equation.14}{}}
 \newlabel{eq:dynamic_descriptor}{{15}{4}{State and Observation Space}{equation.15}{}}
+\citation{navrl}
 \newlabel{figzhu0}{{\mbox  {III-B}3}{5}{Action Space}{equation.17}{}}
 \newlabel{figrvoa}{{3(a)}{5}{Subfigure 3(a)}{subfigure.3.1}{}}
 \newlabel{sub@figrvoa}{{(a)}{5}{Subfigure 3(a)\relax }{subfigure.3.1}{}}
@@ -80,9 +85,11 @@
 \newlabel{eq:vo_reward}{{19}{5}{TTC-Aware 3D-VO Risk Reward}{equation.19}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Goal-Progress Reward}{5}{subsubsection.3.3.2}\protected@file@percent }
 \newlabel{eq:goal_reward}{{20}{5}{Goal-Progress Reward}{equation.20}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Smoothness Reward}{5}{subsubsection.3.3.3}\protected@file@percent }
+\newlabel{eq:smooth_reward}{{21}{5}{Smoothness Reward}{equation.21}{}}
+\citation{navrl}
 \citation{ppo}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Smoothness Reward}{6}{subsubsection.3.3.3}\protected@file@percent }
-\newlabel{eq:smooth_reward}{{21}{6}{Smoothness Reward}{equation.21}{}}
+\citation{navrl}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}4}Static-Safety Reward}{6}{subsubsection.3.3.4}\protected@file@percent }
 \newlabel{eq:static_reward}{{22}{6}{Static-Safety Reward}{equation.22}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}5}Height Reward}{6}{subsubsection.3.3.5}\protected@file@percent }
@@ -96,9 +103,8 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Deployment-Time Policy Action Safety Shield}{6}{subsection.3.5}\protected@file@percent }
 \newlabel{subsec:shield}{{\mbox  {III-E}}{6}{Deployment-Time Policy Action Safety Shield}{subsection.3.5}{}}
 \newlabel{eq:safety_shield}{{28}{6}{Deployment-Time Policy Action Safety Shield}{equation.28}{}}
-\citation{han2022rvo}
-\citation{orca}
-\citation{rvo2008}
+\citation{navrl}
+\citation{pe_planner}
 \@writefile{toc}{\contentsline {section}{\numberline {IV}Experiment Results}{7}{section.4}\protected@file@percent }
 \newlabel{sec:exp}{{IV}{7}{Experiment Results}{section.4}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Training Details and Setup}{7}{subsection.4.1}\protected@file@percent }
@@ -107,77 +113,70 @@
 \newlabel{tab:hyperparameters}{{I}{7}{KEY HYPERPARAMETERS USED FOR POLICY TRAINING}{table.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Simulation Results}{7}{subsection.4.2}\protected@file@percent }
 \newlabel{subsec:Results and Discussions}{{\mbox  {IV-B}}{7}{Simulation Results}{subsection.4.2}{}}
-\newlabel{figc}{{4(a)}{7}{Subfigure 4(a)}{subfigure.4.1}{}}
-\newlabel{sub@figc}{{(a)}{7}{Subfigure 4(a)\relax }{subfigure.4.1}{}}
-\newlabel{figd}{{4(b)}{7}{Subfigure 4(b)}{subfigure.4.2}{}}
-\newlabel{sub@figd}{{(b)}{7}{Subfigure 4(b)\relax }{subfigure.4.2}{}}
-\newlabel{fige}{{4(c)}{7}{Subfigure 4(c)}{subfigure.4.3}{}}
-\newlabel{sub@fige}{{(c)}{7}{Subfigure 4(c)\relax }{subfigure.4.3}{}}
-\newlabel{figf}{{4(d)}{7}{Subfigure 4(d)}{subfigure.4.4}{}}
-\newlabel{sub@figf}{{(d)}{7}{Subfigure 4(d)\relax }{subfigure.4.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Trajectories generated by our SwarmNav in four representative scenarios, where all robots successfully reach their goal positions.}}{7}{figure.4}\protected@file@percent }
-\newlabel{fig_fangzhen}{{4}{7}{Trajectories generated by our SwarmNav in four representative scenarios, where all robots successfully reach their goal positions}{figure.4}{}}
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {\(N_r\) 10 and \(N_o\) 5}}}{7}{figure.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {\(N_r\) 10 and \(N_o\) 10}}}{7}{figure.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {\(N_r\) 10 and \(N_o\) 20}}}{7}{figure.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {\(N_r\) 20 and \(N_o\) 20}}}{7}{figure.4}\protected@file@percent }
-\citation{han2022rvo}
-\citation{point_lio}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Quantitative comparison over 100 trials in four obstacle environments within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.2}\protected@file@percent }
-\newlabel{tab:result}{{II}{8}{Quantitative comparison over 100 trials in four obstacle environments within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Effect of the deployment-time safety shield over 100 trials in a purely dynamic-obstacle environment within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.3}\protected@file@percent }
-\newlabel{table3}{{III}{8}{Effect of the deployment-time safety shield over 100 trials in a purely dynamic-obstacle environment within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Real-world Experiments}{8}{subsection.4.3}\protected@file@percent }
-\newlabel{subsec:Real-world Experiments}{{\mbox  {IV-C}}{8}{Real-world Experiments}{subsection.4.3}{}}
+\newlabel{fig_sim_static}{{4(a)}{7}{Subfigure 4(a)}{subfigure.4.1}{}}
+\newlabel{sub@fig_sim_static}{{(a)}{7}{Subfigure 4(a)\relax }{subfigure.4.1}{}}
+\newlabel{fig_sim_dynamic}{{4(b)}{7}{Subfigure 4(b)}{subfigure.4.2}{}}
+\newlabel{sub@fig_sim_dynamic}{{(b)}{7}{Subfigure 4(b)\relax }{subfigure.4.2}{}}
+\newlabel{fig_sim_mixed}{{4(c)}{7}{Subfigure 4(c)}{subfigure.4.3}{}}
+\newlabel{sub@fig_sim_mixed}{{(c)}{7}{Subfigure 4(c)\relax }{subfigure.4.3}{}}
+\newlabel{fig_sim_nonconvex}{{4(d)}{7}{Subfigure 4(d)}{subfigure.4.4}{}}
+\newlabel{sub@fig_sim_nonconvex}{{(d)}{7}{Subfigure 4(d)\relax }{subfigure.4.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Representative ForesightNav trajectories in the four simulation environments.}}{7}{figure.4}\protected@file@percent }
+\newlabel{fig_sim_trajectories}{{4}{7}{Representative ForesightNav trajectories in the four simulation environments}{figure.4}{}}
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {Static obstacles}}}{7}{figure.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Dynamic obstacles}}}{7}{figure.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {Mixed obstacles}}}{7}{figure.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {Large non-convex structures}}}{7}{figure.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.2}\protected@file@percent }
+\newlabel{tab:result}{{II}{8}{Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Effect of the deployment-time safety shield over 1,000 trials in Environment~3 (mixed static and dynamic obstacles) within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.3}\protected@file@percent }
+\newlabel{table3}{{III}{8}{Effect of the deployment-time safety shield over 1,000 trials in Environment~3 (mixed static and dynamic obstacles) within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Physical Flight Tests}{8}{subsection.4.3}\protected@file@percent }
+\newlabel{subsec:real_world}{{\mbox  {IV-C}}{8}{Physical Flight Tests}{subsection.4.3}{}}
 \bibdata{ref}
-\bibcite{ego_planner}{1}
+\bibcite{pe_planner}{1}
 \bibcite{faster}{2}
 \bibcite{vigo}{3}
 \bibcite{cadrl}{4}
 \bibcite{long2018}{5}
 \bibcite{navrl}{6}
-\bibcite{fiorini1998vo}{7}
-\bibcite{orca}{8}
-\bibcite{drl_vo}{9}
+\bibcite{ppo}{7}
+\bibcite{drl_vo}{8}
+\bibcite{lee2025privileged}{9}
 \bibcite{navrep}{10}
+\newlabel{fig_real_static}{{5(a)}{9}{Subfigure 5(a)}{subfigure.5.1}{}}
+\newlabel{sub@fig_real_static}{{(a)}{9}{Subfigure 5(a)\relax }{subfigure.5.1}{}}
+\newlabel{fig_real_dynamic}{{5(b)}{9}{Subfigure 5(b)}{subfigure.5.2}{}}
+\newlabel{sub@fig_real_dynamic}{{(b)}{9}{Subfigure 5(b)\relax }{subfigure.5.2}{}}
+\newlabel{fig_real_mixed}{{5(c)}{9}{Subfigure 5(c)}{subfigure.5.3}{}}
+\newlabel{sub@fig_real_mixed}{{(c)}{9}{Subfigure 5(c)\relax }{subfigure.5.3}{}}
+\newlabel{fig_real_nonconvex}{{5(d)}{9}{Subfigure 5(d)}{subfigure.5.4}{}}
+\newlabel{sub@fig_real_nonconvex}{{(d)}{9}{Subfigure 5(d)\relax }{subfigure.5.4}{}}
+\newlabel{fig_real_velocity}{{5(e)}{9}{Subfigure 5(e)}{subfigure.5.5}{}}
+\newlabel{sub@fig_real_velocity}{{(e)}{9}{Subfigure 5(e)\relax }{subfigure.5.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm  {m}\times 15\,\mathrm  {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments.}}{9}{figure.5}\protected@file@percent }
+\newlabel{fig_real_world}{{5}{9}{Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm {m}\times 15\,\mathrm {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments}{figure.5}{}}
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {Static}}}{9}{figure.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Dynamic}}}{9}{figure.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {Mixed}}}{9}{figure.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {Non-convex}}}{9}{figure.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(e)}{\ignorespaces {Linear velocity}}}{9}{figure.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}Conclusion}{9}{section.5}\protected@file@percent }
+\newlabel{sec:conclusion}{{V}{9}{Conclusion}{section.5}{}}
+\@writefile{toc}{\contentsline {section}{References}{9}{section*.1}\protected@file@percent }
 \bibcite{rgl}{11}
 \bibcite{badgr}{12}
 \bibcite{prm_rl}{13}
 \bibcite{kastner2021waypoint}{14}
-\newlabel{figure1}{{5(a)}{9}{Subfigure 5(a)}{subfigure.5.1}{}}
-\newlabel{sub@figure1}{{(a)}{9}{Subfigure 5(a)\relax }{subfigure.5.1}{}}
-\newlabel{figure2}{{5(b)}{9}{Subfigure 5(b)}{subfigure.5.2}{}}
-\newlabel{sub@figure2}{{(b)}{9}{Subfigure 5(b)\relax }{subfigure.5.2}{}}
-\newlabel{figure3}{{5(c)}{9}{Subfigure 5(c)}{subfigure.5.3}{}}
-\newlabel{sub@figure3}{{(c)}{9}{Subfigure 5(c)\relax }{subfigure.5.3}{}}
-\newlabel{figure4}{{5(d)}{9}{Subfigure 5(d)}{subfigure.5.4}{}}
-\newlabel{sub@figure4}{{(d)}{9}{Subfigure 5(d)\relax }{subfigure.5.4}{}}
-\newlabel{figure5}{{5(e)}{9}{Subfigure 5(e)}{subfigure.5.5}{}}
-\newlabel{sub@figure5}{{(e)}{9}{Subfigure 5(e)\relax }{subfigure.5.5}{}}
-\newlabel{figure6}{{5(f)}{9}{Subfigure 5(f)}{subfigure.5.6}{}}
-\newlabel{sub@figure6}{{(f)}{9}{Subfigure 5(f)\relax }{subfigure.5.6}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Real-world experiment results. (a) Random scenario with four static obstacles. (b) Corridor scenario with four static obstacles. (c) Circular scenario with four static obstacles. (d) Circular scenario with two pedestrians. (e) Linear velocity variations in the circular scenario with two pedestrians. (f) Angular velocity variations in the circular scenario with two pedestrians. }}{9}{figure.5}\protected@file@percent }
-\newlabel{fig_duibi}{{5}{9}{Real-world experiment results. (a) Random scenario with four static obstacles. (b) Corridor scenario with four static obstacles. (c) Circular scenario with four static obstacles. (d) Circular scenario with two pedestrians. (e) Linear velocity variations in the circular scenario with two pedestrians. (f) Angular velocity variations in the circular scenario with two pedestrians}{figure.5}{}}
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(e)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(f)}{\ignorespaces {}}}{9}{figure.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {V}Conclusion}{9}{section.5}\protected@file@percent }
-\newlabel{sec:conclusion}{{V}{9}{Conclusion}{section.5}{}}
-\@writefile{toc}{\contentsline {section}{References}{9}{section*.1}\protected@file@percent }
 \bibcite{semnani2020multiagent}{15}
 \bibcite{thananjeyan2021recovery}{16}
 \bibcite{kochdumper2023projection}{17}
 \bibcite{he2020demonstration}{18}
 \bibcite{loquercio2021wild}{19}
-\bibcite{lee2025privileged}{20}
-\bibcite{han2022rvo}{21}
-\bibcite{sutton2011horde}{22}
-\bibcite{jaderberg2017unreal}{23}
-\bibcite{schwarzer2021spr}{24}
-\bibcite{ppo}{25}
-\bibcite{rvo2008}{26}
-\bibcite{point_lio}{27}
+\bibcite{fiorini1998vo}{20}
+\bibcite{orca}{21}
+\bibcite{han2022rvo}{22}
+\bibcite{sutton2011horde}{23}
+\bibcite{jaderberg2017unreal}{24}
+\bibcite{schwarzer2021spr}{25}
 \gdef \@abspage@last{10}
