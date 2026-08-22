@@ -5,7 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Perceived Static Map1
+        - /Complete Static Environment1
         - /Final Pedestrians1
         - /Evaluation Trajectories1
       Splitter Ratio: 0.5
@@ -32,18 +32,18 @@ Visualization Manager:
         Y: 0
         Z: 0
       Plane: XY
-      Plane Cell Count: 20
+      Plane Cell Count: 60
       Reference Frame: <Fixed Frame>
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /deployment_eval/environment
-      Name: Ground-truth Environment (fallback)
+      Name: Complete Static Environment
       Namespaces:
         deployment_eval_dynamic_bboxes: false
         deployment_eval_static_map: true
       Queue Size: 10
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -56,11 +56,11 @@ Visualization Manager:
       Color: 114; 159; 207
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: Perceived Static Map
+      Name: Perceived Static Map (optional)
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
@@ -71,7 +71,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /deployment_eval/environment

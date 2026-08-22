@@ -37,12 +37,12 @@ pedestrians:
 
 task:
   left_region:
-    x: [-24.50, -23.85]
-    y: [-1.85, 1.85]
+    x: [-23.50, -22.50]
+    y: [-1.20, 1.20]
   right_region:
-    x: [23.85, 24.50]
-    y: [-1.85, 1.85]
-  static_spawn_clearance: 0.35
+    x: [22.50, 23.50]
+    y: [-1.20, 1.20]
+  static_spawn_clearance: 0.80
   pedestrian_spawn_clearance: 0.80
   alternate_direction: true
 

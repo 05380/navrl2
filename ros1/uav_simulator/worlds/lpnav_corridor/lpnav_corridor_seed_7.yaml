@@ -30,25 +30,25 @@
   "task": {
     "left_region": {
       "x": [
-        -24.5,
-        -23.85
+        -23.5,
+        -22.5
       ],
       "y": [
-        -1.85,
-        1.85
+        -1.2,
+        1.2
       ]
     },
     "right_region": {
       "x": [
-        23.85,
-        24.5
+        22.5,
+        23.5
       ],
       "y": [
-        -1.85,
-        1.85
+        -1.2,
+        1.2
       ]
     },
-    "static_spawn_clearance": 0.35,
+    "static_spawn_clearance": 0.8,
     "pedestrian_spawn_clearance": 0.8,
     "alternate_direction": true
   },

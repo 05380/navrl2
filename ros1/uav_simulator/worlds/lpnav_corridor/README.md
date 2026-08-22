@@ -73,12 +73,10 @@ final corridor environment and all trajectories in another terminal:
 roslaunch navigation_runner lpnav_corridor_eval_rviz.launch
 ```
 
-The final RViz configuration displays `/occupancy_map/inflated_voxel_map` with
-the same Z-axis rainbow coloring as the live perception view. The ground-truth
-environment marker is available as a disabled fallback display. A one-trial
-test only shows the portion perceived during that trial; use the complete trial
-set to accumulate the perceived map, or enable `Ground-truth Environment
-(fallback)` in RViz to show the full height-colored scenario immediately.
+The final RViz configuration displays the complete height-colored PCD scenario
+by default, so unseen areas do not leave holes in the final view. The partial
+accumulated perception topic `/occupancy_map/inflated_voxel_map` remains
+available as the disabled `Perceived Static Map (optional)` display.
 
 The evaluator publishes latched marker arrays on
 `/deployment_eval/trajectories` and `/deployment_eval/environment`. The static

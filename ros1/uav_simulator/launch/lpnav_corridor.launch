@@ -6,7 +6,7 @@
   <arg name="use_sim_time" default="true" />
   <arg name="debug" default="false" />
   <arg name="gui" default="true" />
-  <arg name="spawn_x" default="-24.20" />
+  <arg name="spawn_x" default="-23.00" />
   <arg name="spawn_y" default="0.0" />
   <arg name="spawn_z" default="0.10" />
   <arg name="spawn_yaw" default="0.0" />

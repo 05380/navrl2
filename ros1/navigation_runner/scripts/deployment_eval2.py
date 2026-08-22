@@ -274,6 +274,12 @@ class CorridorDeploymentEvaluator:
         self.static_map_color_max_z = rospy.get_param(
             "~static_map_color_max_z", None
         )
+        self.publish_environment_floor = bool(
+            rospy.get_param("~publish_environment_floor", True)
+        )
+        self.environment_floor_alpha = float(
+            rospy.get_param("~environment_floor_alpha", 0.85)
+        )
         self.dynamic_bbox_line_width = float(
             rospy.get_param("~dynamic_bbox_line_width", 0.06)
         )
@@ -667,6 +673,28 @@ class CorridorDeploymentEvaluator:
             markers.append(marker)
         return markers
 
+    def make_environment_floor_marker(self, stamp):
+        if not self.publish_environment_floor:
+            return None
+        marker = Marker()
+        marker.header.frame_id = self.trajectory_frame
+        marker.header.stamp = stamp
+        marker.ns = "deployment_eval_static_map"
+        marker.id = 100000
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose.position.z = -0.06
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = float(self.scenario["arena"]["length"])
+        marker.scale.y = float(self.scenario["arena"]["width"])
+        marker.scale.z = 0.02
+        marker.color.r = 1.0
+        marker.color.g = 0.28
+        marker.color.b = 0.0
+        marker.color.a = self.environment_floor_alpha
+        marker.lifetime = rospy.Duration(0)
+        return marker
+
     def make_dynamic_environment_markers(self, stamp):
         markers = []
         for marker_id, walker in enumerate(self.pedestrians.walkers):
@@ -723,6 +751,9 @@ class CorridorDeploymentEvaluator:
         else:
             static_markers = [static_marker]
             static_description = "%d height-colored voxels" % len(static_points)
+        floor_marker = self.make_environment_floor_marker(stamp)
+        if floor_marker is not None:
+            static_markers.insert(0, floor_marker)
         dynamic_markers = self.make_dynamic_environment_markers(stamp)
         self.environment_pub.publish(
             MarkerArray(markers=static_markers + dynamic_markers)
