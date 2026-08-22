@@ -190,6 +190,7 @@ def summarize_episode_stats(stats, prefix: str):
     wall_collision = flat_stats.get("wall_collision")
     below_bound = flat_stats.get("below_bound")
     above_bound = flat_stats.get("above_bound")
+    horizontal_out_of_bound = flat_stats.get("horizontal_out_of_bound")
     truncated = flat_stats.get("truncated")
     deadlock = flat_stats.get("stuck")
     stuck_steps = flat_stats.get("stuck_steps")
@@ -249,6 +250,16 @@ def summarize_episode_stats(stats, prefix: str):
         info[f"{prefix}/rates/above_bound"] = above_bound_rate
         if failure_mask is not None:
             info[f"{prefix}/conditioned/above_bound_given_failure"] = conditional_rate(above_bound_mask, failure_mask)
+
+    if horizontal_out_of_bound is not None:
+        horizontal_out_of_bound_mask = horizontal_out_of_bound >= 0.5
+        horizontal_out_of_bound_rate = mean_rate(horizontal_out_of_bound_mask)
+        info[f"{prefix}/horizontal_out_of_bound_rate"] = horizontal_out_of_bound_rate
+        info[f"{prefix}/rates/horizontal_out_of_bound"] = horizontal_out_of_bound_rate
+        if failure_mask is not None:
+            info[f"{prefix}/conditioned/horizontal_out_of_bound_given_failure"] = conditional_rate(
+                horizontal_out_of_bound_mask, failure_mask
+            )
 
     if truncated is not None:
         time_limit_mask = truncated >= 0.5
@@ -347,15 +358,24 @@ def summarize_episode_stats(stats, prefix: str):
 
 
 def resolve_eval_style(cfg):
-    style = cfg.get("eval_style", "random_crossing_eval") if hasattr(cfg, "get") else "random_crossing_eval"
+    style = cfg.get("eval_style", "opposite_crossing_eval") if hasattr(cfg, "get") else "opposite_crossing_eval"
     style = str(style)
 
     if style in ("standard_eval", "standard"):
         return "standard", "standard_eval"
-    if style in ("random_crossing_eval", "random_crossing"):
-        return "random_crossing", "random_crossing_eval"
+    if style in (
+        "opposite_crossing_eval",
+        "opposite_crossing",
+        "random_crossing_eval",
+        "random_crossing",
+        "random",
+    ):
+        return "opposite_crossing", "opposite_crossing_eval"
+    if style in ("wall_crossing_eval", "wall_crossing"):
+        return "wall_crossing", "wall_crossing_eval"
     raise ValueError(
-        f"Unknown eval_style={style}. Expected 'random_crossing_eval' or 'standard_eval'."
+        f"Unknown eval_style={style}. Expected 'opposite_crossing_eval', "
+        "'wall_crossing_eval', or 'standard_eval'."
     )
 
 

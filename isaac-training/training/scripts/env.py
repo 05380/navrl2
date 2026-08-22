@@ -459,6 +459,29 @@ class NavigationEnv(IsaacEnv):
         self.action_delay_buffer = None
         self.prev_dyn_obs_states = None
 
+        task_sampling_cfg = cfg.env.get("task_sampling", {})
+        self.task_boundary_coordinate = float(task_sampling_cfg.get("boundary_coordinate", 21.0))
+        self.task_tangent_limit = float(task_sampling_cfg.get("tangent_limit", 18.0))
+        self.task_target_jitter = max(float(task_sampling_cfg.get("target_jitter", 4.0)), 0.0)
+        self.horizontal_limit = float(task_sampling_cfg.get("horizontal_limit", 22.0))
+        self.task_dynamic_clearance = max(
+            float(task_sampling_cfg.get("dynamic_clearance_radius", 1.5)), 0.0
+        )
+        self.wall_influence_radius = max(float(task_sampling_cfg.get("wall_influence_radius", 2.0)), 0.0)
+        self.wall_line_sample_spacing = max(
+            float(task_sampling_cfg.get("wall_line_sample_spacing", 0.25)), 0.05
+        )
+        if self.task_boundary_coordinate <= 0.0:
+            raise ValueError("env.task_sampling.boundary_coordinate must be positive.")
+        if not 0.0 < self.task_tangent_limit <= self.task_boundary_coordinate:
+            raise ValueError(
+                "env.task_sampling.tangent_limit must be positive and no larger than boundary_coordinate."
+            )
+        if self.horizontal_limit <= self.task_boundary_coordinate:
+            raise ValueError(
+                "env.task_sampling.horizontal_limit must be larger than boundary_coordinate."
+            )
+
         super().__init__(cfg, cfg.headless)
         
         # Drone Initialization
@@ -507,12 +530,10 @@ class NavigationEnv(IsaacEnv):
             self.observation_delay_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
             self.action_delay_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
             self.dyn_obs_frame_drop_reset_mask = torch.zeros(self.num_envs, dtype=torch.bool)
-            self.train_task_mode = str(self.cfg.get("train_style", "random_crossing_eval"))
-            if self.train_task_mode not in ("random_crossing_eval", "random_crossing", "random"):
-                raise ValueError(
-                    f"Unknown train_style={self.train_task_mode}. Expected 'random_crossing_eval' or 'random'."
-                )
-            self.eval_task_mode = "random_crossing"
+            self.train_task_mode = self._normalize_task_mode(
+                str(self.cfg.get("train_style", "opposite_crossing"))
+            )
+            self.eval_task_mode = "opposite_crossing"
             # self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
             # self.target_pos[:, 0, 1] = 24.
             # self.target_pos[:, 0, 2] = 2.     
@@ -553,6 +574,7 @@ class NavigationEnv(IsaacEnv):
         )
         self.terrain_clearance_cache = {}
         self.wall_collision_cache = {}
+        self.wall_influence_cache = {}
         self.spawn_clearance_radius = float(wall_cfg.get("spawn_clearance_radius", 1.5))
         self.target_clearance_radius = float(wall_cfg.get("target_clearance_radius", self.spawn_clearance_radius))
         self.position_sample_attempts = max(1, int(wall_cfg.get("position_sample_attempts", 128)))
@@ -1122,6 +1144,7 @@ class NavigationEnv(IsaacEnv):
             "wall_collision": UnboundedContinuousTensorSpec(1),
             "below_bound": UnboundedContinuousTensorSpec(1),
             "above_bound": UnboundedContinuousTensorSpec(1),
+            "horizontal_out_of_bound": UnboundedContinuousTensorSpec(1),
             "stuck": UnboundedContinuousTensorSpec(1),
             "stuck_active": UnboundedContinuousTensorSpec(1),
             "stuck_steps": UnboundedContinuousTensorSpec(1),
@@ -1365,161 +1388,215 @@ class NavigationEnv(IsaacEnv):
 
         return noisy_rpos, noisy_vel, noisy_size, noisy_range_mask
 
-    def _sample_boundary_positions(self, count: int):
-        masks = torch.tensor(
-            [[1.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
-            dtype=torch.float,
-            device=self.device,
+    @staticmethod
+    def _normalize_task_mode(mode: str):
+        aliases = {
+            "opposite_crossing_eval": "opposite_crossing",
+            "random_crossing_eval": "opposite_crossing",
+            "random_crossing": "opposite_crossing",
+            "random": "opposite_crossing",
+            "wall_crossing_eval": "wall_crossing",
+        }
+        normalized = aliases.get(str(mode), str(mode))
+        if normalized not in ("opposite_crossing", "wall_crossing"):
+            raise ValueError(
+                f"Unknown task style={mode}. Expected 'opposite_crossing' or 'wall_crossing'."
+            )
+        return normalized
+
+    def _sample_opposite_boundary_candidates(self, count: int):
+        boundary = self.task_boundary_coordinate
+        tangent = (2.0 * torch.rand(count, device=self.device) - 1.0) * self.task_tangent_limit
+        jitter = (2.0 * torch.rand(count, device=self.device) - 1.0) * self.task_target_jitter
+        target_tangent = (-tangent + jitter).clamp(-self.task_tangent_limit, self.task_tangent_limit)
+        side = torch.randint(0, 4, (count,), device=self.device)
+
+        start = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
+        target = torch.zeros_like(start)
+        top = side == 0
+        bottom = side == 1
+        right = side == 2
+        left = side == 3
+
+        start[top, 0, 0] = tangent[top]
+        start[top, 0, 1] = boundary
+        target[top, 0, 0] = target_tangent[top]
+        target[top, 0, 1] = -boundary
+
+        start[bottom, 0, 0] = tangent[bottom]
+        start[bottom, 0, 1] = -boundary
+        target[bottom, 0, 0] = target_tangent[bottom]
+        target[bottom, 0, 1] = boundary
+
+        start[right, 0, 0] = boundary
+        start[right, 0, 1] = tangent[right]
+        target[right, 0, 0] = -boundary
+        target[right, 0, 1] = target_tangent[right]
+
+        start[left, 0, 0] = -boundary
+        start[left, 0, 1] = tangent[left]
+        target[left, 0, 0] = boundary
+        target[left, 0, 1] = target_tangent[left]
+
+        start[:, 0, 2] = 0.5 + 2.0 * torch.rand(count, device=self.device)
+        target[:, 0, 2] = 0.5 + 2.0 * torch.rand(count, device=self.device)
+        return start, target
+
+    def _points_have_dynamic_clearance(self, points_xyz: torch.Tensor, clearance_radius: float):
+        if (
+            not hasattr(self, "dyn_obs_state")
+            or not hasattr(self, "dyn_obs_size")
+            or self.dyn_obs_state.shape[0] == 0
+        ):
+            return torch.ones(points_xyz.shape[0], dtype=torch.bool, device=self.device)
+
+        obstacle_pos = self.dyn_obs_state[:, :3]
+        obstacle_size = self.dyn_obs_size
+        delta = points_xyz.unsqueeze(1) - obstacle_pos.unsqueeze(0)
+        horizontal_distance = delta[..., :2].norm(dim=-1)
+        obstacle_radius = 0.5 * obstacle_size[..., :2].norm(dim=-1)
+        horizontal_overlap = horizontal_distance <= (obstacle_radius.unsqueeze(0) + clearance_radius)
+        vertical_overlap = delta[..., 2].abs() <= (
+            0.5 * obstacle_size[:, 2].unsqueeze(0) + clearance_radius
         )
-        shifts = torch.tensor(
-            [[0.0, 24.0, 0.0], [0.0, -24.0, 0.0], [24.0, 0.0, 0.0], [-24.0, 0.0, 0.0]],
-            dtype=torch.float,
-            device=self.device,
+        return ~torch.any(horizontal_overlap & vertical_overlap, dim=1)
+
+    def _segments_intersect_wall_influence(self, start_xy: torch.Tensor, target_xy: torch.Tensor):
+        if self.wall_occupancy is None or not torch.any(self.wall_occupancy > 0.5).item():
+            return torch.zeros(start_xy.shape[0], dtype=torch.bool, device=self.device)
+
+        pixel_radius = int(np.ceil(self.wall_influence_radius / self.terrain_occupancy_resolution))
+        if pixel_radius not in self.wall_influence_cache:
+            kernel_size = 2 * pixel_radius + 1
+            occupancy = self.wall_occupancy.unsqueeze(0).unsqueeze(0)
+            expanded = F.max_pool2d(occupancy, kernel_size=kernel_size, stride=1, padding=pixel_radius)
+            self.wall_influence_cache[pixel_radius] = expanded[0, 0] > 0.5
+        influence_map = self.wall_influence_cache[pixel_radius]
+
+        max_line_length = 2.0 * np.sqrt(
+            self.task_boundary_coordinate**2 + self.task_tangent_limit**2
         )
-        mask_indices = torch.randint(0, masks.size(0), (count,), device=self.device)
-        selected_masks = masks[mask_indices].unsqueeze(1)
-        selected_shifts = shifts[mask_indices].unsqueeze(1)
+        sample_count = max(2, int(np.ceil(max_line_length / self.wall_line_sample_spacing)) + 1)
+        alpha = torch.linspace(0.0, 1.0, sample_count, device=self.device)
+        points = start_xy.unsqueeze(1) + alpha.view(1, -1, 1) * (
+            target_xy - start_xy
+        ).unsqueeze(1)
 
-        positions = 48.0 * torch.rand(count, 1, 3, dtype=torch.float, device=self.device) - 24.0
-        heights = 0.5 + torch.rand(count, dtype=torch.float, device=self.device) * 2.0
-        positions[:, 0, 2] = heights
-        return positions * selected_masks + selected_shifts
-
-    def _boundary_side_indices(self, positions: torch.Tensor):
-        xy = positions[:, 0, :2]
-        abs_xy = xy.abs()
-        side_indices = torch.zeros(xy.shape[0], dtype=torch.long, device=self.device)
-        x_dominant = abs_xy[:, 0] > abs_xy[:, 1]
-        side_indices[x_dominant & (xy[:, 0] > 0.0)] = 2
-        side_indices[x_dominant & (xy[:, 0] <= 0.0)] = 3
-        side_indices[(~x_dominant) & (xy[:, 1] > 0.0)] = 0
-        side_indices[(~x_dominant) & (xy[:, 1] <= 0.0)] = 1
-        return side_indices
-
-    def _sample_boundary_positions_excluding_sides(self, excluded_sides: torch.Tensor):
-        count = int(excluded_sides.numel())
-        masks = torch.tensor(
-            [[1.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
-            dtype=torch.float,
-            device=self.device,
+        half_size = 0.5 * self.terrain_occupancy_size
+        local_xy = points + half_size.view(1, 1, 2)
+        valid = (
+            (local_xy[..., 0] >= 0.0)
+            & (local_xy[..., 0] <= self.terrain_occupancy_size[0])
+            & (local_xy[..., 1] >= 0.0)
+            & (local_xy[..., 1] <= self.terrain_occupancy_size[1])
         )
-        shifts = torch.tensor(
-            [[0.0, 24.0, 0.0], [0.0, -24.0, 0.0], [24.0, 0.0, 0.0], [-24.0, 0.0, 0.0]],
-            dtype=torch.float,
-            device=self.device,
-        )
-        side_offsets = torch.randint(0, 3, (count,), device=self.device)
-        side_indices = side_offsets + (side_offsets >= excluded_sides.long()).long()
-        selected_masks = masks[side_indices].unsqueeze(1)
-        selected_shifts = shifts[side_indices].unsqueeze(1)
+        grid_xy = torch.round(local_xy / self.terrain_occupancy_resolution).long()
+        grid_xy[..., 0].clamp_(0, influence_map.shape[0] - 1)
+        grid_xy[..., 1].clamp_(0, influence_map.shape[1] - 1)
+        intersects = influence_map[grid_xy[..., 0], grid_xy[..., 1]] & valid
+        return torch.any(intersects, dim=1)
 
-        positions = 48.0 * torch.rand(count, 1, 3, dtype=torch.float, device=self.device) - 24.0
-        heights = 0.5 + torch.rand(count, dtype=torch.float, device=self.device) * 2.0
-        positions[:, 0, 2] = heights
-        return positions * selected_masks + selected_shifts
+    def _sample_task_pairs(self, count: int, mode: str):
+        mode = self._normalize_task_mode(mode)
+        require_wall = mode == "wall_crossing"
+        if require_wall and (
+            self.wall_occupancy is None or not torch.any(self.wall_occupancy > 0.5).item()
+        ):
+            return self._sample_task_pairs(count, "opposite_crossing")
 
-    def _sample_training_boundary_positions(self, count: int, clearance_radius: float):
-        positions = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
+        starts = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
+        targets = torch.zeros_like(starts)
         remaining = torch.arange(count, device=self.device)
         fallback = None
 
         for _ in range(self.position_sample_attempts):
             if remaining.numel() == 0:
                 break
-            candidates = self._sample_boundary_positions(int(remaining.numel()))
-            fallback = candidates
-            valid = self._points_have_static_clearance(candidates[:, 0, :2], clearance_radius)
+            candidate_start, candidate_target = self._sample_opposite_boundary_candidates(
+                int(remaining.numel())
+            )
+            fallback = (candidate_start, candidate_target)
+            valid = self._points_have_static_clearance(
+                candidate_start[:, 0, :2], self.spawn_clearance_radius
+            )
+            valid &= self._points_have_static_clearance(
+                candidate_target[:, 0, :2], self.target_clearance_radius
+            )
+            valid &= self._points_have_dynamic_clearance(
+                candidate_start[:, 0, :], self.task_dynamic_clearance
+            )
+            valid &= self._points_have_dynamic_clearance(
+                candidate_target[:, 0, :], self.task_dynamic_clearance
+            )
+            if require_wall:
+                valid &= self._segments_intersect_wall_influence(
+                    candidate_start[:, 0, :2], candidate_target[:, 0, :2]
+                )
             if not torch.any(valid).item():
                 continue
             accepted = remaining[valid]
-            positions[accepted] = candidates[valid]
+            starts[accepted] = candidate_start[valid]
+            targets[accepted] = candidate_target[valid]
             remaining = remaining[~valid]
 
         if remaining.numel() > 0:
-            if fallback is None or fallback.shape[0] != remaining.numel():
-                fallback = self._sample_boundary_positions(int(remaining.numel()))
-            positions[remaining] = fallback
-        return positions
-
-    def _sample_training_target_positions(self, start_pos: torch.Tensor, clearance_radius: float):
-        count = start_pos.shape[0]
-        excluded_sides = self._boundary_side_indices(start_pos)
-        positions = torch.zeros(count, 1, 3, dtype=torch.float, device=self.device)
-        remaining = torch.arange(count, device=self.device)
-        fallback = None
-
-        for _ in range(self.position_sample_attempts):
-            if remaining.numel() == 0:
-                break
-            candidates = self._sample_boundary_positions_excluding_sides(excluded_sides[remaining])
-            fallback = candidates
-            valid = self._points_have_static_clearance(candidates[:, 0, :2], clearance_radius)
-            if not torch.any(valid).item():
-                continue
-            accepted = remaining[valid]
-            positions[accepted] = candidates[valid]
-            remaining = remaining[~valid]
-
-        if remaining.numel() > 0:
-            if fallback is None or fallback.shape[0] != remaining.numel():
-                fallback = self._sample_boundary_positions_excluding_sides(excluded_sides[remaining])
-            positions[remaining] = fallback
-        return positions
+            if require_wall:
+                fallback_start, fallback_target = self._sample_task_pairs(
+                    int(remaining.numel()), "opposite_crossing"
+                )
+            else:
+                if fallback is None or fallback[0].shape[0] != remaining.numel():
+                    fallback = self._sample_opposite_boundary_candidates(int(remaining.numel()))
+                fallback_start, fallback_target = fallback
+            starts[remaining] = fallback_start
+            targets[remaining] = fallback_target
+        return starts, targets
 
     def set_eval_task_mode(self, mode: str):
-        if mode not in ("standard", "random_crossing"):
-            raise ValueError(f"Unknown eval task mode: {mode}")
-        self.eval_task_mode = mode
+        self.eval_task_mode = "standard" if mode == "standard" else self._normalize_task_mode(mode)
 
     def _set_standard_eval_task(self, env_ids: torch.Tensor):
-        # Match the original NavRL-main evaluation setup: fixed crossing from
-        # y=24 to y=-24 with drones spread along the x axis.
+        # Deterministic top-to-bottom crossing with drones spread along the x axis.
         pos = torch.zeros(len(env_ids), 1, 3, dtype=torch.float, device=self.device)
         pos[:, 0, 0] = (env_ids.float() / self.num_envs - 0.5) * 32.0
-        pos[:, 0, 1] = 24.0
+        pos[:, 0, 1] = self.task_boundary_coordinate
         pos[:, 0, 2] = 2.0
 
         target_x = torch.linspace(-0.5, 0.5, self.num_envs, dtype=torch.float, device=self.device) * 32.0
         self.target_pos[env_ids, 0, 0] = target_x[env_ids.long()]
-        self.target_pos[env_ids, 0, 1] = -24.0
+        self.target_pos[env_ids, 0, 1] = -self.task_boundary_coordinate
         self.target_pos[env_ids, 0, 2] = 2.0
         return pos
 
     
     def reset_target(self, env_ids: torch.Tensor):
         if (self.training):
-            self.target_pos[env_ids] = self._sample_training_boundary_positions(
-                env_ids.size(0), self.target_clearance_radius
-            )
+            _, targets = self._sample_task_pairs(env_ids.size(0), self.train_task_mode)
+            self.target_pos[env_ids] = targets
 
             # self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
             # self.target_pos[:, 0, 1] = 24.
             # self.target_pos[:, 0, 2] = 2.    
         else:
             self.target_pos[:, 0, 0] = torch.linspace(-0.5, 0.5, self.num_envs) * 32.
-            self.target_pos[:, 0, 1] = -24.
+            self.target_pos[:, 0, 1] = -self.task_boundary_coordinate
             self.target_pos[:, 0, 2] = 2.            
 
 
     def _reset_idx(self, env_ids: torch.Tensor):
         self.drone._reset_idx(env_ids, self.training)
         if (self.training):
-            pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
-            if self.train_task_mode == "random":
-                self.target_pos[env_ids] = self._sample_training_boundary_positions(
-                    env_ids.size(0), self.target_clearance_radius
-                )
-            else:
-                self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
+            pos, targets = self._sample_task_pairs(env_ids.size(0), self.train_task_mode)
+            self.target_pos[env_ids] = targets
 
             # pos = torch.zeros(len(env_ids), 1, 3, device=self.device)
             # pos[:, 0, 0] = (env_ids / self.num_envs - 0.5) * 32.
             # pos[:, 0, 1] = -24.
             # pos[:, 0, 2] = 2.
         else:
-            if self.eval_task_mode == "random_crossing":
-                pos = self._sample_training_boundary_positions(env_ids.size(0), self.spawn_clearance_radius)
-                self.target_pos[env_ids] = self._sample_training_target_positions(pos, self.target_clearance_radius)
+            if self.eval_task_mode != "standard":
+                pos, targets = self._sample_task_pairs(env_ids.size(0), self.eval_task_mode)
+                self.target_pos[env_ids] = targets
             else:
                 pos = self._set_standard_eval_task(env_ids)
         
@@ -1890,6 +1967,9 @@ class NavigationEnv(IsaacEnv):
         collision = static_collision | dynamic_collision
         below_bound = self.drone.pos[..., 2] < 0.2
         above_bound = self.drone.pos[..., 2] > 4.
+        horizontal_out_of_bound = torch.any(
+            self.drone.pos[..., :2].abs() > self.horizontal_limit, dim=-1
+        )
         
         # Final reward calculation
         if (self.cfg.env_dyn.num_obstacles != 0):
@@ -1911,9 +1991,10 @@ class NavigationEnv(IsaacEnv):
         self.reward[collision] -= 45.0
         self.reward[below_bound] -= 20.0
         self.reward[above_bound] -= 20.0
+        self.reward[horizontal_out_of_bound] -= 20.0
 
         # Terminate Conditions
-        self.terminated = reach_goal | below_bound | above_bound | collision
+        self.terminated = reach_goal | below_bound | above_bound | horizontal_out_of_bound | collision
         self.truncated = time_limit # progress buf is to track the step number
 
         # update previous velocity for smoothness calculation in the next ieteration
@@ -1952,6 +2033,7 @@ class NavigationEnv(IsaacEnv):
         self.stats["wall_collision"] = wall_collision.float()
         self.stats["below_bound"] = below_bound.float()
         self.stats["above_bound"] = above_bound.float()
+        self.stats["horizontal_out_of_bound"] = horizontal_out_of_bound.float()
         self.stats["stuck"] = torch.maximum(self.stats["stuck"], stuck.float())
         self.stats["stuck_active"] = stuck.float()
         self.stats["stuck_steps"] += stuck.float()

@@ -8,8 +8,8 @@ headless: False
 device: "cuda:0"
 seed: 0
 checkpoint:
-eval_style: random_crossing_eval # random_crossing_eval or standard_eval
-train_style: random_crossing_eval # random_crossing_eval keeps target off the start side; random samples start and target independently
+eval_style: opposite_crossing_eval # opposite_crossing_eval, wall_crossing_eval, or standard_eval
+train_style: opposite_crossing # opposite_crossing or wall_crossing
 
 # Total Training Length
 max_frame_num: 14e8 # max frame 
@@ -39,6 +39,14 @@ env:
     spawn_clearance_radius: 1.5
     target_clearance_radius: 1.5
     position_sample_attempts: 128
+  task_sampling:
+    boundary_coordinate: 21.0
+    tangent_limit: 18.0
+    target_jitter: 4.0 # goal is near the opposite symmetric point; set to 0 for exact symmetry
+    horizontal_limit: 22.0
+    dynamic_clearance_radius: 1.5
+    wall_influence_radius: 2.0 # wall_crossing requires the start-goal segment to intersect this band
+    wall_line_sample_spacing: 0.25
 
 env_dyn:
   num_obstacles: 80 # set to zero if static env is needed

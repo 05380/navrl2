@@ -21,6 +21,7 @@ def print_eval_metrics(eval_info, prefix="eval", label="eval"):
         f"{prefix}/wall_collision_rate",
         f"{prefix}/below_bound_rate",
         f"{prefix}/above_bound_rate",
+        f"{prefix}/horizontal_out_of_bound_rate",
         f"{prefix}/deadlock_rate",
         f"{prefix}/time_limit_rate",
         f"{prefix}/stall_rate",

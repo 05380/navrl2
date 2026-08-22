@@ -567,9 +567,30 @@ In this section, we compare the proposed method with several state-of-the-art ap
 
 \subsection{Training Details and Setup}\label{subsec:Simulation Setup}
 
-The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $40\,\text{m}\times40\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
+The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $50\,\text{m}\times50\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. Figure~\ref{fig:training_environments} illustrates the progression from the initial dynamic-obstacle setting to the final environment containing large non-convex structures. The corresponding success-rate curves over the five curriculum stages are reported in Fig.~\ref{fig:curriculum_success}. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
 
-For quantitative deployment evaluation, we conduct 1,000 trials for each method in each scenario. A new start--goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N_{\mathrm{trial}}=1{,}000$ be the number of trials, and let $N_{\mathrm{succ}}$, $N_{\mathrm{coll}}$, and $N_{\mathrm{timeout}}$ denote the numbers of successful, collided, and timed-out trials, respectively. We further denote by $N_{\mathrm{dead}}^{\mathrm{evt}}$ the total number of deadlock events detected across all trials and by $N_{\mathrm{rec}}^{\mathrm{evt}}$ the recovered-deadlock-event count (\texttt{recovered\_deadlock\_event\_count}). We report the following metrics:
+\begin{figure}[H]
+    \centering
+    \subfigtopskip=1.5pt
+    \subfigbottomskip=1.5pt
+    \subfigcapskip=2pt
+    \subfigure[Initial stage]{\figureplaceholder{0.48\columnwidth}{0.31\columnwidth}\label{fig:training_initial}}\hfill
+    \subfigure[Final stage]{\figureplaceholder{0.48\columnwidth}{0.31\columnwidth}\label{fig:training_final}}
+    \vspace{-1pt}
+    \caption{Visualization of the curriculum-training environments in a $50\,\mathrm{m}\times50\,\mathrm{m}$ workspace. Dynamic-obstacle density is progressively increased during training. (a) The initial environment contains 60 dynamic obstacles. (b) The final environment contains multiple large non-convex structures.}
+    \label{fig:training_environments}
+    \vspace{-0.35cm}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \figureplaceholder{0.98\columnwidth}{0.50\columnwidth}
+    \caption{Navigation success-rate curves over the five curriculum-training stages.}
+    \label{fig:curriculum_success}
+    \vspace{-0.35cm}
+\end{figure}
+
+For quantitative deployment evaluation, we conduct 1,000 trials for each method in each scenario. A new start-goal pair is sampled for every trial, while obstacles evolve according to the motion process defined by the evaluated scenario. The environment configuration and metric thresholds are held fixed. A trial terminates upon goal arrival, collision, or the $180\,\text{s}$ time limit. Let $N_{\mathrm{trial}}=1{,}000$ be the number of trials, and let $N_{\mathrm{succ}}$, $N_{\mathrm{coll}}$, and $N_{\mathrm{timeout}}$ denote the numbers of successful, collided, and timed-out trials, respectively. We further denote by $N_{\mathrm{dead}}^{\mathrm{evt}}$ the total number of deadlock events detected across all trials and by $N_{\mathrm{rec}}^{\mathrm{evt}}$ the recovered-deadlock-event count. We report the following metrics:
 \begin{itemize}
     \item \textit{Success Rate} ($N_{\mathrm{succ}}/N_{\mathrm{trial}}$): The fraction of trials in which the UAV reaches the goal before collision or timeout.
     \item \textit{Collision Rate} ($N_{\mathrm{coll}}/N_{\mathrm{trial}}$): The fraction of trials terminated by contact with a static or dynamic obstacle.
@@ -659,22 +680,27 @@ Taken together, these metrics characterize the UAV's ability to avoid dynamic ob
 	\centering
 	\subfigtopskip=1.9pt
 	\subfigbottomskip=2pt
-	\subfigcapskip=2pt 
-		\subfigure[Static obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_static}
-	}
-		\subfigure[Dynamic obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_dynamic}
-	}
-	    \subfigure[Mixed obstacles]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_mixed}
-	}
-		\subfigure[Large non-convex structures]{\figureplaceholder{0.47\columnwidth}{0.36\columnwidth}\label{fig_sim_nonconvex}
-	}
+	\subfigcapskip=2pt
+	\subfigure[Static]{\includegraphics[width=0.47\columnwidth]{fig_sim_static.png}\label{fig_sim_static}}\hfill
+	\subfigure[Dynamic]{\includegraphics[width=0.47\columnwidth]{fig_sim_dynamic.png}\label{fig_sim_dynamic}}
+	\par\vspace{-1pt}
+	\subfigure[Mixed]{\includegraphics[width=0.47\columnwidth]{fig_sim_mixed.png}\label{fig_sim_mixed}}\hfill
+	\subfigure[Non-convex]{\includegraphics[width=0.47\columnwidth]{fig_sim_nonconvex.png}\label{fig_sim_nonconvex}}
 	\vspace{-1pt}
 	\caption{Representative ForesightNav trajectories in the four simulation environments.}
 	\label{fig_sim_trajectories}
 	\vspace{-0.4cm}
 \end{figure}
 
-We conducted simulation experiments in Gazebo to evaluate ForesightNav and its sim-to-sim transferability from the training environment. The quantitative evaluation covers four challenging settings containing static obstacles, dynamic obstacles, mixed obstacles, and large non-convex structures. We compare ForesightNav with the learning-based NavRL policy~\cite{navrl}, the optimization-based PE-Planner~\cite{pe_planner}, and an ablation without the TTC-aware 3D-VO reward. Each method is evaluated over 1,000 independent trials under the same workspace, start--goal sampling, obstacle configuration, and termination criteria. Representative trajectories are shown in Fig.~\ref{fig_sim_trajectories}, and the quantitative results are reported in Table~\ref{tab:result}.
+We conducted simulation experiments in Gazebo to evaluate ForesightNav and its sim-to-sim transferability from the training environment. The quantitative evaluation covers four challenging settings containing static obstacles, dynamic obstacles, mixed obstacles, and large non-convex structures. We compare ForesightNav with the learning-based NavRL policy~\cite{navrl}, the optimization-based PE-Planner~\cite{pe_planner}, and an ablation without the TTC-aware 3D-VO reward. Each method is evaluated over 1,000 independent trials under the same workspace, start--goal sampling, obstacle configuration, and termination criteria. Figure~\ref{fig_sim_trajectories}(a)--(c) shows representative trajectories through static, dynamic, and mixed obstacle fields, while Fig.~\ref{fig_sim_trajectories}(d) illustrates a sustained detour around large non-convex structures. Figure~\ref{fig:corridor_navigation} further provides a detailed corridor example containing both static obstacles and moving pedestrians. The quantitative results are reported in Table~\ref{tab:result}.
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=\columnwidth]{fig_corridor_navigation.png}
+	\caption{Safe navigation in a simulated corridor environment. The upper panel shows the Gazebo scene containing static obstacles and moving pedestrians, while the lower panel shows the corresponding environment map and UAV trajectory.}
+	\label{fig:corridor_navigation}
+	\vspace{-0.35cm}
+\end{figure}
 
 ForesightNav maintains performance comparable to NavRL in the static environment and provides a clearer advantage when obstacle motion must be anticipated. In the purely dynamic environment, its success rate reaches \(83.3\%\), compared with \(69.9\%\) for NavRL. The same overall trend is observed in the mixed environment, where ForesightNav achieves the highest success rate and the lowest collision rate. The degradation caused by removing the 3D-VO reward further indicates that finite-horizon relative-motion supervision improves responses to evolving motion conflicts rather than merely increasing static clearance.
 
@@ -715,14 +741,20 @@ We construct four physical environments to examine complementary navigation capa
 \begin{figure*}[thpb]
 	\centering
 	\subfigtopskip=2pt
-	\subfigcapskip=5pt
-	\subfigbottomskip=3pt
-	\subfigure[Static]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_static}}\hfill
-	\subfigure[Dynamic]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_dynamic}}\hfill
-	\subfigure[Mixed]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_mixed}}\hfill
-	\subfigure[Non-convex]{\figureplaceholder{0.44\columnwidth}{0.32\columnwidth}\label{fig_real_nonconvex}}
-	\par\vspace{7pt}
-	\subfigure[Linear velocity]{\figureplaceholder{1.82\columnwidth}{0.40\columnwidth}\label{fig_real_velocity}}
+	\subfigcapskip=3pt
+	\subfigbottomskip=2pt
+	\begin{minipage}[t]{0.49\textwidth}
+		\vspace{0pt}\centering
+		\subfigure[Static]{\figureplaceholder{0.47\linewidth}{0.434\linewidth}\label{fig_real_static}}\hfill
+		\subfigure[Dynamic]{\figureplaceholder{0.47\linewidth}{0.434\linewidth}\label{fig_real_dynamic}}
+		\par\vspace{-1pt}
+		\subfigure[Mixed]{\figureplaceholder{0.47\linewidth}{0.434\linewidth}\label{fig_real_mixed}}\hfill
+		\subfigure[Non-convex]{\figureplaceholder{0.47\linewidth}{0.434\linewidth}\label{fig_real_nonconvex}}
+	\end{minipage}\hfill
+	\begin{minipage}[t]{0.49\textwidth}
+		\vspace{0pt}\centering
+		\subfigure[Linear velocity]{\figureplaceholder{0.98\linewidth}{0.87\linewidth}\label{fig_real_velocity}}
+	\end{minipage}
 	\vspace{1pt}
 	\caption{Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm{m}\times15\,\mathrm{m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments.}
 	\label{fig_real_world}

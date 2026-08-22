@@ -468,7 +468,7 @@ class CorridorWorldGenerator:
         </collision>
         <visual name="visual">
           <geometry><plane><normal>0 0 1</normal><size>{ground_size_x} {ground_size_y}</size></plane></geometry>
-          <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
       </link>
     </model>
