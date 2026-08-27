@@ -1,0 +1,1048 @@
+import rospy
+import numpy as np
+import torch
+from map_manager.srv import RayCast
+from nav_msgs.msg import Odometry, Path
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Point, PoseStamped, TwistStamped, Quaternion, Vector3
+from mavros_msgs.msg import PositionTarget, State
+from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
+from navigation_runner.srv import GetSafeAction, GetSafeActionMap
+from onboard_detector.srv import GetDynamicObstacles
+from map_manager.srv import GetStaticObstacles
+from ppo import PPO
+from torchrl.data import CompositeSpec, UnboundedContinuousTensorSpec
+from tensordict.tensordict import TensorDict
+from torchrl.envs.utils import ExplorationType, set_exploration_type
+from navigation_runner.srv import GetPolicyInference
+from utils import vec_to_new_frame
+import math
+from std_srvs.srv import Empty
+import tf.transformations
+import time
+import threading
+import os
+
+class Navigation:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.lidar_hbeams = int(360/self.cfg.sensor.lidar_hres)
+        self.raypoints = []
+        self.dynamic_obstacles = []
+        self.robot_size = 0.3 # radius
+        self.raycast_vres = ((self.cfg.sensor.lidar_vfov[1] - self.cfg.sensor.lidar_vfov[0]))/(self.cfg.sensor.lidar_vbeams - 1) * np.pi/180.0
+        self.raycast_hres = self.cfg.sensor.lidar_hres * np.pi/180.0
+
+        self.goal = None
+        self.goal_received = False
+        self.target_dir = None
+        self.navigation_frame_yaw = None
+        self.hold_pose = None
+        self.stable_times = 0
+        self.has_action = False
+        self.laser_points_msg = None
+
+        self.height_control = True 
+        self.px4_control = rospy.get_param('rl/use_px4', True)
+        self.use_safety_shield = rospy.get_param('rl/use_safety_shield', False)
+        self.always_use_policy = rospy.get_param('rl/always_use_policy', True)
+        self.use_goal_z = rospy.get_param('rl/use_goal_z', True)
+        self.goal_stop_radius = float(rospy.get_param('rl/goal_stop_radius', 0.5))
+        self.goal_slow_radius = float(rospy.get_param('rl/goal_slow_radius', 2.0))
+        self.goal_slow_min_speed = float(rospy.get_param('rl/goal_slow_min_speed', 0.5))
+        self.goal_slow_max_speed = float(rospy.get_param('rl/goal_slow_max_speed', 1.0))
+        self.goal_xy_settle_radius = float(rospy.get_param('rl/goal_xy_settle_radius', self.goal_stop_radius))
+        self.goal_stop_height_tolerance = float(rospy.get_param('rl/goal_stop_height_tolerance', 0.2))
+        self.goal_vertical_settle_speed = float(rospy.get_param('rl/goal_vertical_settle_speed', 0.3))
+        self.show_rollout_traj = rospy.get_param('rl/show_rollout_traj', True)
+        self.rollout_traj_dt = float(rospy.get_param('rl/rollout_traj_dt', 0.2))
+        self.rollout_traj_horizon = float(rospy.get_param('rl/rollout_traj_horizon', 2.0))
+
+        self.odom_data_stamp = None
+        self.raycast_data_stamp = None
+        self.dynamic_obstacle_data_stamp = None
+        self.last_command_publish_stamp = None
+
+        self.use_policy_server = False
+
+        self.odom_received = False
+        if (self.px4_control):
+            self.odom_sub = rospy.Subscriber("/mavros/local_position/odom", Odometry, self.odom_callback)
+            self.state_sub = rospy.Subscriber("/mavros/state", State, self.state_callback)
+            self.action_pub = rospy.Publisher("/mavros/setpoint_raw/local", PositionTarget, queue_size=10)
+            self.pose_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
+            self.set_mode_client = rospy.ServiceProxy("mavros/set_mode", SetMode)
+            self.arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)
+
+            self.mavros_state = None
+            self.offb_set_mode = SetModeRequest()
+            self.offb_set_mode.custom_mode = 'OFFBOARD'
+            self.arm_cmd = CommandBoolRequest()
+            self.arm_cmd.value = True
+        else:
+            self.odom_sub = rospy.Subscriber("/CERLAB/quadcopter/odom", Odometry, self.odom_callback)
+            self.action_pub = rospy.Publisher("/CERLAB/quadcopter/cmd_vel", TwistStamped, queue_size=10)
+            self.pose_pub = rospy.Publisher("/CERLAB/quadcopter/setpoint_pose", PoseStamped, queue_size=10)
+
+        self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
+        self.raycast_vis_pub = rospy.Publisher("/rl_navigation/raycast", MarkerArray, queue_size=10)
+        self.cmd_vis_pub = rospy.Publisher("/rl_navigation/cmd", MarkerArray, queue_size=10)
+        self.goal_vis_pub = rospy.Publisher("rl_navigation/goal", MarkerArray, queue_size=10)
+        self.rollout_traj_pub = rospy.Publisher("/rollout_traj", Path, queue_size=10)
+        self.dynamic_obstacle_vis_pub = rospy.Publisher("/rl_navigation/in_range_dynamic_obstacles", MarkerArray, queue_size=10)
+
+        if (not self.use_policy_server):
+            self.policy = self.init_model()
+            self.policy.eval()
+
+
+        # safety thread
+        self.safety_stop = False
+        safety_thread = threading.Thread(target = self.safety_check)
+        safety_thread.start()
+
+        self.takeoff()
+  
+    def init_model(self):
+        observation_dim = 8
+        num_dim_each_dyn_obs_state = 10
+        observation_spec = CompositeSpec({
+            "agents": CompositeSpec({
+                "observation": CompositeSpec({
+                    "state": UnboundedContinuousTensorSpec((observation_dim,), device=self.cfg.device), 
+                    "lidar": UnboundedContinuousTensorSpec((1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams), device=self.cfg.device),
+                    "direction": UnboundedContinuousTensorSpec((1, 3), device=self.cfg.device),
+                    "dynamic_obstacle": UnboundedContinuousTensorSpec((1, self.cfg.algo.feature_extractor.dyn_obs_num, num_dim_each_dyn_obs_state), device=self.cfg.device),
+                }),
+            }).expand(1)
+        }, shape=[1], device=self.cfg.device)
+
+        action_dim = 3
+        action_spec = CompositeSpec({
+            "agents": CompositeSpec({
+                "action": UnboundedContinuousTensorSpec((action_dim,), device=self.cfg.device), 
+            })
+        }).expand(1, action_dim).to(self.cfg.device)
+
+        policy = PPO(self.cfg.algo, observation_spec, action_spec, self.cfg.device)
+
+        file_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ckpts")
+        checkpoint = "navrl_checkpoint.pt"
+
+        checkpoint_state = torch.load(os.path.join(file_dir, checkpoint), map_location=self.cfg.device)
+        missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)
+        if missing_keys or unexpected_keys:
+            print("[nav-ros]: checkpoint loaded with non-strict key match.")
+            if missing_keys:
+                print("[nav-ros]: missing keys:", missing_keys)
+            if unexpected_keys:
+                print("[nav-ros]: unexpected keys:", unexpected_keys)
+        return policy
+
+    def takeoff(self):
+        takeoff_height = 1.0
+        r = rospy.Rate(10)
+        while (not rospy.is_shutdown() and self.odom_received == False):
+            print("[nav-ros]: Wait for robot odom...")
+            r.sleep()
+
+        takeoff_pose = PoseStamped()
+        takeoff_pose.pose.position.x = self.odom.pose.pose.position.x
+        takeoff_pose.pose.position.y = self.odom.pose.pose.position.y
+        takeoff_pose.pose.position.z = takeoff_height
+        takeoff_pose.pose.orientation = self.odom.pose.pose.orientation
+        self.takeoff_pose = takeoff_pose
+        self.hold_pose = takeoff_pose
+        if (self.px4_control):
+            pose = PoseStamped()
+
+            pose.pose.position.x = 0
+            pose.pose.position.y = 0
+            pose.pose.position.z = 2
+            rate = rospy.Rate(20)
+            # Send a few setpoints before starting
+            for i in range(100):
+                if(rospy.is_shutdown()):
+                    break
+                self.pose_pub.publish(pose)
+                rate.sleep()
+            last_req = rospy.Time.now()
+        while (not rospy.is_shutdown() and not (np.abs(self.odom.pose.pose.position.z - takeoff_height) <= 0.2)):
+            if (self.px4_control):
+                if (self.mavros_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
+                    if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
+                        print("[nav-ros]: OFFBOARD enabled.")
+
+                    last_req = rospy.Time.now()
+                else:
+                    if(not self.mavros_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
+                        if(self.arming_client.call(self.arm_cmd).success == True):
+                            print("[nav-ros]: Vehicle armed.")
+
+                        last_req = rospy.Time.now()
+            self.pose_pub.publish(takeoff_pose)
+            r.sleep()
+        print("[nav-ros]: take off completed at height: ", takeoff_height)
+
+
+    def safety_check(self):
+        while not rospy.is_shutdown():
+            if (self.safety_stop == False):
+                input("[nav-ros]: Press Enter to STOP motion!\n")
+                self.safety_stop = True
+                self.stop_pose = PoseStamped()
+                self.stop_pose.pose = self.odom.pose.pose
+            else:
+                input("[nav-ros]: Press Enter to CONTINUE motion!\n")
+                self.safety_stop = False
+
+    def get_raycast(self, pos: np.array , start_angle: float):
+        raypoints = []
+        try:
+            raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)
+            pos_msg = Point()
+            pos_msg.x = pos[0]
+            pos_msg.y = pos[1]
+            pos_msg.z = pos[2]
+            response = raycast(pos_msg,
+                               start_angle,
+                               self.cfg.sensor.lidar_range, 
+                               self.cfg.sensor.lidar_vfov[0], 
+                               self.cfg.sensor.lidar_vfov[1], 
+                               self.cfg.sensor.lidar_vbeams, 
+                               self.cfg.sensor.lidar_hres
+                               )
+            num_points = int(len(response.points)/3)
+            self.laser_points_msg = response.points
+            for i in range(num_points):
+                p = [response.points[3*i+0], response.points[3*i+1], response.points[3*i+2]]
+                raypoints.append(p)
+        except rospy.service.ServiceException as e:
+            print("[nav-ros]: raycast func err!")        
+        return raypoints
+
+    def get_dynamic_obstacles(self, pos: np.array):
+        dynamic_obstacle_pos = torch.zeros(self.cfg.algo.feature_extractor.dyn_obs_num, 3, dtype=torch.float, device=self.cfg.device)
+        dynamic_obstacle_vel = torch.zeros(self.cfg.algo.feature_extractor.dyn_obs_num, 3, dtype=torch.float, device=self.cfg.device)
+        dynamic_obstacle_size = torch.zeros(self.cfg.algo.feature_extractor.dyn_obs_num, 3, dtype=torch.float, device=self.cfg.device)
+        try:
+            distance_range = 4.0
+            pos_msg = Point()
+            pos_msg.x = pos[0]
+            pos_msg.y = pos[1]
+            pos_msg.z = pos[2]
+            get_obstacle = rospy.ServiceProxy("onboard_detector/get_dynamic_obstacles", GetDynamicObstacles)
+            response = get_obstacle(pos_msg, distance_range)
+            total_obs_num = min(len(response.position), len(response.velocity), len(response.size))
+            if total_obs_num > 0:
+                all_pos = torch.tensor(
+                    [[p.x, p.y, p.z] for p in response.position[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+                all_vel = torch.tensor(
+                    [[v.x, v.y, v.z] for v in response.velocity[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+                all_size = torch.tensor(
+                    [[s.x, s.y, s.z] for s in response.size[:total_obs_num]],
+                    dtype=torch.float,
+                    device=self.cfg.device,
+                )
+
+                drone_pos = torch.tensor(pos, dtype=torch.float, device=self.cfg.device)
+                dyn_obs_distance_2d = torch.norm(all_pos[:, :2] - drone_pos[:2], dim=-1)
+                selected_num = min(self.cfg.algo.feature_extractor.dyn_obs_num, total_obs_num)
+                _, closest_dyn_obs_idx = torch.topk(dyn_obs_distance_2d, selected_num, largest=False)
+
+                dynamic_obstacle_pos[:selected_num] = all_pos[closest_dyn_obs_idx]
+                dynamic_obstacle_vel[:selected_num] = all_vel[closest_dyn_obs_idx]
+                dynamic_obstacle_size[:selected_num] = all_size[closest_dyn_obs_idx]
+        except rospy.service.ServiceException as e:
+            print("[nav-ros]: dynamic obstacle func err!")   
+        return dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size
+
+    def get_static_obstacles(self):
+        static_obstacle_pos = []
+        static_obstacle_size = []
+        static_obstacle_angle = []
+        try:
+            get_static_obstacles_server = rospy.ServiceProxy("occupancy_map/get_static_obstacles", GetStaticObstacles)
+            static_obstacle_response = get_static_obstacles_server()
+            static_obstacle_pos = static_obstacle_response.position
+            static_obstacle_size = static_obstacle_response.size
+            static_obstacle_angle = static_obstacle_response.angle
+        except rospy.service.ServiceException as e:
+            print("[nav-ros]: static obstacle func err!")
+        return static_obstacle_pos, static_obstacle_size, static_obstacle_angle
+           
+    def raycast_callback(self, event):
+        if not self.odom_received or not self.goal_received:
+            return
+        data_stamp = rospy.Time.now()
+        pos = np.array([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z])
+        self.raypoints = self.get_raycast(pos, self.navigation_frame_yaw)
+        self.raycast_data_stamp = data_stamp
+
+    def dynamic_obstacle_callback(self, event):
+        if not self.odom_received:
+            return
+        data_stamp = rospy.Time.now()
+        pos = np.array([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z])
+        dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size = self.get_dynamic_obstacles(pos)
+        self.dynamic_obstacles = (dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size)
+        self.dynamic_obstacle_data_stamp = data_stamp
+
+    def odom_callback(self, odom):
+        self.odom = odom
+        self.odom_data_stamp = odom.header.stamp if odom.header.stamp.to_sec() > 0.0 else rospy.Time.now()
+        self.odom_received = True
+    
+    def state_callback(self, state):
+        self.mavros_state = state
+    
+    def goal_callback(self, goal):
+        if not self.odom_received:
+            return
+
+        self.goal = goal
+        if not self.use_goal_z:
+            self.goal.pose.position.z = self.takeoff_pose.pose.position.z
+        dir_x = self.goal.pose.position.x - self.odom.pose.pose.position.x
+        dir_y = self.goal.pose.position.y - self.odom.pose.pose.position.y
+        dir_z = self.goal.pose.position.z - self.odom.pose.pose.position.z
+        horizontal_norm = math.hypot(dir_x, dir_y)
+        if horizontal_norm > 1e-6:
+            self.navigation_frame_yaw = math.atan2(dir_y, dir_x)
+        else:
+            _, _, self.navigation_frame_yaw = tf.transformations.euler_from_quaternion([
+                self.odom.pose.pose.orientation.x,
+                self.odom.pose.pose.orientation.y,
+                self.odom.pose.pose.orientation.z,
+                self.odom.pose.pose.orientation.w,
+            ])
+            dir_x = math.cos(self.navigation_frame_yaw)
+            dir_y = math.sin(self.navigation_frame_yaw)
+        self.target_dir = torch.tensor([dir_x, dir_y, dir_z], device=self.cfg.device)
+
+        self.goal_received = True
+        self.stable_times = 0
+
+    def quaternion_to_rotation_matrix(self, quaternion):
+        # w, x, y, z = quaternion
+        w = quaternion.w
+        x = quaternion.x
+        y = quaternion.y
+        z = quaternion.z
+        xx, xy, xz = x**2, x*y, x*z
+        yy, yz = y**2, y*z
+        zz = z**2
+        wx, wy, wz = w*x, w*y, w*z
+        
+        return np.array([
+            [1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy)],
+            [2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx)],
+            [2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy)]
+        ])        
+    
+    def check_obstacle(self, lidar_scan, dyn_obs_states):
+        # return true if there is obstacles in the range
+        # has_static = not torch.all(lidar_scan == 0.)
+        # has_static = not torch.all(lidar_scan[..., 1:] < 0.2) # hardcode to tune
+        quarter_size = lidar_scan.shape[2] // 4
+        first_quarter_check, last_quarter_check = torch.all(lidar_scan[:, :, :quarter_size, 1:] < 0.2), torch.all(lidar_scan[:, :, -quarter_size:, 1:] < 0.2)
+        has_static = (not first_quarter_check) or (not last_quarter_check)
+        has_dynamic = not torch.all(dyn_obs_states == 0.)
+        return has_static or has_dynamic
+
+    def get_safe_action(self, vel_world, action_vel_world):
+        safe_action = np.zeros(3)
+        try:
+            pos_msg = Point(x=self.odom.pose.pose.position.x, y=self.odom.pose.pose.position.y, z=self.odom.pose.pose.position.z)
+            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action", GetSafeAction)
+            vel_msg = Vector3(x=vel_world[0].item(), y=vel_world[1].item(), z=vel_world[2].item())
+            action_vel_msg = Vector3(x=action_vel_world[0], y=action_vel_world[1], z=action_vel_world[2])
+            max_vel = np.sqrt(3. * self.cfg.algo.actor.action_limit**2)
+            obstacle_pos_list = []
+            obstacle_vel_list = []
+            obstacle_size_list = []
+            for i in range(len(self.dynamic_obstacles[0])):
+                if (self.dynamic_obstacles[2][i][0] != 0):
+                    obs_pos = Vector3(x=self.dynamic_obstacles[0][i][0].item(), y=self.dynamic_obstacles[0][i][1].item(), z=self.dynamic_obstacles[0][i][2].item())
+                    obs_vel = Vector3(x=self.dynamic_obstacles[1][i][0].item(), y=self.dynamic_obstacles[1][i][1].item(), z=self.dynamic_obstacles[1][i][2].item())
+                    obs_size = Vector3(x=self.dynamic_obstacles[2][i][0].item(), y=self.dynamic_obstacles[2][i][1].item(), z=self.dynamic_obstacles[2][i][2].item())
+                    obstacle_pos_list.append(obs_pos)
+                    obstacle_vel_list.append(obs_vel)
+                    obstacle_size_list.append(obs_size)
+            response = get_safe_action(pos_msg, vel_msg, self.robot_size, obstacle_pos_list, obstacle_vel_list,\
+                                    obstacle_size_list, self.laser_points_msg, self.cfg.sensor.lidar_range,\
+                                    max(self.raycast_vres, self.raycast_hres), max_vel, action_vel_msg)
+            safe_action = np.array([response.safe_action.x, response.safe_action.y, response.safe_action.z])
+            return safe_action
+        except rospy.service.ServiceException as e:
+            # print("[nav-ros]: no safety running!")
+            return action_vel_world   
+
+    def get_safe_action_map(self, vel_world, action_vel_world):
+        safe_action = np.zeros(3)
+        try:
+            pos_msg = Point(x=self.odom.pose.pose.position.x, y=self.odom.pose.pose.position.y, z=self.odom.pose.pose.position.z)
+            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action_map", GetSafeActionMap)
+            vel_msg = Vector3(x=vel_world[0].item(), y=vel_world[1].item(), z=vel_world[2].item())
+            action_vel_msg = Vector3(x=action_vel_world[0], y=action_vel_world[1], z=action_vel_world[2])
+            max_vel = np.sqrt(3. * self.cfg.algo.actor.action_limit**2)
+            
+            # Dynamic Obstacles
+            obstacle_pos_list = []
+            obstacle_vel_list = []
+            obstacle_size_list = []
+            for i in range(len(self.dynamic_obstacles[0])):
+                if (self.dynamic_obstacles[2][i][0] != 0):
+                    obs_pos = Vector3(x=self.dynamic_obstacles[0][i][0].item(), y=self.dynamic_obstacles[0][i][1].item(), z=self.dynamic_obstacles[0][i][2].item())
+                    obs_vel = Vector3(x=self.dynamic_obstacles[1][i][0].item(), y=self.dynamic_obstacles[1][i][1].item(), z=self.dynamic_obstacles[1][i][2].item())
+                    obs_size = Vector3(x=self.dynamic_obstacles[2][i][0].item(), y=self.dynamic_obstacles[2][i][1].item(), z=self.dynamic_obstacles[2][i][2].item())
+                    obstacle_pos_list.append(obs_pos)
+                    obstacle_vel_list.append(obs_vel)
+                    obstacle_size_list.append(obs_size)
+            
+            # Static Obstacles
+            static_obstacle_pos, static_obstacle_size, static_obstacle_angle = self.get_static_obstacles()
+
+            response = get_safe_action(pos_msg, vel_msg, self.robot_size, obstacle_pos_list, obstacle_vel_list,\
+                                    obstacle_size_list, static_obstacle_pos, static_obstacle_size,\
+                                    static_obstacle_angle, max_vel, action_vel_msg)
+            safe_action = np.array([response.safe_action.x, response.safe_action.y, response.safe_action.z])
+            return safe_action
+        except rospy.service.ServiceException as e:
+            # print("[nav-ros]: no safety running!")
+            return action_vel_world   
+
+    def _as_velocity_array(self, velocity):
+        velocity = np.asarray(velocity, dtype=np.float64).reshape(-1)
+        if velocity.size != 3:
+            raise ValueError(f"Expected 3D velocity, got shape {velocity.shape}")
+        return velocity
+
+    def _apply_minimal_height_guard(self, velocity_world, current_z):
+        velocity_world = self._as_velocity_array(velocity_world).copy()
+        if current_z <= 0.2 and velocity_world[2] < 0.0:
+            velocity_world[2] = 0.0
+        if current_z >= 4.0 and velocity_world[2] > 0.0:
+            velocity_world[2] = 0.0
+        return velocity_world
+
+    def _cap_velocity_speed(self, velocity, max_speed):
+        velocity = self._as_velocity_array(velocity).copy()
+        velocity_norm = np.linalg.norm(velocity)
+        if velocity_norm <= 1e-6 or velocity_norm <= max_speed:
+            return velocity
+        return max_speed * velocity / velocity_norm
+
+    def _publish_stop_command(self, yaw):
+        zero_vel = np.zeros(3)
+        self.cmd_vel_world = zero_vel.copy()
+        self.safe_cmd_vel_world = zero_vel.copy()
+        if self.odom_received:
+            self.hold_pose = PoseStamped()
+            self.hold_pose.pose = self.odom.pose.pose
+
+        if (self.px4_control):
+            final_cmd_vel = PositionTarget()
+            final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.header.frame_id = "map"
+            if (self.height_control):
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.velocity.z = 0.0
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+            else:
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+        else:
+            final_cmd_vel = TwistStamped()
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.twist.linear.x = 0.0
+            final_cmd_vel.twist.linear.y = 0.0
+            final_cmd_vel.twist.linear.z = 0.0
+
+        self.action_pub.publish(final_cmd_vel)
+        self.has_action = True
+
+    def _publish_vertical_settle_command(self, vertical_velocity, yaw):
+        velocity_world = np.array([0.0, 0.0, vertical_velocity], dtype=np.float64)
+        self.cmd_vel_world = velocity_world.copy()
+        self.safe_cmd_vel_world = velocity_world.copy()
+
+        if (self.px4_control):
+            final_cmd_vel = PositionTarget()
+            final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.header.frame_id = "map"
+            if (self.height_control):
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.velocity.z = vertical_velocity
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+            else:
+                final_cmd_vel.velocity.x = 0.0
+                final_cmd_vel.velocity.y = 0.0
+                final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
+                final_cmd_vel.yaw = yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+        else:
+            final_cmd_vel = TwistStamped()
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.twist.linear.x = 0.0
+            final_cmd_vel.twist.linear.y = 0.0
+            final_cmd_vel.twist.linear.z = vertical_velocity if self.height_control else 0.0
+
+        self.action_pub.publish(final_cmd_vel)
+        self.has_action = True
+     
+    def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
+        rpos = goal - pos
+        distance = rpos.norm(dim=-1, keepdim=True)
+        distance_2d = rpos[..., :2].norm(dim=-1, keepdim=True)
+        distance_z = rpos[..., 2].unsqueeze(-1)
+
+
+        target_dir_2d = self.target_dir.clone()
+        target_dir_2d[2] = 0.
+
+        rpos_clipped = rpos / distance.clamp(1e-6) # start to goal direction
+        rpos_clipped_g = vec_to_new_frame(rpos_clipped, target_dir_2d).squeeze(0).squeeze(0)
+
+        # "relative" velocity
+        vel_g = vec_to_new_frame(vel, target_dir_2d).squeeze(0).squeeze(0) # goal velocity
+
+        # drone_state = torch.cat([rpos_clipped, orientation, vel_g], dim=-1).squeeze(1)
+        drone_state = torch.cat([rpos_clipped_g, distance_2d, distance_z, vel_g], dim=-1).unsqueeze(0)
+
+        # Lidar States
+        lidar_scan = torch.tensor(self.raypoints, device=self.cfg.device)
+        lidar_scan = (lidar_scan - pos).norm(dim=-1).clamp_max(self.cfg.sensor.lidar_range).reshape(1, 1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams)
+        lidar_scan = self.cfg.sensor.lidar_range - lidar_scan
+
+
+        # dynamic obstacle states
+        dynamic_obstacle_pos = self.dynamic_obstacles[0].clone()
+        dynamic_obstacle_vel = self.dynamic_obstacles[1].clone()
+        dynamic_obstacle_size = self.dynamic_obstacles[2].clone()
+        closest_dyn_obs_rpos = dynamic_obstacle_pos - pos
+        closest_dyn_obs_rpos[dynamic_obstacle_size[:, 2] == 0] = 0.
+        closest_dyn_obs_rpos[:, 2][dynamic_obstacle_size[:, 2] > 1] = 0.
+        closest_dyn_obs_rpos_g = vec_to_new_frame(closest_dyn_obs_rpos.unsqueeze(0), target_dir_2d).squeeze(0)
+        closest_dyn_obs_distance = closest_dyn_obs_rpos.norm(dim=-1, keepdim=True)
+        closest_dyn_obs_distance_2d = closest_dyn_obs_rpos_g[..., :2].norm(dim=-1, keepdim=True)
+        closest_dyn_obs_distance_z = closest_dyn_obs_rpos_g[..., 2].unsqueeze(-1)
+        closest_dyn_obs_rpos_gn = closest_dyn_obs_rpos_g / closest_dyn_obs_distance.clamp(1e-6)
+
+
+
+        closest_dyn_obs_vel_g = vec_to_new_frame(dynamic_obstacle_vel.unsqueeze(0), target_dir_2d).squeeze(0)
+        
+        obs_res = 0.25
+        closest_dyn_obs_width = torch.max(dynamic_obstacle_size[:, 0], dynamic_obstacle_size[:, 1])
+        closest_dyn_obs_width = torch.clamp(torch.ceil(closest_dyn_obs_width / 0.25) - 1, min=0, max=1./obs_res - 1)
+        closest_dyn_obs_width[dynamic_obstacle_size[:, 2] == 0] = 0.
+        closest_dyn_obs_height = torch.where(
+            dynamic_obstacle_size[:, 2] > 1.0,
+            torch.zeros_like(dynamic_obstacle_size[:, 2]),
+            dynamic_obstacle_size[:, 2],
+        )
+        # dyn_obs_states = torch.cat([closest_dyn_obs_rpos_g, closest_dyn_obs_vel_g, \
+        #                             closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
+        dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, \
+                                    closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
+        # states
+        obs = TensorDict({
+            "agents": TensorDict({
+                "observation": TensorDict({
+                    "state": drone_state,
+                    "lidar": lidar_scan,
+                    "direction": target_dir_2d.unsqueeze(0),
+                    "dynamic_obstacle": dyn_obs_states
+                }, batch_size=[1])
+            }, batch_size=[1])
+        }, batch_size=[1])
+
+        has_obstacle_in_range = self.check_obstacle(lidar_scan, dyn_obs_states)
+        # if (False):
+        if (self.always_use_policy or has_obstacle_in_range):
+            if (not self.use_policy_server):
+                with set_exploration_type(ExplorationType.MEAN):
+                    output = self.policy(obs)
+                vel_world = output["agents", "action"]
+            else:
+                try:
+                    get_policy_inference = rospy.ServiceProxy("rl_navigation/GetPolicyInference", GetPolicyInference)
+
+                    response = get_policy_inference(obs["agents"]["observation"]["state"].cpu().numpy().flatten().tolist(),
+                                                    obs["agents"]["observation"]["state"].size(),
+                                                    obs["agents"]["observation"]["lidar"].cpu().numpy().flatten().tolist(),
+                                                    obs["agents"]["observation"]["lidar"].size(), 
+                                                    obs["agents"]["observation"]["direction"].cpu().numpy().flatten().tolist(),
+                                                    obs["agents"]["observation"]["direction"].size(),
+                                                    obs["agents"]["observation"]["dynamic_obstacle"].cpu().numpy().flatten().tolist(),
+                                                    obs["agents"]["observation"]["dynamic_obstacle"].size())
+                    vel_world = torch.tensor(response.action, device=self.cfg.device, dtype=torch.float).unsqueeze(0).unsqueeze(0)
+                except rospy.service.ServiceException as e:
+                    print("[nav-ros]: Policy server err!")
+                    vel_world = torch.tensor([0., 0., 0.], device=self.cfg.device).unsqueeze(0).unsqueeze(0)
+        else:
+            vel_world =  (goal - pos)/torch.norm(goal - pos) * self.cfg.algo.actor.action_limit
+            vel_world = vel_world.unsqueeze(0).unsqueeze(0)
+        return vel_world
+
+
+    def get_rollout_traj(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor, dt=0.1, horizon=3.0):
+        traj = [pos.cpu().detach().numpy()]
+        t = 0.
+        while (t < horizon):
+            vel_curr_world = self.get_action(pos, vel, goal)
+            t += dt
+            pos = (pos + dt * vel_curr_world).squeeze(0).squeeze(0)
+            vel = vel_curr_world.squeeze(0).squeeze(0)
+            traj.append(pos.cpu().detach().numpy())
+        return np.array(traj)
+
+    def publish_rollout_traj(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor):
+        if not self.show_rollout_traj:
+            return
+        rollout_traj = self.get_rollout_traj(
+            pos,
+            vel,
+            goal,
+            dt=self.rollout_traj_dt,
+            horizon=self.rollout_traj_horizon,
+        )
+        traj_msg = Path()
+        traj_msg.header.frame_id = "map"
+        traj_msg.header.stamp = rospy.get_rostime()
+        for point in rollout_traj:
+            pose = PoseStamped()
+            pose.header = traj_msg.header
+            pose.pose.position.x = point[0]
+            pose.pose.position.y = point[1]
+            pose.pose.position.z = point[2]
+            traj_msg.poses.append(pose)
+        self.rollout_traj_pub.publish(traj_msg)
+
+    def control_callback(self, event):
+        control_start_wall = time.perf_counter()
+
+        if (not self.odom_received):
+            return
+
+        if (not self.goal_received or len(self.raypoints) == 0 or len(self.dynamic_obstacles) == 0):
+            self.pose_pub.publish(self.hold_pose if self.hold_pose is not None else self.takeoff_pose)
+            return
+
+        if (self.safety_stop):
+            self.pose_pub.publish(self.stop_pose)
+            return
+        
+        start_time = time.time()
+        pos = torch.tensor([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z], device=self.cfg.device)
+        goal = torch.tensor([self.goal.pose.position.x, self.goal.pose.position.y, self.goal.pose.position.z], device=self.cfg.device)
+        _, _, curr_angle = tf.transformations.euler_from_quaternion([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w])
+
+        # Keep the navigation frame fixed from the start-to-goal direction.
+        # The current goal vector is still updated for observation and arrival logic.
+        current_target_dir = goal - pos
+        distance = current_target_dir.norm()
+        distance_float = distance.item()
+        current_target_dir_np = current_target_dir.detach().cpu().numpy()
+        goal_xy_distance = np.linalg.norm(current_target_dir_np[:2])
+        height_error = float(current_target_dir_np[2])
+
+        frame_direction_xy = np.array([
+            math.cos(self.navigation_frame_yaw),
+            math.sin(self.navigation_frame_yaw),
+        ])
+        along_track_remaining = float(np.dot(current_target_dir_np[:2], frame_direction_xy))
+        cross_track_error = float(abs(
+            frame_direction_xy[0] * current_target_dir_np[1]
+            - frame_direction_xy[1] * current_target_dir_np[0]
+        ))
+        passed_goal_plane = (
+            along_track_remaining <= 0.0
+            and cross_track_error <= self.goal_xy_settle_radius
+            and abs(height_error) <= self.goal_stop_height_tolerance
+        )
+
+        if (
+            distance_float <= self.goal_stop_radius
+            or passed_goal_plane
+            or (
+                goal_xy_distance <= self.goal_xy_settle_radius
+                and abs(height_error) <= self.goal_stop_height_tolerance
+            )
+        ):
+            self.goal_received = False
+            self.stable_times = 0
+            self._publish_stop_command(self.navigation_frame_yaw)
+            print("[nav-ros]: goal reached. stop navigation.")
+            return
+
+        if goal_xy_distance <= self.goal_xy_settle_radius:
+            settle_speed = min(abs(height_error), self.goal_vertical_settle_speed)
+            if settle_speed > 1e-3:
+                settle_speed = max(settle_speed, min(self.goal_slow_min_speed, self.goal_vertical_settle_speed))
+            vertical_velocity = math.copysign(settle_speed, height_error)
+            self._publish_vertical_settle_command(vertical_velocity, self.navigation_frame_yaw)
+            return
+
+        # Align yaw with the fixed navigation frame used by the policy and raycast.
+        angle_diff = np.abs(self.navigation_frame_yaw - curr_angle)
+        if (angle_diff > math.pi):
+            angle_diff = np.abs(angle_diff - math.pi * 2)
+        if (angle_diff >= 0.1):
+            pose_msg = PoseStamped()
+            pose_msg.pose = self.odom.pose.pose
+            quaternion = tf.transformations.quaternion_from_euler(0, 0, self.navigation_frame_yaw)
+            pose_msg.pose.orientation.w = quaternion[3]
+            pose_msg.pose.orientation.x = quaternion[0]
+            pose_msg.pose.orientation.y = quaternion[1]
+            pose_msg.pose.orientation.z = quaternion[2]
+            self.pose_pub.publish(pose_msg)
+            return
+        else:
+            self.stable_times += 1
+            if (self.stable_times <= 10):
+                return
+
+        used_input_stamps = [
+            stamp for stamp in (
+                self.odom_data_stamp,
+                self.raycast_data_stamp,
+                self.dynamic_obstacle_data_stamp,
+            )
+            if stamp is not None and stamp.to_sec() > 0.0
+        ]
+
+        orientation = torch.tensor([self.odom.pose.pose.orientation.w, self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z], device=self.cfg.device)
+        rot = self.quaternion_to_rotation_matrix(self.odom.pose.pose.orientation)
+        vel_body = np.array([self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z])
+        vel_world = torch.tensor(rot @ vel_body, device=self.cfg.device, dtype=torch.float) # world vel
+        
+        # get RL action from model
+        cmd_vel_world = self.get_action(pos, vel_world, goal).squeeze(0).squeeze(0).detach().cpu().numpy()
+        cmd_vel_world = self._as_velocity_array(cmd_vel_world)
+        self.cmd_vel_world = cmd_vel_world.copy()
+
+        # Optional deployment safety shield. Keep policy-only execution as the
+        # default so experiments can measure the learned policy directly.
+        if self.use_safety_shield:
+            safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world)
+            # safe_cmd_vel_world = self.get_safe_action_map(vel_world, cmd_vel_world)
+        else:
+            safe_cmd_vel_world = cmd_vel_world.copy()
+        safe_cmd_vel_world = self._as_velocity_array(safe_cmd_vel_world)
+        safe_cmd_vel_world = self._apply_minimal_height_guard(safe_cmd_vel_world, pos[2].item())
+        # safe_cmd_vel_world[2] = 0
+        self.safe_cmd_vel_world = safe_cmd_vel_world.copy()
+        quat_no_tilt = tf.transformations.quaternion_from_euler(0, 0, curr_angle)
+        quat_msg = Quaternion()
+        quat_msg.w = quat_no_tilt[3]
+        quat_msg.x = quat_no_tilt[0]
+        quat_msg.y = quat_no_tilt[1]
+        quat_msg.z = quat_no_tilt[2]
+        rot_no_tilt = self.quaternion_to_rotation_matrix(quat_msg)
+        safe_cmd_vel_local = np.linalg.inv(rot_no_tilt) @ safe_cmd_vel_world
+
+        # Goal condition: slow down smoothly near the goal. The stop condition
+        # is handled before policy inference so the drone cannot skip over the
+        # goal and keep flying away.
+        if distance_float <= self.goal_slow_radius:
+            slow_radius = max(self.goal_slow_radius, 1e-6)
+            target_speed = self.goal_slow_max_speed * distance_float / slow_radius
+            target_speed = min(self.goal_slow_max_speed, max(self.goal_slow_min_speed, target_speed))
+            safe_cmd_vel_local = self._cap_velocity_speed(safe_cmd_vel_local, target_speed)
+            safe_cmd_vel_world = self._cap_velocity_speed(safe_cmd_vel_world, target_speed)
+
+        # final action
+        if (self.px4_control):
+            final_cmd_vel = PositionTarget()
+            final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.header.frame_id = "map"
+            if (self.height_control):
+                final_cmd_vel.velocity.x = safe_cmd_vel_world[0]
+                final_cmd_vel.velocity.y = safe_cmd_vel_world[1]
+                final_cmd_vel.velocity.z = safe_cmd_vel_world[2]
+                final_cmd_vel.yaw = self.navigation_frame_yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_PZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE
+            else:
+                final_cmd_vel.velocity.x = safe_cmd_vel_world[0]
+                final_cmd_vel.velocity.y = safe_cmd_vel_world[1]
+                final_cmd_vel.position.z = self.takeoff_pose.pose.position.z
+                final_cmd_vel.yaw = self.navigation_frame_yaw
+                final_cmd_vel.type_mask = final_cmd_vel.IGNORE_PX + final_cmd_vel.IGNORE_PY + final_cmd_vel.IGNORE_VZ + \
+                    final_cmd_vel.IGNORE_AFX + final_cmd_vel.IGNORE_AFY + final_cmd_vel.IGNORE_AFZ + final_cmd_vel.IGNORE_YAW_RATE                           
+        else:
+            final_cmd_vel = TwistStamped()
+            final_cmd_vel.header.stamp = rospy.Time.now()
+            final_cmd_vel.twist.linear.x = safe_cmd_vel_local[0]
+            final_cmd_vel.twist.linear.y = safe_cmd_vel_local[1]
+            if (self.height_control):
+                final_cmd_vel.twist.linear.z = safe_cmd_vel_world[2]
+            else:
+                final_cmd_vel.twist.linear.z = 0
+        self.action_pub.publish(final_cmd_vel)
+        publish_stamp = rospy.Time.now()
+
+        control_to_publish_ms = (time.perf_counter() - control_start_wall) * 1000.0
+        if used_input_stamps:
+            oldest_input_stamp = min(used_input_stamps, key=lambda stamp: stamp.to_sec())
+            observation_to_command_ms = max(0.0, (publish_stamp - oldest_input_stamp).to_sec() * 1000.0)
+        else:
+            observation_to_command_ms = float("nan")
+
+        if self.last_command_publish_stamp is None:
+            command_interval_ms = float("nan")
+        else:
+            command_interval_ms = max(
+                0.0,
+                (publish_stamp - self.last_command_publish_stamp).to_sec() * 1000.0,
+            )
+        self.last_command_publish_stamp = publish_stamp
+
+        print(
+            "[nav-ros][timing-ms] control_to_publish=%.3f "
+            "observation_to_command=%.3f command_interval=%.3f"
+            % (control_to_publish_ms, observation_to_command_ms, command_interval_ms)
+        )
+        self.has_action = True
+
+        self.publish_rollout_traj(pos, vel_world, goal)
+        end_time = time.time()
+        # print("[nav-ros]: control time ", end_time - start_time)
+        
+    def pause_sim():
+        rospy.wait_for_service('/gazebo/pause_physics')
+        pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
+        pause()
+
+    def unpause_sim():
+        rospy.wait_for_service('/gazebo/unpause_physics')
+        unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
+        unpause()
+
+    def run(self):
+        raycast_timer = rospy.Timer(rospy.Duration(0.05), self.raycast_callback)
+        #raycast_vis_timer = rospy.Timer(rospy.Duration(0.05), self.raycast_vis_callback)
+        control_timer = rospy.Timer(rospy.Duration(0.05), self.control_callback)
+        goal_vis_timer = rospy.Timer(rospy.Duration(0.05), self.goal_vis_callback)
+        dynamic_obstacle_timer = rospy.Timer(rospy.Duration(0.05), self.dynamic_obstacle_callback)
+        dynamic_obstacle_vis_timer = rospy.Timer(rospy.Duration(0.05), self.dynamic_obstacle_vis_callback)
+        cmd_vis_timer = rospy.Timer(rospy.Duration(0.05), self.cmd_vis_callback)
+
+    def raycast_vis_callback(self, event):
+        if not self.odom_received and not self.goal_received:
+            return
+        msg = MarkerArray()
+        pos = self.odom.pose.pose.position
+        direction_init = None
+        for i in range(len(self.raypoints)):
+            point = Marker()
+            point.header.frame_id = "map"
+            point.header.stamp = rospy.get_rostime()
+            point.ns = "raycast_points"
+            point.id = i
+            point.type = point.SPHERE
+            point.action = point.ADD
+            point.pose.position.x = self.raypoints[i][0]
+            point.pose.position.y = self.raypoints[i][1]
+            point.pose.position.z = self.raypoints[i][2]
+            point.lifetime = rospy.Time(0.5)
+            point.scale.x = 0.1
+            point.scale.y = 0.1
+            point.scale.z = 0.1
+            point.color.a = 1.0
+            point.color.r = 1.0
+            msg.markers.append(point)
+
+            line = Marker()
+            line.header.frame_id = "map"
+            line.header.stamp = rospy.get_rostime()
+            line.ns = "raycast_lines"
+            line.id = i
+            line.type = line.LINE_LIST
+            p = Point()
+            p.x = self.raypoints[i][0]
+            p.y = self.raypoints[i][1]
+            p.z = self.raypoints[i][2]
+            line.points.append(p)
+            line.points.append(pos)
+            line.scale.x = 0.03
+            line.scale.y = 0.03
+            line.scale.z = 0.03
+            x_diff = (p.x - self.odom.pose.pose.position.x)
+            y_diff = (p.y - self.odom.pose.pose.position.y)
+            direction = np.array([x_diff, y_diff])
+            direction = direction/np.linalg.norm(direction)
+            if (i == 0 or (np.linalg.norm(direction - direction_init) <= 0.1)):
+                line.color.b = 1.0
+                line.color.a = 1.0
+                if (i == 0):
+                    direction_init = direction
+            else:
+                line.color.g = 1.0
+                line.color.a = 0.5
+            line.lifetime = rospy.Time(0.5)
+            msg.markers.append(line)
+        self.raycast_vis_pub.publish(msg)
+    
+    def goal_vis_callback(self, event):
+        if not self.goal_received:
+            return
+        msg = MarkerArray()
+        goal_point = Marker()
+        goal_point.header.frame_id = "map"
+        goal_point.header.stamp = rospy.get_rostime()
+        goal_point.ns = "goal_point"
+        goal_point.id = 1
+        goal_point.type = goal_point.SPHERE
+        goal_point.action = goal_point.ADD
+        goal_point.pose.position.x = self.goal.pose.position.x
+        goal_point.pose.position.y = self.goal.pose.position.y
+        goal_point.pose.position.z = self.goal.pose.position.z
+        goal_point.lifetime = rospy.Time(0.1)
+        goal_point.scale.x = 0.3
+        goal_point.scale.y = 0.3
+        goal_point.scale.z = 0.3
+        goal_point.color.r = 1.0
+        goal_point.color.b = 1.0
+        goal_point.color.a = 1.0
+        msg.markers.append(goal_point)
+        self.goal_vis_pub.publish(msg)
+
+    def dynamic_obstacle_vis_callback(self, event):
+        if (len(self.dynamic_obstacles) == 0):
+            return
+        dynamic_obstacle_pos = self.dynamic_obstacles[0]
+        dynamic_obstacle_size = self.dynamic_obstacles[2]
+
+        msg = MarkerArray()
+        for i in range(dynamic_obstacle_pos.size(0)):
+            pos = dynamic_obstacle_pos[i]
+            size = dynamic_obstacle_size[i]
+
+            # Increase the width
+            width = torch.max(size[0], size[1])
+            height = size[2]
+
+            # Create the marker
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = "dynamic_obstacles"
+            marker.id = i
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.pose.position.x = pos[0]
+            marker.pose.position.y = pos[1]
+            marker.pose.position.z = pos[2] 
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = width
+            marker.scale.y = width
+            marker.scale.z = height 
+            marker.color.a = 0.5  # Alpha value
+            marker.color.r = 1.0  # Red color
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+
+            msg.markers.append(marker)
+
+        # Publish the marker array
+        self.dynamic_obstacle_vis_pub.publish(msg)            
+
+    def cmd_vis_callback(self, event):
+        if (not self.has_action):
+            return
+        msg = MarkerArray()
+
+        # rl action vis
+        rl_action_arrow = Marker()
+        rl_action_arrow.header.frame_id = "map"
+        rl_action_arrow.header.stamp = rospy.get_rostime()
+        rl_action_arrow.ns = "rl_action"
+        rl_action_arrow.id = 0
+        rl_action_arrow.type = rl_action_arrow.ARROW
+        rl_action_arrow.action = rl_action_arrow.ADD
+
+        # start
+        agent_pos = Point()
+        agent_pos.x = self.odom.pose.pose.position.x
+        agent_pos.y = self.odom.pose.pose.position.y
+        agent_pos.z = self.odom.pose.pose.position.z
+        
+        # end
+        vel_end = Point()
+        vel_end.x = self.cmd_vel_world[0] + agent_pos.x
+        vel_end.y = self.cmd_vel_world[1] + agent_pos.y
+        vel_end.z = self.cmd_vel_world[2] + agent_pos.z
+
+        rl_action_arrow.points.append(agent_pos)
+        rl_action_arrow.points.append(vel_end)
+        rl_action_arrow.lifetime = rospy.Duration(0.1)
+        rl_action_arrow.scale.x = 0.06
+        rl_action_arrow.scale.y = 0.06
+        rl_action_arrow.scale.z = 0.06
+        rl_action_arrow.color.a = 1.0
+        rl_action_arrow.color.r = 1.0
+        rl_action_arrow.color.g = 0.0
+        rl_action_arrow.color.b = 0.0
+        msg.markers.append(rl_action_arrow)
+
+
+        # safe action vis
+        safe_action_arrow = Marker()
+        safe_action_arrow.header.frame_id = "map"
+        safe_action_arrow.header.stamp = rospy.get_rostime()
+        safe_action_arrow.ns = "safe_action"
+        safe_action_arrow.id = 1
+        safe_action_arrow.type = safe_action_arrow.ARROW
+        safe_action_arrow.action = safe_action_arrow.ADD
+
+        # start
+        agent_pos = Point()
+        agent_pos.x = self.odom.pose.pose.position.x
+        agent_pos.y = self.odom.pose.pose.position.y
+        agent_pos.z = self.odom.pose.pose.position.z
+
+        # end
+        vel_end = Point()
+        vel_end.x = self.safe_cmd_vel_world[0] + agent_pos.x
+        vel_end.y = self.safe_cmd_vel_world[1] + agent_pos.y
+        vel_end.z = self.safe_cmd_vel_world[2] + agent_pos.z
+
+        safe_action_arrow.points.append(agent_pos)
+        safe_action_arrow.points.append(vel_end)
+        safe_action_arrow.lifetime = rospy.Duration(0.1)
+        safe_action_arrow.scale.x = 0.06
+        safe_action_arrow.scale.y = 0.06
+        safe_action_arrow.scale.z = 0.06
+        safe_action_arrow.color.a = 1.0
+        safe_action_arrow.color.r = 0.0
+        safe_action_arrow.color.g = 1.0
+        safe_action_arrow.color.b = 0.0
+
+        msg.markers.append(safe_action_arrow)
+        self.cmd_vis_pub.publish(msg)

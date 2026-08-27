@@ -1,0 +1,83 @@
+# SU17 / Livox MID-360 occupancy-map configuration for NavRL phase 1.
+# The launch file exposes body_to_sensor_xyz_rpy and robot_size as overrides;
+# the defaults below use the measured SU17 envelope documented in the guide.
+
+sensor_input_mode: 1       # 0: depth image, 1: PointCloud2
+localization_mode: 1       # 0: pose, 1: odometry
+map_frame: world
+point_cloud_topic: /uav1/cloud_mid360_body
+odom_topic: /uav1/mavros/local_position/odom
+
+# Measured from the MID-360 LiDAR origin on 2026-08-25:
+# front/rear=0.22 m, left/right=0.25 m, up=0.11 m, down=0.20 m.
+# After converting to the IMU/body origin with extrinsic_T, the symmetric
+# collision box below adds at least 0.05 m per face and rounds outward.
+robot_size: [0.58, 0.66, 0.42]
+
+# `/uav1/cloud_mid360_body` is transformed by FAST-LIO's
+# RGBpointBodyLidarToIMU() before publication (despite its lidar_link header),
+# so its coordinates are already in the IMU/body frame.  Identity is correct
+# for this topic.  Use a measured transform here only when switching to a raw
+# LiDAR-frame PointCloud2 topic.
+body_to_sensor_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# Point-cloud preprocessing.  FAST-LIO already removes the MID-360 blind zone.
+point_cloud_min_range: 0.35
+point_cloud_max_range: 5.0
+point_cloud_stride: 1
+
+# Axis-aligned self-filter in the vehicle IMU/body frame.  These values convert
+# the LiDAR-origin measurements using extrinsic_T, then add 0.02 m per face and
+# round outward.  Keep the self-filter tighter than the collision box so close
+# real obstacles remain visible.  Do not raise min_range to 0.6 m.
+self_filter_enabled: true
+self_filter_min: [-0.26, -0.30, -0.18]
+self_filter_max: [ 0.23,  0.25,  0.18]
+
+# ApproximateTime may only pair messages whose header stamps differ by at most
+# this value.  The log interval is throttled; set it to 0 to disable info logs.
+point_cloud_sync_max_interval: 0.05
+point_cloud_sync_log_interval: 5.0
+
+# Camera-only parameters are still read by the shared map implementation but
+# are unused when sensor_input_mode is 1.
+depth_image_topic: /unused
+pose_topic: /unused
+depth_intrinsics: [1.0, 1.0, 0.0, 0.0]
+depth_scale_factor: 1000.0
+depth_min_value: 0.35
+depth_max_value: 5.0
+depth_filter_margin: 0
+depth_skip_pixel: 1
+image_cols: 1
+image_rows: 1
+body_to_camera: [1.0, 0.0, 0.0, 0.0,
+                 0.0, 1.0, 0.0, 0.0,
+                 0.0, 0.0, 1.0, 0.0,
+                 0.0, 0.0, 0.0, 1.0]
+
+# NavRL was trained with a 4 m lidar range.  Keep this unchanged.
+raycast_max_length: 4.0
+p_hit: 0.70
+p_miss: 0.35
+p_min: 0.12
+p_max: 0.97
+p_occ: 0.80
+
+map_resolution: 0.10
+ground_height: -0.20
+map_size: [20.0, 20.0, 4.0]
+local_update_range: [5.0, 5.0, 3.0]
+local_bound_inflation: 1.0
+clean_local_map: false
+
+local_map_size: [10.0, 10.0, 3.0]
+max_height_visualization: 3.0
+visualize_global_map: false
+verbose: false
+enable_static_clustering: false
+enable_visualization: true
+# Phase 1 has no dynamic-state input.  Keep moving returns in occupancy instead
+# of deleting detector boxes from the map as the RGB-D pipeline did.
+use_dynamic_obstacle_free_regions: false
+prebuilt_map_directory: "No"

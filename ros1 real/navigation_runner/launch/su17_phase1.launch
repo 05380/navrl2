@@ -1,0 +1,131 @@
+<launch>
+  <!--
+    SU17 / MID-360 phase-1 bring-up.
+
+    output_enabled defaults to false: in this shadow mode the bridge publishes
+    /uav1/navrl/safe_setpoint only and never publishes Prometheus UAVCommand.
+    Do not enable flight output until physical dimensions, odometry alignment,
+    and the shadow-mode checklist have been verified.
+  -->
+  <arg name="uav_id" default="1" />
+  <arg name="world_frame" default="world" />
+  <arg name="point_cloud_topic" default="/uav1/cloud_mid360_body" />
+  <arg name="odom_topic" default="/uav1/mavros/local_position/odom" />
+  <arg name="checkpoint" default="$(find navigation_runner)/scripts/ckpts/navrl_checkpoint.pt" />
+
+  <arg name="output_enabled" default="false" />
+  <arg name="start_policy" default="true" />
+  <arg name="rviz" default="false" />
+
+  <!--
+    Keep identity for /uav1/cloud_mid360_body: FAST-LIO already converts it to
+    IMU/body coordinates.  These metres/radians args are for a raw LiDAR topic.
+  -->
+  <arg name="lidar_x" default="0.0" />
+  <arg name="lidar_y" default="0.0" />
+  <arg name="lidar_z" default="0.0" />
+  <arg name="lidar_roll" default="0.0" />
+  <arg name="lidar_pitch" default="0.0" />
+  <arg name="lidar_yaw" default="0.0" />
+
+  <!-- Vehicle self filter. Values are metres in the body frame. -->
+  <arg name="self_filter_enabled" default="true" />
+  <arg name="self_filter_min_x" default="-0.26" />
+  <arg name="self_filter_min_y" default="-0.30" />
+  <arg name="self_filter_min_z" default="-0.18" />
+  <arg name="self_filter_max_x" default="0.23" />
+  <arg name="self_filter_max_y" default="0.25" />
+  <arg name="self_filter_max_z" default="0.18" />
+  <arg name="point_cloud_sync_max_interval" default="0.05" />
+  <arg name="point_cloud_sync_log_interval" default="5.0" />
+
+  <!-- IMU/body-centred measured envelope plus >=0.05 m on each face. -->
+  <arg name="robot_x" default="0.58" />
+  <arg name="robot_y" default="0.66" />
+  <arg name="robot_z" default="0.42" />
+
+  <arg name="max_xy_speed" default="0.50" />
+  <arg name="max_z_speed" default="0.30" />
+  <arg name="min_z" default="0.30" />
+  <arg name="max_z" default="1.50" />
+  <arg name="max_xy_from_home" default="3.0" />
+  <arg name="emergency_stop_distance" default="0.55" />
+  <arg name="enable_odom_consistency_check" default="false" />
+  <arg name="map_visualization" default="true" />
+
+  <rosparam
+    file="$(find navigation_runner)/cfg/mapping/real/su17_mid360.yaml"
+    ns="/occupancy_map" />
+  <param name="/occupancy_map/map_frame" value="$(arg world_frame)" />
+  <param name="/occupancy_map/point_cloud_topic" value="$(arg point_cloud_topic)" />
+  <param name="/occupancy_map/odom_topic" value="$(arg odom_topic)" />
+  <param name="/occupancy_map/enable_visualization" value="$(arg map_visualization)" />
+  <rosparam param="/occupancy_map/body_to_sensor_xyz_rpy" subst_value="true">
+    [$(arg lidar_x), $(arg lidar_y), $(arg lidar_z), $(arg lidar_roll), $(arg lidar_pitch), $(arg lidar_yaw)]
+  </rosparam>
+  <rosparam param="/occupancy_map/robot_size" subst_value="true">
+    [$(arg robot_x), $(arg robot_y), $(arg robot_z)]
+  </rosparam>
+  <param name="/occupancy_map/self_filter_enabled" value="$(arg self_filter_enabled)" />
+  <rosparam param="/occupancy_map/self_filter_min" subst_value="true">
+    [$(arg self_filter_min_x), $(arg self_filter_min_y), $(arg self_filter_min_z)]
+  </rosparam>
+  <rosparam param="/occupancy_map/self_filter_max" subst_value="true">
+    [$(arg self_filter_max_x), $(arg self_filter_max_y), $(arg self_filter_max_z)]
+  </rosparam>
+  <param name="/occupancy_map/point_cloud_sync_max_interval" value="$(arg point_cloud_sync_max_interval)" />
+  <param name="/occupancy_map/point_cloud_sync_log_interval" value="$(arg point_cloud_sync_log_interval)" />
+
+  <node
+    pkg="map_manager"
+    type="occupancy_map_node"
+    name="navrl_su17_occupancy_map"
+    output="screen"
+    required="true" />
+
+  <group if="$(arg start_policy)">
+    <node
+      pkg="navigation_runner"
+      type="navigation_su17_phase1.py"
+      name="navigation_su17_phase1"
+      output="screen"
+      required="true">
+      <param name="uav_id" value="$(arg uav_id)" />
+      <param name="world_frame" value="$(arg world_frame)" />
+      <param name="point_cloud_topic" value="$(arg point_cloud_topic)" />
+      <param name="odom_topic" value="$(arg odom_topic)" />
+      <param name="checkpoint" value="$(arg checkpoint)" />
+      <param name="control_rate_hz" value="10.0" />
+      <param name="map_update_timeout" value="0.30" />
+      <param name="max_xy_speed" value="$(arg max_xy_speed)" />
+      <param name="max_z_speed" value="$(arg max_z_speed)" />
+      <param name="min_z" value="$(arg min_z)" />
+      <param name="max_z" value="$(arg max_z)" />
+      <param name="emergency_stop_distance" value="$(arg emergency_stop_distance)" />
+      <param name="strict_checkpoint" value="true" />
+      <param name="torch_num_threads" value="2" />
+    </node>
+
+    <node
+      pkg="navigation_runner"
+      type="navrl_su17_bridge.py"
+      name="navrl_su17_bridge"
+      output="screen"
+      respawn="true"
+      respawn_delay="0.5">
+      <param name="uav_id" value="$(arg uav_id)" />
+      <param name="output_enabled" value="$(arg output_enabled)" />
+      <param name="rate_hz" value="30.0" />
+      <param name="max_xy_speed" value="$(arg max_xy_speed)" />
+      <param name="max_z_speed" value="$(arg max_z_speed)" />
+      <param name="min_z" value="$(arg min_z)" />
+      <param name="max_z" value="$(arg max_z)" />
+      <param name="max_xy_from_home" value="$(arg max_xy_from_home)" />
+      <param name="enable_odom_consistency_check" value="$(arg enable_odom_consistency_check)" />
+    </node>
+  </group>
+
+  <group if="$(arg rviz)">
+    <include file="$(find navigation_runner)/launch/rviz.launch" />
+  </group>
+</launch>

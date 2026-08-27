@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex icra_preview"] 1787387229.25664 "icra_preview.aux" "icra_preview.bbl" "icra_preview" 1787387859.65768 0
+["bibtex icra_preview"] 1787739773.41577 "icra_preview.aux" "icra_preview.bbl" "icra_preview" 1787739775.91239 0
   "./ref.bib" 1787213729.33249 9752 0dc41214a5077c22dc2d1c31d07f6d4a ""
   "./support/IEEEtran.bst" 1757846698 56877 4c81423924dc505d67d7e5fcc3311d54 ""
-  "icra_preview.aux" 1787387859.42337 19924 0fb8328e421a933d66ab323ccfa9c29f "pdflatex"
+  "icra_preview.aux" 1787739775.70227 18530 3b94a683d35d4b074d1d93cf453b3bf9 "pdflatex"
   (generated)
   "icra_preview.bbl"
   "icra_preview.blg"
   (rewritten before read)
-["pdflatex"] 1787387857.10507 "icra.tex" "icra_preview.pdf" "icra_preview" 1787387859.65781 0
+["pdflatex"] 1787739773.48127 "icra.tex" "icra_preview.pdf" "icra_preview" 1787739775.91251 0
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/local/texlive/2026/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/adobe/helvetic/phvr7t.tfm" 1136768653 2520 53e01eef820ca829e42c1333c3fd02b9 ""
@@ -55,6 +55,7 @@
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/cm/cmsy8.tfm" 1136768653 1120 8b7d695260f3cff42e636090a8002094 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb" 1248133631 34811 78b52f49e893bcba91bd7581cdc144c0 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx7.pfb" 1248133631 32007 e8fa0078355f39467039935974716569 ""
+  "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb" 1248133631 32166 b0c356b15f19587482a9217ce1d8fa67 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx9.pfb" 1248133631 32298 c6d25bb16d1eac01ebdc6d7084126a1e ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb" 1248133631 30251 6afa5cb1d0204815a708a080681d4674 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb" 1248133631 36299 5f9df58c2139e7edcf37c8fca4bd384d ""
@@ -76,6 +77,7 @@
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb" 1248133631 32716 08e384dc442464e7285e891af9f45947 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb" 1248133631 32626 4f5c1b83753b1dd3a97d1b399a005b4b ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex7.pfb" 1248133631 30457 bc0868ebece724ed7c3d37e3d9bff7bd ""
+  "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex8.pfb" 1248133631 30273 87a352d78b6810ae5cfdc68d2fb827b2 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb" 1248133631 34694 ad62b13721ee8eda1dcc8993c8bd7041 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/urw/helvetic/uhvr8a.pfb" 1136849748 44648 23115b2a545ebfe2c526c3ca99db8b95 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/type1/urw/times/utmb8a.pfb" 1136849748 44729 811d6c62865936705a31c797a1d5dada ""
@@ -223,6 +225,7 @@
   "/usr/local/texlive/2026/texmf-dist/tex/latex/pict2e/p2e-pdftex.def" 1454715303 1168 efb94e82cc1584d4f62679f3487b5339 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/pict2e/pict2e.cfg" 1454715303 1920 2185073db458618f4a8a794158cf3681 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/pict2e/pict2e.sty" 1601586370 30933 ccdcd551eb516817cc8f41862254e6e7 ""
+  "/usr/local/texlive/2026/texmf-dist/tex/latex/placeins/placeins.sty" 1137110565 4087 636308456f60d2b31cbf97867db5708d ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/preprint/balance.sty" 1137110595 3366 d938ad2440edc1ea1c9042843580ec42 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/psnfss/ot1phv.fd" 1586716065 1679 51f99a09d5536398d3a0ad1d44df9625 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/psnfss/ot1ptm.fd" 1137110629 961 15056f4a61917ceed3a44e4ac11fcc52 ""
@@ -263,10 +266,10 @@
   "figures/fig_sim_mixed.png" 1787384371.75196 90580 ceb1f3c17ea6037e49ccfee6e07f871a ""
   "figures/fig_sim_nonconvex.png" 1787384371.83049 137773 e9dc7180eb6e4e59c6464f8ad7ed92ef ""
   "figures/fig_sim_static.png" 1787384371.59055 141990 aa8cab105d9649afa2538fb729496970 ""
-  "icra.tex" 1787387815.99373 57884 a5d802bb505cb3436601f3484ac64d31 ""
-  "icra_preview.aux" 1787387859.42337 19924 0fb8328e421a933d66ab323ccfa9c29f "pdflatex"
-  "icra_preview.bbl" 1787387229.32284 7639 1eb87809fa9dac8c612f38af52e1891c "bibtex icra_preview"
-  "icra_preview.out" 1787387859.42433 4580 e626c2be8fb7d41898f04723ab58eef4 "pdflatex"
+  "icra.tex" 1787739759.31448 55112 cb2434dbc71da3b6ff809e59ce0ba6d8 ""
+  "icra_preview.aux" 1787739775.70227 18530 3b94a683d35d4b074d1d93cf453b3bf9 "pdflatex"
+  "icra_preview.bbl" 1787739773.47904 7639 1eb87809fa9dac8c612f38af52e1891c "bibtex icra_preview"
+  "icra_preview.out" 1787739775.7032 4580 e626c2be8fb7d41898f04723ab58eef4 "pdflatex"
   "support/IEEEtran.cls" 1757846698 281957 5b2e4fa15b0f7eabb840ebf67df4c0f7 ""
   (generated)
   "icra_preview.aux"
