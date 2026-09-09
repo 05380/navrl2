@@ -1,0 +1,29 @@
+<launch>
+  <!--
+    First powered-flight gate after the propellers-off active bench test.
+    This launch deliberately starts only the Prometheus safety bridge.  It
+    does not start the map or policy node, so it cannot consume an RViz goal
+    or generate a Move command.  In COMMAND_CONTROL, the absent private
+    desired setpoint makes the bridge repeatedly request Current_Pos_Hover.
+  -->
+  <arg name="uav_id" default="1" />
+
+  <node
+    pkg="navigation_runner"
+    type="navrl_su17_bridge.py"
+    name="navrl_su17_bridge"
+    output="screen"
+    respawn="true"
+    respawn_delay="0.5">
+    <param name="uav_id" value="$(arg uav_id)" />
+    <param name="output_enabled" value="true" />
+    <param name="rate_hz" value="30.0" />
+    <param name="max_xy_speed" value="0.10" />
+    <param name="max_z_speed" value="0.10" />
+    <param name="hold_goal_altitude" value="true" />
+    <param name="min_z" value="0.30" />
+    <param name="max_z" value="1.30" />
+    <param name="max_xy_from_home" value="0.50" />
+    <param name="enable_odom_consistency_check" value="true" />
+  </node>
+</launch>

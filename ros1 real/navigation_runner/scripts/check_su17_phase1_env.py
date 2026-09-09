@@ -35,8 +35,13 @@ def main():
 
     try:
         import tensordict
+        import tensordict._tensordict as tensordict_extension
 
-        print("tensordict={}".format(_version(tensordict)))
+        print(
+            "tensordict={} extension={} OK".format(
+                _version(tensordict), tensordict_extension.__file__
+            )
+        )
     except Exception as exc:
         failures.append("tensordict import failed: {}".format(exc))
 
@@ -69,6 +74,18 @@ def main():
             failures.append(
                 "ROS import {}::{} failed: {}".format(module_name, symbol, exc)
             )
+
+    try:
+        from prometheus_msgs.msg import UAVCommand
+
+        getattr(UAVCommand, "XY_VEL_Z_POS")
+        print("ros=prometheus_msgs.msg::UAVCommand.XY_VEL_Z_POS OK")
+    except Exception as exc:
+        failures.append(
+            "Prometheus native altitude-hold mode XY_VEL_Z_POS unavailable: {}".format(
+                exc
+            )
+        )
 
     package_scripts = os.path.join(
         rospkg.RosPack().get_path("navigation_runner"), "scripts"

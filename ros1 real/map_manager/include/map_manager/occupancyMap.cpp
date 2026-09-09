@@ -378,37 +378,48 @@ namespace mapManager{
 
 
 		// map size
-		std::vector<double> mapSizeVec (3);
-		if (not this->nh_.getParam(this->ns_ + "/map_size", mapSizeVec)){
-			mapSizeVec[0] = 20; mapSizeVec[1] = 20; mapSizeVec[2] = 3;
+		std::vector<double> mapSizeVec;
+		if (not this->nh_.getParam(this->ns_ + "/map_size", mapSizeVec) ||
+			mapSizeVec.size() != 3){
+			mapSizeVec = std::vector<double>{20.0, 20.0, 3.0};
 			cout << this->hint_ << ": No map size. Use default: [20, 20, 3]." << endl;
 		}
 		else{
-			this->mapSize_(0) = mapSizeVec[0];
-			this->mapSize_(1) = mapSizeVec[1];
-			this->mapSize_(2) = mapSizeVec[2];
-
-			// init min max
-			this->mapSizeMin_(0) = -mapSizeVec[0]/2; this->mapSizeMax_(0) = mapSizeVec[0]/2;
-			this->mapSizeMin_(1) = -mapSizeVec[1]/2; this->mapSizeMax_(1) = mapSizeVec[1]/2;
-			this->mapSizeMin_(2) = this->groundHeight_; this->mapSizeMax_(2) = this->groundHeight_ + mapSizeVec[2];
-			
-			// min max for voxel
-			this->mapVoxelMin_(0) = 0; this->mapVoxelMax_(0) = ceil(mapSizeVec[0]/this->mapRes_);
-			this->mapVoxelMin_(1) = 0; this->mapVoxelMax_(1) = ceil(mapSizeVec[1]/this->mapRes_);
-			this->mapVoxelMin_(2) = 0; this->mapVoxelMax_(2) = ceil(mapSizeVec[2]/this->mapRes_);
-
-			// reserve vector for variables
-			int reservedSize = this->mapVoxelMax_(0) * this->mapVoxelMax_(1) * this->mapVoxelMax_(2);
-			this->countHitMiss_.resize(reservedSize, 0);
-			this->countHit_.resize(reservedSize, 0);
-			this->occupancy_.resize(reservedSize, this->pMinLog_-this->UNKNOWN_FLAG_);
-			this->occupancyInflated_.resize(reservedSize, false);
-			this->flagTraverse_.resize(reservedSize, -1);
-			this->flagRayend_.resize(reservedSize, -1);
-
 			cout << this->hint_ << ": Map size: " << "[" << mapSizeVec[0] << ", " << mapSizeVec[1] << ", " << mapSizeVec[2] << "]" << endl;
 		}
+		if (not std::isfinite(this->mapRes_) || this->mapRes_ <= 0.0 ||
+			not std::isfinite(mapSizeVec[0]) || not std::isfinite(mapSizeVec[1]) ||
+			not std::isfinite(mapSizeVec[2]) || mapSizeVec[0] <= 0.0 ||
+			mapSizeVec[1] <= 0.0 || mapSizeVec[2] <= 0.0){
+			ROS_ERROR("[OccMap]: map_resolution and all map_size entries must be finite and positive.");
+			exit(0);
+		}
+		this->mapSize_ = Eigen::Vector3d(mapSizeVec[0], mapSizeVec[1], mapSizeVec[2]);
+
+		// Start at the historical world origin.  Real deployments may re-centre
+		// these x/y bounds once, on the first valid localization sample.
+		this->mapSizeMin_(0) = -mapSizeVec[0]/2; this->mapSizeMax_(0) = mapSizeVec[0]/2;
+		this->mapSizeMin_(1) = -mapSizeVec[1]/2; this->mapSizeMax_(1) = mapSizeVec[1]/2;
+		this->mapSizeMin_(2) = this->groundHeight_; this->mapSizeMax_(2) = this->groundHeight_ + mapSizeVec[2];
+
+		this->mapVoxelMin_.setZero();
+		this->mapVoxelMax_(0) = ceil(mapSizeVec[0]/this->mapRes_);
+		this->mapVoxelMax_(1) = ceil(mapSizeVec[1]/this->mapRes_);
+		this->mapVoxelMax_(2) = ceil(mapSizeVec[2]/this->mapRes_);
+
+		const int reservedSize = this->mapVoxelMax_(0) * this->mapVoxelMax_(1) * this->mapVoxelMax_(2);
+		this->countHitMiss_.resize(reservedSize, 0);
+		this->countHit_.resize(reservedSize, 0);
+		this->occupancy_.resize(reservedSize, this->pMinLog_-this->UNKNOWN_FLAG_);
+		this->occupancyInflated_.resize(reservedSize, false);
+		this->flagTraverse_.resize(reservedSize, -1);
+		this->flagRayend_.resize(reservedSize, -1);
+
+		this->nh_.param(this->ns_ + "/center_map_on_first_localization",
+			this->centerMapOnFirstLocalization_, false);
+		this->mapCenterInitialized_ = not this->centerMapOnFirstLocalization_;
+		cout << this->hint_ << ": Center map on first localization: "
+			 << this->centerMapOnFirstLocalization_ << endl;
 
 		// local update range
 		std::vector<double> localUpdateRangeVec;
@@ -510,6 +521,10 @@ namespace mapManager{
 			cout << this->hint_ << ": No prebuilt map found/not using the prebuilt map." << endl;
 		}
 		else {
+			if (this->centerMapOnFirstLocalization_){
+				this->mapCenterInitialized_ = true;
+				ROS_WARN("[OccMap]: A prebuilt map was loaded; first-localization map centering is disabled for this run.");
+			}
 			cout << this->hint_ << ": Map loaded with " << cloud->width * cloud->height << " data points. " << endl;
 			int address;
 			Eigen::Vector3i pointIndex;
@@ -730,6 +745,36 @@ namespace mapManager{
 		return true;
 	}
 
+	void occMap::updateMapStatusFromPosition(){
+		if (this->centerMapOnFirstLocalization_ && not this->mapCenterInitialized_){
+			if (not this->position_.allFinite()){
+				this->occNeedUpdate_ = false;
+				ROS_WARN_THROTTLE(2.0, "%s: Cannot center map from a non-finite localization sample.", this->hint_.c_str());
+				return;
+			}
+			this->mapSizeMin_(0) = this->position_(0) - this->mapSize_(0)/2.0;
+			this->mapSizeMax_(0) = this->position_(0) + this->mapSize_(0)/2.0;
+			this->mapSizeMin_(1) = this->position_(1) - this->mapSize_(1)/2.0;
+			this->mapSizeMax_(1) = this->position_(1) + this->mapSize_(1)/2.0;
+			this->currMapRangeMin_ = this->position_;
+			this->currMapRangeMax_ = this->position_;
+			this->mapCenterInitialized_ = true;
+			ROS_INFO("%s: Map x/y centered on first localization [%.3f, %.3f]; bounds x=[%.3f, %.3f], y=[%.3f, %.3f], z=[%.3f, %.3f].",
+				this->hint_.c_str(), this->position_(0), this->position_(1),
+				this->mapSizeMin_(0), this->mapSizeMax_(0), this->mapSizeMin_(1),
+				this->mapSizeMax_(1), this->mapSizeMin_(2), this->mapSizeMax_(2));
+		}
+
+		this->occNeedUpdate_ = this->isInMap(this->position_);
+		if (not this->occNeedUpdate_){
+			ROS_ERROR_THROTTLE(2.0,
+				"%s: Localization [%.3f, %.3f, %.3f] is outside map bounds x=[%.3f, %.3f], y=[%.3f, %.3f], z=[%.3f, %.3f]; occupancy updates are paused.",
+				this->hint_.c_str(), this->position_(0), this->position_(1), this->position_(2),
+				this->mapSizeMin_(0), this->mapSizeMax_(0), this->mapSizeMin_(1),
+				this->mapSizeMax_(1), this->mapSizeMin_(2), this->mapSizeMax_(2));
+		}
+	}
+
 	
 	void occMap::depthPoseCB(const sensor_msgs::ImageConstPtr& img, const geometry_msgs::PoseStampedConstPtr& pose){
 		// store current depth image
@@ -748,12 +793,7 @@ namespace mapManager{
 		this->position_(2) = camPoseMatrix(2, 3);
 		this->orientation_ = camPoseMatrix.block<3, 3>(0, 0);
 
-		if (this->isInMap(this->position_)){
-			this->occNeedUpdate_ = true;
-		}
-		else{
-			this->occNeedUpdate_ = false;
-		}
+		this->updateMapStatusFromPosition();
 	}
 
 	void occMap::depthOdomCB(const sensor_msgs::ImageConstPtr& img, const nav_msgs::OdometryConstPtr& odom){
@@ -773,12 +813,7 @@ namespace mapManager{
 		this->position_(2) = camPoseMatrix(2, 3);
 		this->orientation_ = camPoseMatrix.block<3, 3>(0, 0);
 
-		if (this->isInMap(this->position_)){
-			this->occNeedUpdate_ = true;
-		}
-		else{
-			this->occNeedUpdate_ = false;
-		}
+		this->updateMapStatusFromPosition();
 	}
 
 	void occMap::pointcloudPoseCB(const sensor_msgs::PointCloud2ConstPtr& pointcloud, const geometry_msgs::PoseStampedConstPtr& pose){
@@ -808,12 +843,7 @@ namespace mapManager{
 		this->position_(2) = camPoseMatrix(2, 3);
 		this->orientation_ = camPoseMatrix.block<3, 3>(0, 0);
 
-		if (this->isInMap(this->position_)){
-			this->occNeedUpdate_ = true;
-		}
-		else{
-			this->occNeedUpdate_ = false;
-		}
+		this->updateMapStatusFromPosition();
 	}
 
 	void occMap::pointcloudOdomCB(const sensor_msgs::PointCloud2ConstPtr& pointcloud, const nav_msgs::OdometryConstPtr& odom){
@@ -844,12 +874,7 @@ namespace mapManager{
 		this->position_(2) = camPoseMatrix(2, 3);
 		this->orientation_ = camPoseMatrix.block<3, 3>(0, 0);
 
-		if (this->isInMap(this->position_)){
-			this->occNeedUpdate_ = true;
-		}
-		else{
-			this->occNeedUpdate_ = false;
-		}
+		this->updateMapStatusFromPosition();
 	}
 
 	void occMap::updateOccupancyCB(const ros::TimerEvent& ){

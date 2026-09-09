@@ -2,7 +2,7 @@
 
 ## 当前结论
 
-这台 SU17 具备第一阶段部署条件，但当前交付只允许以**影子模式**运行。影子模式会完成点云建图、144 条虚拟激光、CPU 策略推理和安全限幅，但不会向 `/uav1/prometheus/command` 发布任何指令。
+这台 SU17 具备第一阶段部署条件，但当前交付仍只允许以**影子模式**运行。影子模式会完成点云建图、144 条虚拟激光、CPU 策略推理和安全限幅，但不会向 `/uav1/prometheus/command` 发布任何指令。第一阶段的实际控制形式已改为 Prometheus 原生 `XY_VEL_Z_POS`：NavRL 负责水平速度，飞控按目标 `z` 定高；不再把策略在实测中出现的持续向上偏置直接作为垂直速度发送。
 
 已确认的数据链：
 
@@ -26,7 +26,7 @@
 - 不再自动解锁、自动起飞，起飞和降落继续使用原机人工流程；
 - NavRL 只生成私有话题 `/uav1/navrl/desired_setpoint`；
 - 影子模式完全不注册 `/uav1/prometheus/command` 发布器；
-- 以后主动模式下，航向、速度和悬停请求均转换成 `prometheus_msgs/UAVCommand`；
+- 以后主动模式下，水平速度、目标高度、航向和悬停请求均转换成 `prometheus_msgs/UAVCommand`；
 - 原机 Prometheus 再负责将 Move、yaw 和 `Current_Pos_Hover` 转成 `/uav1/mavros/setpoint_raw/local`。
 
 因此不用安装 `setpoint_position` MAVROS 插件，也不用修改 MAVROS。部署前只需确认原控制链仍正常：
@@ -150,12 +150,12 @@ MID-360 body cloud + MAVROS world odom
         |                  |
   shadow mode          active mode
         |                  |
- safe_setpoint only    Prometheus UAVCommand
+ safe_setpoint only    Prometheus XY_VEL_Z_POS
 ```
 
 代码不会解锁、起飞、切 PX4 模式，也不直接向 MAVROS setpoint 发布。未来启用输出后仍由原机 Prometheus 控制器负责 RC 状态机、OFFBOARD、飞控下发和失效保护。
 
-首轮限值：水平 0.50 m/s、垂直 0.30 m/s、高度 0.30–1.50 m、启动点水平半径 3 m。任一输入过期、定位无效、Prometheus failsafe、控制器不匹配、策略输出非法或越界时，桥接器请求 `Current_Pos_Hover`。
+首轮限值：水平 0.50 m/s、目标高度 0.30–1.50 m、启动点水平半径 3 m。策略的三维输出仍保留在 `desired_setpoint` 供诊断，但桥接后的 `safe_setpoint` 使用水平速度加目标 Z 定高。任一输入过期、定位无效、Prometheus failsafe、控制器不匹配、策略输出非法或越界时，桥接器请求 `Current_Pos_Hover`。
 
 ## 正式控制前仍需完成的三项核验
 
@@ -163,7 +163,7 @@ MID-360 body cloud + MAVROS world odom
 2. **两套里程计运动时是否保持对齐**：`/uav1/Odometry` 和 `/uav1/mavros/local_position/odom` 可以有固定原点差，但位置差和 yaw 差不能随运动漂移。影子测试时设置 `enable_odom_consistency_check:=true`，桥接器会记录初始差值并监控变化。
 3. **验证新 CropBox 不过滤盒外障碍**：代码已使用 `[-0.26,-0.30,-0.18]` 到 `[0.23,0.25,0.18]`。静止场景运行 `rosrun navigation_runner inspect_mid360_cloud.py` 并观察 RViz/过滤统计；再用纸板从六个方向缓慢接近，确认纸板在盒外能进入地图。不能直接把最小距离提高到 0.6 m，也不能把紧急停车距离调小来掩盖自点。
 
-当前已分析的大包只有 MAVROS odom，没有同时包含 `/uav1/Odometry`，因此两套里程计运动漂移仍需在影子测试中核验。
+`navrl_air_shadow_3.bag` 已同时记录两套里程计。人工飞行段约 332 s 内，时间戳差 p95 约 17.3 ms，相对位置漂移 p95 约 3.7 cm、最大约 8.7 cm，相对 yaw 漂移 p95 约 0.21°、最大约 0.44°，通过当前一致性门限。该 bag 未产生 `/occupancy_map/update`，原因是 MAVROS 坐标约为 `(-16.7,-13.0)`、落在旧固定地图 `[-10,10]` 之外；这只影响地图/策略复测，不推翻里程计核验结果。
 
 ## 机载电脑是否需要改原代码
 
@@ -173,6 +173,8 @@ MID-360 body cloud + MAVROS world odom
 2. 安装 CPU 版 PyTorch 和 Python 依赖；
 3. 在独立的 `/home/amov/navrl_ws` overlay 中编译；
 4. 先运行固定为 `output_enabled=false` 的影子模式。
+
+安装脚本会设置 `ROS_LANG_DISABLE=genlisp:gennodejs`。实机只使用生成的 C++/Python 服务接口；禁用 Lisp/Node.js 不影响地图、raycast、策略或 Prometheus 桥接，并可避开部分厂商系统中这两个可选生成器的非 UTF-8 读取故障。
 
 交付中另有两个机载脚本：
 
@@ -206,6 +208,24 @@ sudo apt-get install -y \
 
 bash /home/amov/navrl2/ros1_real/navigation_runner/tools/setup_su17_phase1_onboard.sh
 ```
+
+每次重新解压部署包、替换 `third_party/tensordict` 或更换 Python/PyTorch 后，都要重新编译机载 Linux 对应的 TensorDict C++ 扩展。若启动时报
+`No module named 'tensordict._tensordict'`，不需要重编 ROS，执行：
+
+```bash
+source /home/amov/navrl_venv/bin/activate
+export MAX_JOBS=2
+python -m pip install --no-build-isolation --no-deps --force-reinstall -e \
+  /home/amov/navrl2/isaac-training/third_party/tensordict
+
+source /opt/ros/noetic/setup.bash
+source /home/amov/su17_experiment/devel/setup.bash
+source /home/amov/navrl_venv/bin/activate
+source /home/amov/navrl_ws/devel/setup.bash
+rosrun navigation_runner check_su17_phase1_env.py
+```
+
+自检必须显示 `tensordict=... extension=.../_tensordict.so OK` 后，才可重新启动影子模式。
 
 安装脚本默认使用 `/home/amov/su17_experiment/devel/setup.bash`。若原机 Prometheus 实际在别处，使用下面的方式指定，不要移动或覆盖原工作空间：
 
@@ -432,7 +452,7 @@ bash /home/amov/navrl2/ros1_real/navigation_runner/tools/run_su17_phase1_shadow.
 roslaunch navigation_runner su17_phase1.launch \
   output_enabled:=false \
   enable_odom_consistency_check:=true \
-  map_visualization:=true \
+  map_visualization:=false \
   robot_x:=0.58 robot_y:=0.66 robot_z:=0.42
 ```
 
@@ -444,9 +464,10 @@ rosparam get /occupancy_map/self_filter_min
 rosparam get /occupancy_map/self_filter_max
 rosparam get /occupancy_map/point_cloud_sync_max_interval
 rosparam get /occupancy_map/point_cloud_sync_log_interval
+rosparam get /occupancy_map/center_map_on_first_localization
 ```
 
-预期依次得到 `true`、两个三元素数组、`0.05` 和 `5.0`。另开终端查看节流日志和地图心跳：
+预期依次得到 `true`、两个三元素数组、`0.05`、`5.0` 和 `true`。实机 MAVROS 局部坐标原点不一定在 `(0,0)`；最后一项会让 20 m × 20 m 地图在第一帧有效定位时自动以当前 x/y 为中心。另开终端查看节流日志和地图心跳：
 
 ```bash
 rostopic echo /rosout | grep -E 'timestamp delta|Point-cloud filter|Rejecting pointcloud'
@@ -468,8 +489,11 @@ robot_x:=0.58 robot_y:=0.66 robot_z:=0.42
 - 飞行移动后不出现 `shadow_odom_inconsistent`；
 - raycast 始终返回 432 个浮点数，即 144 个三维端点；
 - `/occupancy_map/update` 稳定接近点云的 10 Hz；这个心跳中断时策略必须停止输出；
+- 启动终端出现 `policy observation/inference smoke test OK`，证明实机构造的观测能完成一次端到端策略推理；
 - 策略循环稳定约 10 Hz，日志中的 inference/control 显著小于 100 ms；
+- 导航期间不能出现 `shadow_stale_policy`，`desired_setpoint` 相邻发布间隔不能超过 250 ms；
 - 目标在前方且无障碍时，`safe_setpoint` 的水平速度方向正确；
+- `safe_setpoint.position.z` 等于发送目标的 Z，`safe_setpoint.velocity.z=0`，其 `type_mask=2531`，证明实际候选命令为 XY 速度加 Z 定高；
 - 人或纸板进入 4 m 范围时，对应虚拟激光距离缩短，策略减速或改向；
 - 停点云、停里程计、停止目标输出后，状态分别进入 stale/hold 路径；
 - 全程 `/navrl_su17_bridge` 不出现在 Prometheus command 的 publisher 列表。
@@ -480,9 +504,116 @@ robot_x:=0.58 robot_y:=0.66 robot_z:=0.42
 top -H -p $(pgrep -d, -f 'navigation_su17_phase1|occupancy_map_node')
 ```
 
-完成地图目视确认后，可用 `map_visualization:=false` 降低 CPU 和 ROS 网络负载，raycast 与策略仍正常工作。
+实飞前的实时影子测试默认使用 `map_visualization:=false`，以降低 CPU 和 ROS 网络负载；只有专门做地图目视确认时才临时设置 `map_visualization:=true`。
 
 结束 NavRL 时只在终端 4 按 `Ctrl-C`。影子模式不会发布飞行指令，也不会替你执行起飞、降落或急停；这些动作仍全部使用原 SU17/遥控器流程。
+
+## 影子测试通过后的下一步：拆桨主动链路台架测试
+
+不要从影子模式直接跳到系留飞行。第一次允许 NavRL 注册
+`/uav1/prometheus/command` 发布者时，必须拆下全部桨叶、固定机体并保持未解锁。
+专用脚本会拒绝已解锁状态、缺失实时输入、重复 NavRL 节点、已有命令发布者和
+未确认拆桨等情况，并把主动参数锁在低速台架值。
+
+先停止影子模式；确认全部桨叶已经拆下后运行：
+
+```bash
+NAVRL_ACTIVE_BENCH_ACK=PROPELLERS_REMOVED \
+bash /home/amov/navrl2/ros1_real/navigation_runner/tools/run_su17_phase1_active_bench.sh
+```
+
+这一步不要在 RViz 发送目标。另开两个已 source ROS 环境的终端：
+
+```bash
+rostopic echo /uav1/prometheus/control_state
+rostopic echo /uav1/navrl/bridge_status
+```
+
+再检查命令话题只能有 NavRL 一个发布者：
+
+```bash
+rostopic info /uav1/prometheus/command
+```
+
+机体固定且桨叶全部拆除后，才用原遥控器执行以下台架顺序：
+
+1. SWA 解锁；
+2. SWB 中档，确认 `control_state: 1`（`RC_POS_CONTROL`）；
+3. SWB 三档，确认 `control_state: 2`（`COMMAND_CONTROL`）；
+4. 因为没有发送目标，桥状态应为 `hold_stale_policy`，且命令中的
+   `Agent_CMD: 2`（`Current_Pos_Hover`）；
+5. 立即把 SWB 拨回中档，确认重新变为 `control_state: 1`；
+6. 上锁，并在启动终端按 `Ctrl-C`。
+
+只要模式未按预期切换、出现第二个命令发布者、桥状态不是上述值，或 SWB 回中档后
+不能立即回到 `RC_POS_CONTROL`，都停止测试，不能进入系留飞行。
+
+## 拆桨台架通过后的低高度系留悬停
+
+`navrl_active_bench_1.bag` 已确认：命令只在 `COMMAND_CONTROL` 发布，全部为
+`Current_Pos_Hover`，没有 Move，SWB 返回中档后立即停止发布，最终上锁后也没有
+残留输出。下一关只测试带桨低高度悬停交接，不启动地图或策略，也不接受导航目标。
+
+必须具备可靠系留或等效防护设施、水平各方向 3～5 m 净空、平静空气和两名操作员。
+无人机保持未解锁且不存在旧 NavRL 节点时运行：
+
+```bash
+NAVRL_TETHERED_HOVER_ACK=TETHER_SECURE_CLEAR_AREA_TWO_OPERATORS \
+bash /home/amov/navrl2/ros1_real/navigation_runner/tools/run_su17_tethered_hover_test.sh
+```
+
+另开终端确认 `/navrl_su17_bridge/output_enabled=true`、桥状态为
+`active_waiting_for_command_control`，且 `/uav1/prometheus/command` 只有
+`/navrl_su17_bridge` 一个发布者。使用已经验证过的 SU17 人工/RC 流程起飞，在
+`0.9～1.0 m` 稳定至少 5 s；SWB 中档确认状态 1 后，拨三档仅保持 3～5 s，期间
+必须看到 `hold_stale_policy` 和 `Agent_CMD: 2`，随后立即拨回中档。任何水平移动、
+持续升降、异常偏航或状态不符，都先拨回中档人工接管并着陆。此测试不得点击 RViz
+目标；通过后才设计第一次受限速度的 NavRL Move 测试。
+
+`navrl_tethered_hover_2.bag` 已通过这道关卡：空中交接约 18 s 内只有
+`Current_Pos_Hover`，命令稳定 30 Hz，SWB 回中档后无残留命令，高度峰峰波动约
+3.9 cm，未出现 failsafe 或定位失效。
+
+## 第一次系留 NavRL 限速 Move
+
+这一关使用独立入口，固定为一个私有目标、水平限速 `0.10 m/s`、单次 Move 最长
+3.0 s、距启动点 0.75 m 围栏、Z 定高和 0.65 m 急停距离。导航节点不订阅
+`/move_base_simple/goal`，因此不得使用 RViz 发目标。桥的 3 s 限时一旦触发会锁存
+`Current_Pos_Hover`，即使切换 RC 模式也不会再次放行；再测试必须重启整套入口。
+
+无人机未解锁、旧 NavRL 全部停止时启动：
+
+```bash
+NAVRL_LIMITED_MOVE_ACK=TETHER_SECURE_ONE_010MPS_MOVE \
+bash /home/amov/navrl2/ros1_real/navigation_runner/tools/run_su17_limited_move_test.sh
+```
+
+确认三个 NavRL 节点在线，地图约 10 Hz，桥为
+`active_waiting_for_command_control`，并核对 `/navrl_su17_bridge/max_move_duration=3.0`、
+两处 `max_xy_speed=0.10`。开始录包后按已验证流程起飞至 0.9～1.0 m，SWB 中档稳定，
+再拨三档进入无目标悬停。此时只有终端操作员在飞手明确准备好接管后运行一次：
+
+```bash
+export NAVRL_LIMITED_GOAL_ACK=SEND_ONE_055M_GOAL
+python /home/amov/navrl2/ros1_real/navigation_runner/scripts/send_su17_limited_test_goal.py
+```
+
+脚本会在发布前重新检查解锁、MID360 定位、COMMAND_CONTROL、地图心跳、私有目标
+订阅者和所有限值，并连续观察 2 s 悬停数据。只有水平速度 RMS 不超过 0.06 m/s、
+峰值不超过 0.12 m/s、垂直速度峰值不超过 0.05 m/s、水平漂移不超过 0.12 m、
+高度始终处于 0.75～1.15 m 且 2 s 波动不超过 0.08 m、滚转/俯仰峰值不超过
+0.15 rad 时才允许发送；采样结束后还会再次检查模式、桥状态和地图心跳。每次启动
+最多允许发布一个当前航向前方 0.55 m、同高度目标。
+
+终端出现 `SENT ONCE` 后立即由飞手或第二操作员进行 3 s 口令倒计时；到 3 s 时无论
+移动多少都必须把 SWB 拨回中档，不能等待导航状态或桥的自动锁存提示。再人工着陆。
+任何异常先用 SWB 中档接管，不能在空中直接上锁。
+
+`navrl_limited_move_4.bag` 证明 3 s Move 锁存、限速、定高、PX4 接收和人工模式接管
+均正常，但该次发送前存在与 0.10 m/s 指令同量级的侧向漂移，飞机在约 99° 航向下
+没有形成可确认的目标方向位移，而且人工接管晚于规定的 3 s，因此不能算作第二方向
+通过。上述连续稳定窗口用于拒绝这类起始状态；重新测试前还必须保证系留在目标方向
+至少有 0.3～0.5 m 自由行程。
 
 ## 未来小范围系留飞行
 
@@ -492,7 +623,7 @@ top -H -p $(pgrep -d, -f 'navigation_su17_phase1|occupancy_map_node')
 output_enabled:=true
 ```
 
-启用后仍不自动解锁或起飞。人工先按原 SU17 流程进入稳定悬停，再切入 `COMMAND_CONTROL`。桥接器只在 `COMMAND_CONTROL + PX4_ORIGIN + connected + odom_valid + no failsafe` 时转发 `XYZ_VEL`；否则不发送 Move，已处于控制状态时则请求当前位置悬停。
+启用后仍不自动解锁或起飞。人工先按原 SU17 流程进入稳定悬停，再切入 `COMMAND_CONTROL`。桥接器只在 `COMMAND_CONTROL + PX4_ORIGIN + connected + odom_valid + no failsafe` 时转发 `XY_VEL_Z_POS`；否则不发送 Move，已处于控制状态时则请求当前位置悬停。
 
 第一阶段不应在人群、狭窄室内或高速动态障碍场景使用。当前 `navigation_su17_phase1.py` 明确将模型的 `5 × 10` 动态状态置零，移动物体只能作为“此刻点云中的占据物”触发反应式减速或绕行。mapper 的消失占据清理（且现配置未启用 `dynamic_environment`）既不估计目标速度，也不预测轨迹，不能作为动态预测能力的证据；真正的目标检测/跟踪、速度估计和未来轨迹输入属于方案 B 第二阶段。
 
@@ -504,11 +635,16 @@ output_enabled:=true
 - `scripts/check_su17_phase1_env.py`：依赖与 checkpoint 自检；
 - `tools/setup_su17_phase1_onboard.sh`：机载 overlay、venv、依赖和编译脚本；
 - `tools/run_su17_phase1_shadow.sh`：禁止控制输出的实体机影子启动入口；
+- `tools/run_su17_phase1_active_bench.sh`：拆桨主动链路台架测试入口；
+- `tools/run_su17_tethered_hover_test.sh`：无策略、无目标的低高度系留悬停入口；
+- `launch/su17_limited_move_test.launch`：第一次 0.10 m/s、3 s 的一次性 Move 配置；
+- `tools/run_su17_limited_move_test.sh`：第一次限速 Move 的启动检查入口；
+- `scripts/send_su17_limited_test_goal.py`：一次性 0.55 m 私有目标发布器；
 - `cfg/mapping/real/su17_mid360.yaml`：MID-360 实机地图配置；
 - `map_manager/occupancyMap.*`：点云无效值/近远距/CropBox 过滤、50 ms 同步上限与日志、显式坐标变换、边界修复和可关闭的高负载可视化。
 
 
-目前进度：安装、编译、实时数据、地图同步、CropBox和影子模式都已通过；尚未完成六向纸板测试和空中影子测试，因此还不能开启主动控制。
+目前进度：安装、编译、实时数据、点云/里程计同步、CropBox、六向纸板测试、首次定位地图自动居中、空中两套里程计一致性和策略端到端输出均已通过。最终复测包 `navrl_policy_timing_11 (1).bag` 中，目标后的地图更新约 10 Hz、MAVROS 安全候选约 30 Hz、策略输出约 10 Hz；没有超过 250 ms 的策略间隔，也没有 stale、里程计不一致、急停或控制异常。第一阶段桥接使用原生 `XY_VEL_Z_POS` 定高。因此不再重复策略时序影子包，下一关是上述拆桨主动链路台架测试；台架通过前仍不能进行系留主动飞行。
 
 ## 现在安全关机
 
@@ -596,6 +732,8 @@ roslaunch su17_experiment mapping_mid360_y.launch
 bash /home/amov/navrl2/ros1_real/navigation_runner/tools/run_su17_phase1_shadow.sh
 ```
 
+同一时刻只能运行一份。若脚本提示已有 NavRL 节点，回到旧的影子模式终端按 `Ctrl-C`，确认节点退出后再启动；不要再次叠加 roslaunch。
+
 这条脚本固定：
 
 ```text
@@ -620,6 +758,8 @@ source /home/amov/navrl_ws/devel/setup.bash
 ```bash
 timeout 10 rostopic hz /occupancy_map/update
 
+rosparam get /occupancy_map/center_map_on_first_localization
+
 rostopic echo -n 1 /uav1/navrl/navigation_status
 rostopic echo -n 1 /uav1/navrl/bridge_status
 
@@ -631,6 +771,14 @@ rostopic info /uav1/prometheus/command
 ```text
 navigation_status: idle_no_goal
 bridge_status: shadow_waiting_for_policy
+```
+
+两个状态话题只在状态变化时更新，但 publisher 使用 latched 模式；节点仍在并连接同一个 ROS master 时，`echo -n 1` 应立即得到最近状态。如果一直无输出，先检查：
+
+```bash
+rosnode list | grep -E 'navrl_su17|navigation_su17'
+rostopic info /uav1/navrl/navigation_status
+rostopic info /uav1/navrl/bridge_status
 ```
 
 影子模式下，`/navrl_su17_bridge`不能出现在Prometheus command的publisher列表中。
@@ -719,7 +867,9 @@ rosbag record --lz4 \
   /uav1/navrl/bridge_status \
   /uav1/navrl/desired_setpoint \
   /uav1/navrl/safe_setpoint \
-  /occupancy_map/update
+  /occupancy_map/update \
+  /move_base_simple/goal \
+  /rosout
 ```
 
 人工起飞至约 `0.8～1.0 m`稳定悬停，读取当前位置：

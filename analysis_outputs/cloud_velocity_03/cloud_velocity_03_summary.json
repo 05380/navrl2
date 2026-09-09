@@ -1,0 +1,62 @@
+{
+  "bag_indexed": false,
+  "scan_complete_to_eof": false,
+  "trailing_error": "offset 135740290: RuntimeError: LZ4F_getFrameInfo failed with code: ERROR_frameHeader_incomplete",
+  "file_chunks_scanned": 417,
+  "declared_chunks": 0,
+  "messages_scanned": 29385,
+  "bag_duration_s": 127.291602615,
+  "velocity_topic": "/uav1/mavros/local_position/odom",
+  "velocity_messages": 3821,
+  "velocity_duration_s": 127.328668288,
+  "mean_rate_hz": 30.00109913471869,
+  "median_period_ms": 30.0,
+  "p95_period_ms": 39.999744,
+  "max_period_ms": 40.00384,
+  "non_increasing_header_timestamps": 0,
+  "finite_velocity_samples": 3821,
+  "nonfinite_velocity_samples": 0,
+  "header_to_bag_delay_ms": {
+    "median": 5.301379,
+    "p95": 10.554379,
+    "max": 49.21604
+  },
+  "axis_range_mps": {
+    "vx": [
+      -1.2250271532698949,
+      1.0491976691053582
+    ],
+    "vy": [
+      -1.6937159367830326,
+      0.8135274115329034
+    ],
+    "vz": [
+      -2.154524790444664,
+      1.08353835100656
+    ]
+  },
+  "horizontal_speed_mps": {
+    "mean": 0.23586894051862684,
+    "p95": 0.8272675239240681,
+    "max": 1.8240898954220253
+  },
+  "speed_3d_mps": {
+    "mean": 0.2825586407501546,
+    "p95": 0.9558347154233982,
+    "max": 2.3248031219360565
+  },
+  "samples_above_0_1_mps": 2119,
+  "prometheus_velocity_messages": 6350,
+  "topic_counts": {
+    "/rosout": 20,
+    "/uav1/Odometry": 1275,
+    "/uav1/cloud_mid360_body": 1274,
+    "/uav1/mavros/local_position/odom": 3821,
+    "/uav1/mavros/rc/in": 2547,
+    "/uav1/mavros/setpoint_raw/target_local": 1273,
+    "/uav1/mavros/state": 128,
+    "/uav1/prometheus/control_state": 12697,
+    "/uav1/prometheus/state": 6350
+  },
+  "deserialize_errors": {}
+}

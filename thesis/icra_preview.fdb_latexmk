@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex icra_preview"] 1787739773.41577 "icra_preview.aux" "icra_preview.bbl" "icra_preview" 1787739775.91239 0
+["bibtex icra_preview"] 1788865838.11239 "icra_preview.aux" "icra_preview.bbl" "icra_preview" 1788924304.67412 0
   "./ref.bib" 1787213729.33249 9752 0dc41214a5077c22dc2d1c31d07f6d4a ""
   "./support/IEEEtran.bst" 1757846698 56877 4c81423924dc505d67d7e5fcc3311d54 ""
-  "icra_preview.aux" 1787739775.70227 18530 3b94a683d35d4b074d1d93cf453b3bf9 "pdflatex"
+  "icra_preview.aux" 1788924304.42675 17975 bb4a22f6d5dc0f13e6eb7eaadf5f523a "pdflatex"
   (generated)
   "icra_preview.bbl"
   "icra_preview.blg"
   (rewritten before read)
-["pdflatex"] 1787739773.48127 "icra.tex" "icra_preview.pdf" "icra_preview" 1787739775.91251 0
+["pdflatex"] 1788924301.61617 "icra.tex" "icra_preview.pdf" "icra_preview" 1788924304.67424 0
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/local/texlive/2026/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/adobe/helvetic/phvr7t.tfm" 1136768653 2520 53e01eef820ca829e42c1333c3fd02b9 ""
@@ -259,17 +259,24 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1777280834 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1777280758 3636773 388b900270da0f11b8c27ed4a7fd1d5f ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "fig_3d_vo_geometry.pdf" 1785836414.74643 143592 8ee15e1b5bf16eec9d75555fe9805fd6 ""
-  "figures/fig_corridor_navigation.png" 1787382944.03361 1164486 b2165d024d1c7848460b7b9090c38f86 ""
+  "fig_3d_vo_geometry.pdf" 1787797221.66893 143544 ed4f4e9cfb6787f0f9d1db25711602e0 ""
+  "figures/fig_corridor_navigation.png" 1788924292.25499 1064909 107653ca1ace67c491bc4a66ca89c782 ""
   "figures/fig_foresightnav_architecture.png" 1787306186.45672 1668901 2dac8d93c2443311efdaeb2b4550993c ""
+  "figures/fig_real_dynamic.png" 1788865606.30159 1722028 957f01a8f4ea581f85ddcadb90bd476e ""
+  "figures/fig_real_mixed.png" 1788865645.82061 1637034 c9829d6f63c212730533f095fc35e000 ""
+  "figures/fig_real_nonconvex.png" 1788865684.94593 1597401 875797d9dec1a124762030a55cd467af ""
+  "figures/fig_real_static.png" 1788865570.80048 1626050 208fbd8af717653b2c73d5d819633ee5 ""
+  "figures/fig_real_velocity.pdf" 1788868438.95187 67406 abe2cdabcab231729a1100e43b3cedb2 ""
   "figures/fig_sim_dynamic.png" 1787384371.67241 62063 d0cf4457ada577323971730408b293a3 ""
   "figures/fig_sim_mixed.png" 1787384371.75196 90580 ceb1f3c17ea6037e49ccfee6e07f871a ""
-  "figures/fig_sim_nonconvex.png" 1787384371.83049 137773 e9dc7180eb6e4e59c6464f8ad7ed92ef ""
+  "figures/fig_sim_nonconvex_single_trajectory.png" 1788860992.22124 150283 120ab9772fc8479a69793c9eec33a526 ""
   "figures/fig_sim_static.png" 1787384371.59055 141990 aa8cab105d9649afa2538fb729496970 ""
-  "icra.tex" 1787739759.31448 55112 cb2434dbc71da3b6ff809e59ce0ba6d8 ""
-  "icra_preview.aux" 1787739775.70227 18530 3b94a683d35d4b074d1d93cf453b3bf9 "pdflatex"
-  "icra_preview.bbl" 1787739773.47904 7639 1eb87809fa9dac8c612f38af52e1891c "bibtex icra_preview"
-  "icra_preview.out" 1787739775.7032 4580 e626c2be8fb7d41898f04723ab58eef4 "pdflatex"
+  "figures/legend_dynamic_obstacle_white.png" 1788863124.93623 555321 40e60f55f97047d0b35cab2e2d6e2350 ""
+  "figures/legend_static_obstacle.png" 1788862722.81812 661479 8f870dd66f52b8e1b850dd22ad74d36c ""
+  "icra.tex" 1788868447.82373 59319 adcf8728f5e546075fa73ddc4783cf37 ""
+  "icra_preview.aux" 1788924304.42675 17975 bb4a22f6d5dc0f13e6eb7eaadf5f523a "pdflatex"
+  "icra_preview.bbl" 1788865838.1757 7639 1f3f43d569a1fe80da732813595f587a "bibtex icra_preview"
+  "icra_preview.out" 1788924304.42771 4580 e626c2be8fb7d41898f04723ab58eef4 "pdflatex"
   "support/IEEEtran.cls" 1757846698 281957 5b2e4fa15b0f7eabb840ebf67df4c0f7 ""
   (generated)
   "icra_preview.aux"

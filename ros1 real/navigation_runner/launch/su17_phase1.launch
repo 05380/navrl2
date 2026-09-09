@@ -11,6 +11,7 @@
   <arg name="world_frame" default="world" />
   <arg name="point_cloud_topic" default="/uav1/cloud_mid360_body" />
   <arg name="odom_topic" default="/uav1/mavros/local_position/odom" />
+  <arg name="goal_topic" default="/move_base_simple/goal" />
   <arg name="checkpoint" default="$(find navigation_runner)/scripts/ckpts/navrl_checkpoint.pt" />
 
   <arg name="output_enabled" default="false" />
@@ -38,6 +39,7 @@
   <arg name="self_filter_max_z" default="0.18" />
   <arg name="point_cloud_sync_max_interval" default="0.05" />
   <arg name="point_cloud_sync_log_interval" default="5.0" />
+  <arg name="center_map_on_first_localization" default="true" />
 
   <!-- IMU/body-centred measured envelope plus >=0.05 m on each face. -->
   <arg name="robot_x" default="0.58" />
@@ -46,12 +48,17 @@
 
   <arg name="max_xy_speed" default="0.50" />
   <arg name="max_z_speed" default="0.30" />
+  <!-- Phase 1 uses Prometheus native XY velocity + Z position hold. -->
+  <arg name="hold_goal_altitude" default="true" />
   <arg name="min_z" default="0.30" />
   <arg name="max_z" default="1.50" />
   <arg name="max_xy_from_home" default="3.0" />
   <arg name="emergency_stop_distance" default="0.55" />
+  <arg name="goal_stop_radius" default="0.40" />
+  <arg name="bridge_max_move_duration" default="0.0" />
   <arg name="enable_odom_consistency_check" default="false" />
-  <arg name="map_visualization" default="true" />
+  <arg name="map_visualization" default="false" />
+  <arg name="torch_num_threads" default="1" />
 
   <rosparam
     file="$(find navigation_runner)/cfg/mapping/real/su17_mid360.yaml"
@@ -75,6 +82,7 @@
   </rosparam>
   <param name="/occupancy_map/point_cloud_sync_max_interval" value="$(arg point_cloud_sync_max_interval)" />
   <param name="/occupancy_map/point_cloud_sync_log_interval" value="$(arg point_cloud_sync_log_interval)" />
+  <param name="/occupancy_map/center_map_on_first_localization" value="$(arg center_map_on_first_localization)" />
 
   <node
     pkg="map_manager"
@@ -94,6 +102,7 @@
       <param name="world_frame" value="$(arg world_frame)" />
       <param name="point_cloud_topic" value="$(arg point_cloud_topic)" />
       <param name="odom_topic" value="$(arg odom_topic)" />
+      <param name="goal_topic" value="$(arg goal_topic)" />
       <param name="checkpoint" value="$(arg checkpoint)" />
       <param name="control_rate_hz" value="10.0" />
       <param name="map_update_timeout" value="0.30" />
@@ -102,8 +111,9 @@
       <param name="min_z" value="$(arg min_z)" />
       <param name="max_z" value="$(arg max_z)" />
       <param name="emergency_stop_distance" value="$(arg emergency_stop_distance)" />
+      <param name="goal_stop_radius" value="$(arg goal_stop_radius)" />
       <param name="strict_checkpoint" value="true" />
-      <param name="torch_num_threads" value="2" />
+      <param name="torch_num_threads" value="$(arg torch_num_threads)" />
     </node>
 
     <node
@@ -118,10 +128,12 @@
       <param name="rate_hz" value="30.0" />
       <param name="max_xy_speed" value="$(arg max_xy_speed)" />
       <param name="max_z_speed" value="$(arg max_z_speed)" />
+      <param name="hold_goal_altitude" value="$(arg hold_goal_altitude)" />
       <param name="min_z" value="$(arg min_z)" />
       <param name="max_z" value="$(arg max_z)" />
       <param name="max_xy_from_home" value="$(arg max_xy_from_home)" />
       <param name="enable_odom_consistency_check" value="$(arg enable_odom_consistency_check)" />
+      <param name="max_move_duration" value="$(arg bridge_max_move_duration)" />
     </node>
   </group>
 

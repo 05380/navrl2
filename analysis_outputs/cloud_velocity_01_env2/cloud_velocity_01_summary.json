@@ -1,0 +1,62 @@
+{
+  "bag_indexed": true,
+  "scan_complete_to_eof": true,
+  "trailing_error": null,
+  "file_chunks_scanned": 245,
+  "declared_chunks": 245,
+  "messages_scanned": 16922,
+  "bag_duration_s": 73.207777329,
+  "velocity_topic": "/uav1/mavros/local_position/odom",
+  "velocity_messages": 2202,
+  "velocity_duration_s": 73.359553024,
+  "mean_rate_hz": 30.0029090864271,
+  "median_period_ms": 30.0,
+  "p95_period_ms": 40.0,
+  "max_period_ms": 40.0,
+  "non_increasing_header_timestamps": 0,
+  "finite_velocity_samples": 2202,
+  "nonfinite_velocity_samples": 0,
+  "header_to_bag_delay_ms": {
+    "median": 5.7706055,
+    "p95": 10.04016785,
+    "max": 168.233765
+  },
+  "axis_range_mps": {
+    "vx": [
+      -0.05531295503236819,
+      0.9341589076715665
+    ],
+    "vy": [
+      -0.6401268693011353,
+      0.18943046084933735
+    ],
+    "vz": [
+      -0.5682210666663131,
+      0.6327821767540774
+    ]
+  },
+  "horizontal_speed_mps": {
+    "mean": 0.18285797488232214,
+    "p95": 0.6288400910262222,
+    "max": 0.9341597923100518
+  },
+  "speed_3d_mps": {
+    "mean": 0.2098081686614966,
+    "p95": 0.6338431210027834,
+    "max": 0.9342294495101677
+  },
+  "samples_above_0_1_mps": 968,
+  "prometheus_velocity_messages": 3654,
+  "topic_counts": {
+    "/rosout": 19,
+    "/uav1/Odometry": 734,
+    "/uav1/cloud_mid360_body": 734,
+    "/uav1/mavros/local_position/odom": 2202,
+    "/uav1/mavros/rc/in": 1467,
+    "/uav1/mavros/setpoint_raw/target_local": 733,
+    "/uav1/mavros/state": 74,
+    "/uav1/prometheus/control_state": 7305,
+    "/uav1/prometheus/state": 3654
+  },
+  "deserialize_errors": {}
+}

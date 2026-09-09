@@ -110,6 +110,8 @@ namespace mapManager{
 		double groundHeight_; // ground height in z axis
 		Eigen::Vector3d mapSize_, mapSizeMin_, mapSizeMax_; // reserved min/max map size
 		Eigen::Vector3i mapVoxelMin_, mapVoxelMax_; // reserved min/max map size in voxel
+		bool centerMapOnFirstLocalization_ = false;
+		bool mapCenterInitialized_ = true;
 		Eigen::Vector3d localUpdateRange_; // self defined local update range
 		double localBoundInflate_; // inflate local map for some distance
 		bool cleanLocalMap_; 
@@ -263,6 +265,7 @@ namespace mapManager{
 		int updateOccupancyInfo(const Eigen::Vector3d& point, bool isOccupied);
 		void getCameraPose(const geometry_msgs::PoseStampedConstPtr& pose, Eigen::Matrix4d& camPoseMatrix);
 		void getCameraPose(const nav_msgs::OdometryConstPtr& odom, Eigen::Matrix4d& camPoseMatrix);
+		void updateMapStatusFromPosition();
 	};
 	// inline function
 	// user function

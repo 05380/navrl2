@@ -1,0 +1,23 @@
+<launch>
+  <!-- One-shot, tethered, first NavRL Move gate. No RViz goal subscription. -->
+  <param name="/navrl_limited_move_test/goal_sent" value="false" />
+
+  <include file="$(find navigation_runner)/launch/su17_phase1.launch">
+    <arg name="output_enabled" value="true" />
+    <arg name="start_policy" value="true" />
+    <arg name="rviz" value="false" />
+    <arg name="goal_topic" value="/uav1/navrl/limited_test_goal" />
+    <arg name="max_xy_speed" value="0.10" />
+    <arg name="max_z_speed" value="0.10" />
+    <arg name="hold_goal_altitude" value="true" />
+    <arg name="min_z" value="0.30" />
+    <arg name="max_z" value="1.30" />
+    <arg name="max_xy_from_home" value="0.75" />
+    <arg name="emergency_stop_distance" value="0.65" />
+    <arg name="goal_stop_radius" value="0.40" />
+    <arg name="bridge_max_move_duration" value="3.0" />
+    <arg name="enable_odom_consistency_check" value="true" />
+    <arg name="map_visualization" value="false" />
+    <arg name="torch_num_threads" value="1" />
+  </include>
+</launch>

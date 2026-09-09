@@ -9,10 +9,13 @@
 \citation{ppo}
 \citation{long2018,navrl,drl_vo,lee2025privileged}
 \citation{navrep,rgl,badgr}
+\citation{fiorini1998vo}
+\citation{navrl,pe_planner}
 \providecommand \oddpage@label [2]{}
 \@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
-\citation{navrl,pe_planner}
-\citation{faster,vigo}
+\citation{faster,vigo,pe_planner}
+\citation{faster}
+\citation{vigo}
 \citation{pe_planner}
 \citation{cadrl}
 \citation{long2018}
@@ -49,14 +52,14 @@
 \newlabel{eq:vo_quadratic}{{3}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.3}{}}
 \newlabel{eq:ttc}{{4}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.4}{}}
 \newlabel{eq:vo_risk}{{5}{3}{Finite-Horizon TTC-Aware 3D Velocity-Obstacle Modeling}{equation.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Reinforcement-Learning Formulation}{3}{subsection.3.2}\protected@file@percent }
-\newlabel{subsec:rl}{{\mbox  {III-B}}{3}{Reinforcement-Learning Formulation}{subsection.3.2}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}1}Problem Formulation}{3}{subsubsection.3.2.1}\protected@file@percent }
-\newlabel{eq:pomdp_transition}{{6}{3}{Problem Formulation}{equation.6}{}}
 \citation{navrl}
 \citation{navrl}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces  Geometry of the finite-horizon TTC-aware 3D-VO model for one retained obstacle primitive. (a) The post-transition relative trajectory first intersects the anisotropically inflated safety region at \(T_{i,j,t+1}\). (b) The corresponding realized UAV velocity lies inside the finite-horizon velocity obstacle; the \(s=H\) cap excludes relative motions that cannot reach the safety region within the prediction horizon. The open end denotes continuation toward larger relative speeds before intersection with the bounded action space. ForesightNav evaluates this membership analytically and does not construct the set or project the policy action during training.}}{4}{figure.2}\protected@file@percent }
-\newlabel{fig_3d_vo_geometry}{{2}{4}{Geometry of the finite-horizon TTC-aware 3D-VO model for one retained obstacle primitive. (a) The post-transition relative trajectory first intersects the anisotropically inflated safety region at \(T_{i,j,t+1}\). (b) The corresponding realized UAV velocity lies inside the finite-horizon velocity obstacle; the \(s=H\) cap excludes relative motions that cannot reach the safety region within the prediction horizon. The open end denotes continuation toward larger relative speeds before intersection with the bounded action space. ForesightNav evaluates this membership analytically and does not construct the set or project the policy action during training}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces  Finite-horizon TTC-aware 3D-VO geometry for one retained primitive. (a) Relative motion first intersects the inflated region at \(T_{i,j,t+1}\). (b) The corresponding realized velocity lies inside the finite-horizon VO; the \(s=H\) cap excludes conflicts beyond the prediction horizon.}}{4}{figure.2}\protected@file@percent }
+\newlabel{fig_3d_vo_geometry}{{2}{4}{Finite-horizon TTC-aware 3D-VO geometry for one retained primitive. (a) Relative motion first intersects the inflated region at \(T_{i,j,t+1}\). (b) The corresponding realized velocity lies inside the finite-horizon VO; the \(s=H\) cap excludes conflicts beyond the prediction horizon}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Reinforcement-Learning Formulation}{4}{subsection.3.2}\protected@file@percent }
+\newlabel{subsec:rl}{{\mbox  {III-B}}{4}{Reinforcement-Learning Formulation}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}1}Problem Formulation}{4}{subsubsection.3.2.1}\protected@file@percent }
+\newlabel{eq:pomdp_transition}{{6}{4}{Problem Formulation}{equation.6}{}}
 \newlabel{eq:rl_objective}{{7}{4}{Problem Formulation}{equation.7}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}2}State and Observation Space}{4}{subsubsection.3.2.2}\protected@file@percent }
 \newlabel{eq:policy_observation}{{8}{4}{State and Observation Space}{equation.8}{}}
@@ -66,14 +69,13 @@
 \newlabel{eq:beta_action}{{11}{4}{Action Space}{equation.11}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Reward Function}{4}{subsection.3.3}\protected@file@percent }
 \newlabel{subsec:reward}{{\mbox  {III-C}}{4}{Reward Function}{subsection.3.3}{}}
-\newlabel{eq:reward_total}{{12}{4}{Reward Function}{equation.12}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}1}TTC-Aware 3D-VO Risk Reward}{4}{subsubsection.3.3.1}\protected@file@percent }
-\newlabel{eq:vo_reward}{{13}{4}{TTC-Aware 3D-VO Risk Reward}{equation.13}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Goal-Progress Reward}{4}{subsubsection.3.3.2}\protected@file@percent }
-\newlabel{eq:goal_reward}{{14}{4}{Goal-Progress Reward}{equation.14}{}}
 \citation{navrl}
 \citation{ppo}
-\citation{navrl}
+\newlabel{eq:reward_total}{{12}{5}{Reward Function}{equation.12}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}1}TTC-Aware 3D-VO Risk Reward}{5}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{eq:vo_reward}{{13}{5}{TTC-Aware 3D-VO Risk Reward}{equation.13}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Goal-Progress Reward}{5}{subsubsection.3.3.2}\protected@file@percent }
+\newlabel{eq:goal_reward}{{14}{5}{Goal-Progress Reward}{equation.14}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Smoothness Reward}{5}{subsubsection.3.3.3}\protected@file@percent }
 \newlabel{eq:smooth_reward}{{15}{5}{Smoothness Reward}{equation.15}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}4}Static-Safety Reward}{5}{subsubsection.3.3.4}\protected@file@percent }
@@ -84,20 +86,17 @@
 \newlabel{subsec:network}{{\mbox  {III-D}}{5}{Network Design and Policy Training}{subsection.3.4}{}}
 \newlabel{eq:multi_horizon_prediction}{{18}{5}{Network Design and Policy Training}{equation.18}{}}
 \newlabel{eq:multi_horizon_targets}{{19}{5}{Network Design and Policy Training}{equation.19}{}}
-\@writefile{loa}{\contentsline {algocf}{\numberline {1}{\ignorespaces TTC-Aware Predictive PPO Training}}{5}{algocf.1}\protected@file@percent }
-\newlabel{alg:joint_training}{{1}{5}{Network Design and Policy Training}{algocf.1}{}}
 \newlabel{eq:multi_horizon_loss}{{20}{5}{Network Design and Policy Training}{equation.20}{}}
 \newlabel{eq:joint_training_loss}{{21}{5}{Network Design and Policy Training}{equation.21}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Deployment-Time Policy Action Safety Shield}{5}{subsection.3.5}\protected@file@percent }
-\newlabel{subsec:shield}{{\mbox  {III-E}}{5}{Deployment-Time Policy Action Safety Shield}{subsection.3.5}{}}
 \citation{navrl}
-\citation{pe_planner}
+\@writefile{loa}{\contentsline {algocf}{\numberline {1}{\ignorespaces TTC-Aware Predictive PPO Training}}{6}{algocf.1}\protected@file@percent }
+\newlabel{alg:joint_training}{{1}{6}{Network Design and Policy Training}{algocf.1}{}}
 \@writefile{loa}{\contentsline {algocf}{\numberline {2}{\ignorespaces Multi-Horizon Outcome Learning}}{6}{algocf.2}\protected@file@percent }
 \newlabel{alg:multi_horizon_learning}{{2}{6}{Network Design and Policy Training}{algocf.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Deployment-Time Policy Action Safety Shield}{6}{subsection.3.5}\protected@file@percent }
+\newlabel{subsec:shield}{{\mbox  {III-E}}{6}{Deployment-Time Policy Action Safety Shield}{subsection.3.5}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {IV}Experiment Results}{6}{section.4}\protected@file@percent }
 \newlabel{sec:exp}{{IV}{6}{Experiment Results}{section.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Training Details and Setup}{6}{subsection.4.1}\protected@file@percent }
-\newlabel{subsec:Simulation Setup}{{\mbox  {IV-A}}{6}{Training Details and Setup}{subsection.4.1}{}}
 \newlabel{fig:training_initial}{{3(a)}{6}{Subfigure 3(a)}{subfigure.3.1}{}}
 \newlabel{sub@fig:training_initial}{{(a)}{6}{Subfigure 3(a)\relax }{subfigure.3.1}{}}
 \newlabel{fig:training_final}{{3(b)}{6}{Subfigure 3(b)}{subfigure.3.2}{}}
@@ -108,6 +107,10 @@
 \@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Final stage}}}{6}{figure.3}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Navigation success-rate curves over the five curriculum-training stages.}}{6}{figure.4}\protected@file@percent }
 \newlabel{fig:curriculum_success}{{4}{6}{Navigation success-rate curves over the five curriculum-training stages}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Training Details and Setup}{6}{subsection.4.1}\protected@file@percent }
+\newlabel{subsec:Simulation Setup}{{\mbox  {IV-A}}{6}{Training Details and Setup}{subsection.4.1}{}}
+\citation{navrl}
+\citation{pe_planner}
 \@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces KEY HYPERPARAMETERS USED FOR POLICY TRAINING}}{7}{table.1}\protected@file@percent }
 \newlabel{tab:hyperparameters}{{I}{7}{KEY HYPERPARAMETERS USED FOR POLICY TRAINING}{table.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Simulation Results}{7}{subsection.4.2}\protected@file@percent }
@@ -126,31 +129,14 @@
 \@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Dynamic}}}{7}{figure.5}\protected@file@percent }
 \@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {Mixed}}}{7}{figure.5}\protected@file@percent }
 \@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {Non-convex}}}{7}{figure.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Safe navigation in a simulated corridor environment. The upper panel shows the Gazebo scene containing static obstacles and moving pedestrians, while the lower panel shows the corresponding environment map and UAV trajectory.}}{7}{figure.6}\protected@file@percent }
-\newlabel{fig:corridor_navigation}{{6}{7}{Safe navigation in a simulated corridor environment. The upper panel shows the Gazebo scene containing static obstacles and moving pedestrians, while the lower panel shows the corresponding environment map and UAV trajectory}{figure.6}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.2}\protected@file@percent }
-\newlabel{tab:result}{{II}{8}{Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Effect of the deployment-time safety shield over 1,000 trials in Environment~3 (mixed static and dynamic obstacles) within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.3}\protected@file@percent }
-\newlabel{table3}{{III}{8}{Effect of the deployment-time safety shield over 1,000 trials in Environment~3 (mixed static and dynamic obstacles) within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace. The best non-tied result in each environment is shown in bold.}}{8}{table.2}\protected@file@percent }
+\newlabel{tab:result}{{II}{8}{Quantitative comparison over 1,000 trials in four obstacle environments within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace. The best non-tied result in each environment is shown in bold}{table.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Safe navigation in a simulated corridor environment. The upper panel shows the Gazebo scene containing static obstacles and moving pedestrians, while the lower panel shows the corresponding environment map and UAV trajectory.}}{8}{figure.6}\protected@file@percent }
+\newlabel{fig:corridor_navigation}{{6}{8}{Safe navigation in a simulated corridor environment. The upper panel shows the Gazebo scene containing static obstacles and moving pedestrians, while the lower panel shows the corresponding environment map and UAV trajectory}{figure.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Effect of the deployment-time safety shield over 1,000 trials in the mixed static and dynamic obstacle environment within a $20\,\mathrm  {m}\times 20\,\mathrm  {m}$ workspace.}}{8}{table.3}\protected@file@percent }
+\newlabel{table3}{{III}{8}{Effect of the deployment-time safety shield over 1,000 trials in the mixed static and dynamic obstacle environment within a $20\,\mathrm {m}\times 20\,\mathrm {m}$ workspace}{table.3}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Physical Flight Tests}{8}{subsection.4.3}\protected@file@percent }
 \newlabel{subsec:real_world}{{\mbox  {IV-C}}{8}{Physical Flight Tests}{subsection.4.3}{}}
-\newlabel{fig_real_static}{{7(a)}{8}{Subfigure 7(a)}{subfigure.7.1}{}}
-\newlabel{sub@fig_real_static}{{(a)}{8}{Subfigure 7(a)\relax }{subfigure.7.1}{}}
-\newlabel{fig_real_dynamic}{{7(b)}{8}{Subfigure 7(b)}{subfigure.7.2}{}}
-\newlabel{sub@fig_real_dynamic}{{(b)}{8}{Subfigure 7(b)\relax }{subfigure.7.2}{}}
-\newlabel{fig_real_mixed}{{7(c)}{8}{Subfigure 7(c)}{subfigure.7.3}{}}
-\newlabel{sub@fig_real_mixed}{{(c)}{8}{Subfigure 7(c)\relax }{subfigure.7.3}{}}
-\newlabel{fig_real_nonconvex}{{7(d)}{8}{Subfigure 7(d)}{subfigure.7.4}{}}
-\newlabel{sub@fig_real_nonconvex}{{(d)}{8}{Subfigure 7(d)\relax }{subfigure.7.4}{}}
-\newlabel{fig_real_velocity}{{7(e)}{8}{Subfigure 7(e)}{subfigure.7.5}{}}
-\newlabel{sub@fig_real_velocity}{{(e)}{8}{Subfigure 7(e)\relax }{subfigure.7.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm  {m}\times 15\,\mathrm  {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments.}}{8}{figure.7}\protected@file@percent }
-\newlabel{fig_real_world}{{7}{8}{Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm {m}\times 15\,\mathrm {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments}{figure.7}{}}
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {Static}}}{8}{figure.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Dynamic}}}{8}{figure.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {Mixed}}}{8}{figure.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {Non-convex}}}{8}{figure.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {subfigure}{\numberline{(e)}{\ignorespaces {Linear velocity}}}{8}{figure.7}\protected@file@percent }
 \bibdata{ref}
 \bibcite{pe_planner}{1}
 \bibcite{faster}{2}
@@ -164,20 +150,37 @@
 \bibcite{navrep}{10}
 \bibcite{rgl}{11}
 \bibcite{badgr}{12}
-\bibcite{prm_rl}{13}
-\bibcite{kastner2021waypoint}{14}
-\bibcite{semnani2020multiagent}{15}
-\bibcite{thananjeyan2021recovery}{16}
-\bibcite{kochdumper2023projection}{17}
-\bibcite{he2020demonstration}{18}
-\bibcite{loquercio2021wild}{19}
-\bibcite{fiorini1998vo}{20}
+\bibcite{fiorini1998vo}{13}
+\bibcite{prm_rl}{14}
+\bibcite{kastner2021waypoint}{15}
+\bibcite{semnani2020multiagent}{16}
+\bibcite{thananjeyan2021recovery}{17}
+\bibcite{kochdumper2023projection}{18}
+\bibcite{he2020demonstration}{19}
+\bibcite{loquercio2021wild}{20}
 \bibcite{orca}{21}
 \bibcite{han2022rvo}{22}
-\bibcite{sutton2011horde}{23}
-\bibcite{jaderberg2017unreal}{24}
-\bibcite{schwarzer2021spr}{25}
+\newlabel{fig_real_static}{{7(a)}{9}{Subfigure 7(a)}{subfigure.7.1}{}}
+\newlabel{sub@fig_real_static}{{(a)}{9}{Subfigure 7(a)\relax }{subfigure.7.1}{}}
+\newlabel{fig_real_dynamic}{{7(b)}{9}{Subfigure 7(b)}{subfigure.7.2}{}}
+\newlabel{sub@fig_real_dynamic}{{(b)}{9}{Subfigure 7(b)\relax }{subfigure.7.2}{}}
+\newlabel{fig_real_mixed}{{7(c)}{9}{Subfigure 7(c)}{subfigure.7.3}{}}
+\newlabel{sub@fig_real_mixed}{{(c)}{9}{Subfigure 7(c)\relax }{subfigure.7.3}{}}
+\newlabel{fig_real_nonconvex}{{7(d)}{9}{Subfigure 7(d)}{subfigure.7.4}{}}
+\newlabel{sub@fig_real_nonconvex}{{(d)}{9}{Subfigure 7(d)\relax }{subfigure.7.4}{}}
+\newlabel{fig_real_velocity}{{7(e)}{9}{Subfigure 7(e)}{subfigure.7.5}{}}
+\newlabel{sub@fig_real_velocity}{{(e)}{9}{Subfigure 7(e)\relax }{subfigure.7.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm  {m}\times 15\,\mathrm  {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments.}}{9}{figure.7}\protected@file@percent }
+\newlabel{fig_real_world}{{7}{9}{Zero-shot physical flight tests of ForesightNav in a $28\,\mathrm {m}\times 15\,\mathrm {m}$ area. (a) Static obstacles. (b) Dynamic obstacles. (c) Mixed static and dynamic obstacles. (d) Large non-convex structures. (e) UAV linear-velocity profiles in the four environments}{figure.7}{}}
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(a)}{\ignorespaces {Static}}}{9}{figure.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(b)}{\ignorespaces {Dynamic}}}{9}{figure.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(c)}{\ignorespaces {Mixed}}}{9}{figure.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(d)}{\ignorespaces {Non-convex}}}{9}{figure.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {subfigure}{\numberline{(e)}{\ignorespaces {Linear velocity}}}{9}{figure.7}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {V}Conclusion}{9}{section.5}\protected@file@percent }
 \newlabel{sec:conclusion}{{V}{9}{Conclusion}{section.5}{}}
 \@writefile{toc}{\contentsline {section}{References}{9}{section*.1}\protected@file@percent }
-\gdef \@abspage@last{9}
+\bibcite{sutton2011horde}{23}
+\bibcite{jaderberg2017unreal}{24}
+\bibcite{schwarzer2021spr}{25}
+\gdef \@abspage@last{10}

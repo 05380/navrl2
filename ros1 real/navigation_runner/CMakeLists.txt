@@ -180,6 +180,7 @@ target_link_libraries(safe_action_node ${PROJECT_NAME})
 catkin_install_python(PROGRAMS
   scripts/navigation_su17_phase1.py
   scripts/navrl_su17_bridge.py
+  scripts/send_su17_limited_test_goal.py
   scripts/check_su17_phase1_env.py
   scripts/inspect_mid360_cloud.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -188,6 +189,9 @@ catkin_install_python(PROGRAMS
 install(PROGRAMS
   tools/setup_su17_phase1_onboard.sh
   tools/run_su17_phase1_shadow.sh
+  tools/run_su17_phase1_active_bench.sh
+  tools/run_su17_tethered_hover_test.sh
+  tools/run_su17_limited_move_test.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

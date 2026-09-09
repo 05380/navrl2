@@ -75,6 +75,15 @@ fi
 
 # shellcheck disable=SC1090
 source "${NAVRL_VENV}/bin/activate"
+# The onboard runtime only consumes generated C++ and Python interfaces.
+# Disable Lisp/Node.js generators: some vendor ROS images carry locale-broken
+# versions of those optional generators even when the .srv source is valid
+# ASCII/UTF-8.  genmsg officially supports ROS_LANG_DISABLE for this purpose.
+if [[ -n "${ROS_LANG_DISABLE:-}" ]]; then
+  export ROS_LANG_DISABLE="${ROS_LANG_DISABLE}:genlisp:gennodejs"
+else
+  export ROS_LANG_DISABLE="genlisp:gennodejs"
+fi
 # Ubuntu 20.04 exposes an old system importlib_metadata inside the
 # --system-site-packages venv.  Modern setuptools imports EntryPoints while
 # preparing legacy setup.py packages (antlr4 is pulled in by Hydra), so shadow

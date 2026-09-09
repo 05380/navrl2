@@ -86,6 +86,11 @@ G.~Kahn, P.~Abbeel, and S.~Levine, ``{BADGR}: An autonomous self-supervised
   learning-based navigation system,'' \emph{IEEE Robotics and Automation
   Letters}, vol.~6, no.~2, pp. 1312--1319, 2021, arXiv:2002.05700.
 
+\bibitem{fiorini1998vo}
+P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using
+  velocity obstacles,'' \emph{The International Journal of Robotics Research},
+  vol.~17, no.~7, pp. 760--772, 1998.
+
 \bibitem{prm_rl}
 A.~Faust, O.~Ramirez, M.~Fiser, K.~Oslund, A.~Francis, J.~Davidson, and
   L.~Tapia, ``{PRM-RL}: Long-range robotic navigation tasks by combining
@@ -127,11 +132,6 @@ L.~He, N.~Aouf, J.~F. Whidborne, and B.~Song, ``Deep reinforcement learning
 A.~Loquercio, E.~Kaufmann, R.~Ranftl, M.~M{\"u}ller, V.~Koltun, and
   D.~Scaramuzza, ``Learning high-speed flight in the wild,'' \emph{Science
   Robotics}, vol.~6, no.~59, p. eabg5810, 2021.
-
-\bibitem{fiorini1998vo}
-P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using
-  velocity obstacles,'' \emph{The International Journal of Robotics Research},
-  vol.~17, no.~7, pp. 760--772, 1998.
 
 \bibitem{orca}
 J.~van~den Berg, S.~J. Guy, M.~Lin, and D.~Manocha, ``Reciprocal n-body

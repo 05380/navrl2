@@ -10,6 +10,7 @@ Current_Pos_Hover behavior instead of continuing the previous velocity.
 
 import math
 import threading
+import time
 
 import numpy as np
 import rospy
@@ -51,6 +52,7 @@ class NavRLSU17Bridge:
         self.max_z_speed = float(rospy.get_param("~max_z_speed", 0.30))
         self.min_z = float(rospy.get_param("~min_z", 0.30))
         self.max_z = float(rospy.get_param("~max_z", 1.50))
+        self.hold_goal_altitude = _bool_param("~hold_goal_altitude", True)
         self.max_xy_from_home = float(
             rospy.get_param("~max_xy_from_home", 3.0)
         )
@@ -69,6 +71,14 @@ class NavRLSU17Bridge:
         self.max_odom_yaw_delta_change = float(
             rospy.get_param("~max_odom_yaw_delta_change", 0.20)
         )
+        # Optional one-shot active-output time gate.  A positive value latches
+        # Current_Pos_Hover after this much wall time has elapsed from the
+        # first valid Move forwarding.  The latch is intentionally not reset
+        # by cycling RC modes; restarting this bridge is required for another
+        # Move bout.  Normal shadow/deployment launches keep zero (disabled).
+        self.max_move_duration = float(
+            rospy.get_param("~max_move_duration", 0.0)
+        )
 
         numeric_params = (
             self.rate_hz,
@@ -84,6 +94,7 @@ class NavRLSU17Bridge:
             self.odom_consistency_timeout,
             self.max_odom_delta_change,
             self.max_odom_yaw_delta_change,
+            self.max_move_duration,
         )
         if not all(math.isfinite(value) for value in numeric_params):
             raise ValueError("all watchdog and safety parameters must be finite")
@@ -107,6 +118,12 @@ class NavRLSU17Bridge:
             self.max_odom_yaw_delta_change,
         ) <= 0.0:
             raise ValueError("fence and odometry thresholds must be positive")
+        if self.max_move_duration < 0.0:
+            raise ValueError("max_move_duration cannot be negative")
+        if self.hold_goal_altitude and not hasattr(UAVCommand, "XY_VEL_Z_POS"):
+            raise ValueError(
+                "installed prometheus_msgs/UAVCommand has no XY_VEL_Z_POS mode"
+            )
 
         # A self-filter makes points inside its box unobservable.  Active
         # control is only safe when the collision-inflation body encloses that
@@ -168,6 +185,9 @@ class NavRLSU17Bridge:
         self.last_control_state_value = UAVControlState.INIT
         self.last_status = None
         self.command_id = 0
+        self.last_timer_wall_time = None
+        self.move_start_wall_time = None
+        self.move_time_limit_latched = False
 
         self.prometheus_command_topic = str(
             rospy.get_param("~prometheus_command_topic", prefix + "/prometheus/command")
@@ -218,10 +238,14 @@ class NavRLSU17Bridge:
         mode = "ACTIVE" if self.output_enabled else "SHADOW"
         self._set_status("{}_waiting_for_inputs".format(mode.lower()))
         rospy.logwarn(
-            "[navrl-bridge] mode=%s output=%s desired=%s; active flight requires explicit output_enabled:=true",
+            "[navrl-bridge] mode=%s output=%s desired=%s altitude_mode=%s; "
+            "active flight requires explicit output_enabled:=true; "
+            "max_move_duration=%.2f s",
             mode,
             self.prometheus_command_topic,
             self.desired_topic,
+            "XY_VEL_Z_POS" if self.hold_goal_altitude else "XYZ_VEL",
+            self.max_move_duration,
         )
 
     @staticmethod
@@ -318,27 +342,52 @@ class NavRLSU17Bridge:
         msg.header.stamp = rospy.Time.now()
         msg.Agent_CMD = UAVCommand.Move
         msg.Control_Level = UAVCommand.DEFAULT_CONTROL
-        msg.Move_mode = UAVCommand.XYZ_VEL
+        msg.Move_mode = (
+            UAVCommand.XY_VEL_Z_POS
+            if self.hold_goal_altitude
+            else UAVCommand.XYZ_VEL
+        )
         msg.velocity_ref[0] = float(velocity[0])
         msg.velocity_ref[1] = float(velocity[1])
-        msg.velocity_ref[2] = float(velocity[2])
+        if self.hold_goal_altitude:
+            msg.velocity_ref[2] = 0.0
+            msg.position_ref[2] = float(desired.position.z)
+        else:
+            msg.velocity_ref[2] = float(velocity[2])
         msg.yaw_ref = float(desired.yaw)
         msg.Yaw_Rate_Mode = False
         msg.yaw_rate_ref = 0.0
         msg.Command_ID = self._next_command_id()
         self.command_pub.publish(msg)
 
-        safe = PositionTarget()
-        safe.header.stamp = msg.header.stamp
-        safe.header.frame_id = desired.header.frame_id
-        safe.coordinate_frame = PositionTarget.FRAME_LOCAL_NED
-        safe.type_mask = desired.type_mask
-        safe.velocity.x = msg.velocity_ref[0]
-        safe.velocity.y = msg.velocity_ref[1]
-        safe.velocity.z = msg.velocity_ref[2]
-        safe.yaw = msg.yaw_ref
+        safe = self._make_safe_setpoint(desired, velocity, msg.header.stamp)
         self.safe_setpoint_pub.publish(safe)
         self._set_status("active_forwarding")
+
+    def _make_safe_setpoint(self, desired, velocity, stamp):
+        safe = PositionTarget()
+        safe.header.stamp = stamp
+        safe.header.frame_id = desired.header.frame_id
+        safe.coordinate_frame = PositionTarget.FRAME_LOCAL_NED
+        safe.velocity.x = float(velocity[0])
+        safe.velocity.y = float(velocity[1])
+        safe.yaw = float(desired.yaw)
+        if self.hold_goal_altitude:
+            safe.type_mask = (
+                PositionTarget.IGNORE_PX
+                | PositionTarget.IGNORE_PY
+                | PositionTarget.IGNORE_VZ
+                | PositionTarget.IGNORE_AFX
+                | PositionTarget.IGNORE_AFY
+                | PositionTarget.IGNORE_AFZ
+                | PositionTarget.IGNORE_YAW_RATE
+            )
+            safe.position.z = float(desired.position.z)
+            safe.velocity.z = 0.0
+        else:
+            safe.type_mask = desired.type_mask
+            safe.velocity.z = float(velocity[2])
+        return safe
 
     def _control_state_is_fresh(self, now):
         return (
@@ -402,12 +451,25 @@ class NavRLSU17Bridge:
             [desired.velocity.x, desired.velocity.y, desired.velocity.z],
             dtype=np.float64,
         )
-        if not self._finite(np.concatenate([velocity, [desired.yaw]])):
+        validation_values = np.concatenate([velocity, [desired.yaw]])
+        if self.hold_goal_altitude:
+            validation_values = np.concatenate(
+                [validation_values, [desired.position.z]]
+            )
+        if not self._finite(validation_values):
             return None, "invalid_desired"
         horizontal = np.linalg.norm(velocity[:2])
         if horizontal > self.max_xy_speed:
             velocity[:2] *= self.max_xy_speed / horizontal
-        velocity[2] = float(np.clip(velocity[2], -self.max_z_speed, self.max_z_speed))
+        if self.hold_goal_altitude:
+            velocity[2] = 0.0
+            target_z = float(desired.position.z)
+            if target_z < self.min_z or target_z > self.max_z:
+                return None, "goal_altitude_fence"
+        else:
+            velocity[2] = float(
+                np.clip(velocity[2], -self.max_z_speed, self.max_z_speed)
+            )
 
         position = np.asarray(state.position, dtype=np.float64)
         if position.shape != (3,) or not self._finite(position):
@@ -416,6 +478,8 @@ class NavRLSU17Bridge:
             return None, "no_fence_origin"
 
         predicted = position + self.fence_prediction_horizon * velocity
+        if self.hold_goal_altitude:
+            predicted[2] = target_z
         if np.linalg.norm(position[:2] - self.home_xy) > self.max_xy_from_home:
             return None, "outside_xy_fence"
         if np.linalg.norm(predicted[:2] - self.home_xy) > self.max_xy_from_home:
@@ -427,6 +491,18 @@ class NavRLSU17Bridge:
         return velocity, "ready"
 
     def _timer_cb(self, _event):
+        timer_wall_time = time.perf_counter()
+        if self.last_timer_wall_time is not None:
+            timer_interval_ms = (
+                timer_wall_time - self.last_timer_wall_time
+            ) * 1000.0
+            if timer_interval_ms > 100.0:
+                rospy.logwarn_throttle(
+                    1.0,
+                    "[navrl-bridge] timer callback gap %.1f ms",
+                    timer_interval_ms,
+                )
+        self.last_timer_wall_time = timer_wall_time
         now = rospy.Time.now()
         with self.lock:
             control_fresh = self._control_state_is_fresh(now)
@@ -465,15 +541,7 @@ class NavRLSU17Bridge:
                     self._set_status("shadow_{}".format(reason))
                     return
                 # Shadow mode exposes the exact command that would be forwarded.
-                safe = PositionTarget()
-                safe.header.stamp = now
-                safe.header.frame_id = self.desired.header.frame_id
-                safe.coordinate_frame = PositionTarget.FRAME_LOCAL_NED
-                safe.type_mask = self.desired.type_mask
-                safe.velocity.x = float(velocity[0])
-                safe.velocity.y = float(velocity[1])
-                safe.velocity.z = float(velocity[2])
-                safe.yaw = float(self.desired.yaw)
+                safe = self._make_safe_setpoint(self.desired, velocity, now)
                 self.safe_setpoint_pub.publish(safe)
                 self._set_status("shadow_ready")
                 return
@@ -493,6 +561,14 @@ class NavRLSU17Bridge:
             if not self.uav_state.connected:
                 self._publish_hover("px4_disconnected")
                 return
+            # RC transitions into COMMAND_CONTROL are normally rejected by the
+            # native SU17 controller while disarmed.  Keep the same condition
+            # explicit here as a second, independent active-output interlock.
+            # Do not publish even a hover command while the vehicle is
+            # disarmed; wait for a fresh armed state instead.
+            if not self.uav_state.armed:
+                self._set_status("active_waiting_for_armed")
+                return
             if not self.uav_state.odom_valid:
                 self._publish_hover("invalid_odom")
                 return
@@ -511,6 +587,27 @@ class NavRLSU17Bridge:
             if velocity is None:
                 self._publish_hover(reason)
                 return
+            if self.max_move_duration > 0.0:
+                if self.move_time_limit_latched:
+                    self._publish_hover("move_time_limit")
+                    return
+                if self.move_start_wall_time is None:
+                    self.move_start_wall_time = timer_wall_time
+                    rospy.logwarn(
+                        "[navrl-bridge] one-shot Move timer started: %.2f s",
+                        self.max_move_duration,
+                    )
+                elif (
+                    timer_wall_time - self.move_start_wall_time
+                    >= self.max_move_duration
+                ):
+                    self.move_time_limit_latched = True
+                    rospy.logwarn(
+                        "[navrl-bridge] one-shot Move time limit reached; "
+                        "latching Current_Pos_Hover until node restart"
+                    )
+                    self._publish_hover("move_time_limit")
+                    return
             self._publish_move(self.desired, velocity)
 
     def _on_shutdown(self):

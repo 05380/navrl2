@@ -14,6 +14,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 
 import numpy as np
 import rospkg
@@ -180,6 +181,13 @@ class SU17Phase1Navigation:
         self.yaw_stable_count = 0
         self.goal_active = False
         self.last_status = None
+        self.last_command_wall_time = None
+        self.last_raycast_ms = float("nan")
+
+        # Exercise the exact real-observation path, not only PPO's spec-based
+        # lazy-module initialization.  This catches shape/version regressions
+        # before an operator arms the aircraft or sends a real shadow goal.
+        self._run_policy_smoke_test()
 
         self.command_pub = rospy.Publisher(
             self.command_topic, PositionTarget, queue_size=2
@@ -204,8 +212,11 @@ class SU17Phase1Navigation:
         self.cancel_sub = rospy.Subscriber(
             prefix + "/navrl/cancel", Empty, self._cancel_cb, queue_size=2
         )
+        # The policy queries the same service at 10 Hz.  Reusing the TCPROS
+        # connection avoids opening a new socket for every observation and
+        # reduces latency variance on the onboard CPU.
         self.raycast_client = rospy.ServiceProxy(
-            self.raycast_service_name, RayCast
+            self.raycast_service_name, RayCast, persistent=True
         )
         self.timer = rospy.Timer(
             rospy.Duration.from_sec(1.0 / self.control_rate_hz), self._control_cb
@@ -325,6 +336,7 @@ class SU17Phase1Navigation:
             self.goal_active = False
             self.goal = None
             self.yaw_stable_count = 0
+            self.last_command_wall_time = None
         self._set_status("cancelled_hold_requested")
 
     @staticmethod
@@ -387,6 +399,7 @@ class SU17Phase1Navigation:
             self.navigation_frame_yaw = navigation_yaw
             self.yaw_stable_count = 0
             self.goal_active = True
+            self.last_command_wall_time = None
         self._set_status("goal_received")
 
     def _inputs_are_fresh(self, now):
@@ -405,18 +418,27 @@ class SU17Phase1Navigation:
         return True, "ready"
 
     def _get_raycast(self, position):
+        started = time.perf_counter()
         position_msg = Point(
             x=float(position[0]), y=float(position[1]), z=float(position[2])
         )
-        response = self.raycast_client(
-            position_msg,
-            float(self.navigation_frame_yaw),
-            self.lidar_range,
-            float(self.cfg.sensor.lidar_vfov[0]),
-            float(self.cfg.sensor.lidar_vfov[1]),
-            self.lidar_vbeams,
-            self.lidar_hres,
-        )
+        try:
+            response = self.raycast_client(
+                position_msg,
+                float(self.navigation_frame_yaw),
+                self.lidar_range,
+                float(self.cfg.sensor.lidar_vfov[0]),
+                float(self.cfg.sensor.lidar_vfov[1]),
+                self.lidar_vbeams,
+                self.lidar_hres,
+            )
+        finally:
+            self.last_raycast_ms = (time.perf_counter() - started) * 1000.0
+            if self.last_raycast_ms > 50.0:
+                rospy.logwarn(
+                    "[navrl-su17] slow raycast service %.1f ms",
+                    self.last_raycast_ms,
+                )
         points = np.asarray(response.points, dtype=np.float32)
         if points.size != self.expected_rays * 3:
             raise RuntimeError(
@@ -453,16 +475,24 @@ class SU17Phase1Navigation:
                 dtype=torch.float32,
             )
 
+        # vec_to_new_frame returns [batch, vector, xyz] even for one vector.
+        # Flatten both singleton axes so every torch.cat input below is 1-D.
         relative_goal_frame = vec_to_new_frame(
             relative / distance, target_dir_2d
-        ).squeeze(0)
+        ).reshape(3)
         velocity_goal_frame = vec_to_new_frame(
             velocity_t, target_dir_2d
-        ).squeeze(0)
+        ).reshape(3)
         drone_state = torch.cat(
             [relative_goal_frame, distance_2d, distance_z, velocity_goal_frame],
             dim=-1,
         ).unsqueeze(0)
+        if tuple(drone_state.shape) != (1, 8):
+            raise RuntimeError(
+                "invalid drone-state shape {}; expected (1, 8)".format(
+                    tuple(drone_state.shape)
+                )
+            )
 
         distances_np = np.linalg.norm(raypoints - position.reshape(1, 3), axis=1)
         distances_np = np.clip(distances_np, 0.0, self.lidar_range)
@@ -500,6 +530,40 @@ class SU17Phase1Navigation:
         )
         return observation, distances_np
 
+    def _run_policy_smoke_test(self):
+        saved_target_dir = self.target_dir
+        saved_navigation_yaw = self.navigation_frame_yaw
+        try:
+            self.target_dir = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32)
+            self.navigation_frame_yaw = 0.0
+            position = np.zeros(3, dtype=np.float64)
+            velocity = np.zeros(3, dtype=np.float64)
+            goal = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            raypoints = np.zeros((self.expected_rays, 3), dtype=np.float32)
+            raypoints[:, 0] = self.lidar_range
+            observation, _ = self._build_observation(
+                position, velocity, goal, raypoints
+            )
+            with torch.inference_mode(), set_exploration_type(
+                ExplorationType.MEAN
+            ):
+                output = self.policy(observation)
+            action = output["agents", "action"].detach().cpu()
+            if action.numel() != 3 or not bool(torch.isfinite(action).all()):
+                raise RuntimeError(
+                    "invalid policy smoke-test action shape/value: {} {}".format(
+                        tuple(action.shape), action
+                    )
+                )
+            rospy.loginfo(
+                "[navrl-su17] policy observation/inference smoke test OK; "
+                "action_shape=%s",
+                tuple(action.shape),
+            )
+        finally:
+            self.target_dir = saved_target_dir
+            self.navigation_frame_yaw = saved_navigation_yaw
+
     def _limit_velocity(self, velocity, current_z, goal_distance):
         velocity = np.asarray(velocity, dtype=np.float64).reshape(3)
         horizontal_speed = np.linalg.norm(velocity[:2])
@@ -520,7 +584,7 @@ class SU17Phase1Navigation:
                 velocity *= speed_limit / norm
         return velocity
 
-    def _publish_velocity(self, velocity, yaw):
+    def _publish_velocity(self, velocity, yaw, target_altitude):
         msg = PositionTarget()
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = self.world_frame
@@ -537,8 +601,27 @@ class SU17Phase1Navigation:
         msg.velocity.x = float(velocity[0])
         msg.velocity.y = float(velocity[1])
         msg.velocity.z = float(velocity[2])
+        # The desired message retains the learned 3-D action for diagnostics,
+        # while also carrying the requested world-ENU altitude.  The SU17
+        # bridge uses this field with Prometheus XY_VEL_Z_POS in phase 1.
+        msg.position.z = float(target_altitude)
         msg.yaw = float(yaw)
         self.command_pub.publish(msg)
+
+        published = time.perf_counter()
+        if self.last_command_wall_time is not None:
+            interval_ms = (published - self.last_command_wall_time) * 1000.0
+            if interval_ms > 150.0:
+                # A delayed callback can be followed by several queued timer
+                # callbacks.  Printing every resulting gap to the roslaunch
+                # terminal creates back-pressure and can amplify the stall.
+                # Topic timestamps still retain every interval for analysis.
+                rospy.logwarn_throttle(
+                    1.0,
+                    "[navrl-su17] desired-setpoint publish gap %.1f ms",
+                    interval_ms,
+                )
+        self.last_command_wall_time = published
 
     def _control_cb(self, _event):
         started = time.perf_counter()
@@ -554,6 +637,7 @@ class SU17Phase1Navigation:
                     return
                 odom = self.odom
                 goal = self.goal.copy()
+            snapshot_done = time.perf_counter()
 
             position = np.array(
                 [
@@ -611,7 +695,9 @@ class SU17Phase1Navigation:
                     and abs(height_error) <= self.goal_height_tolerance
                 )
             ):
-                self._publish_velocity(np.zeros(3), self.navigation_frame_yaw)
+                self._publish_velocity(
+                    np.zeros(3), self.navigation_frame_yaw, goal[2]
+                )
                 with self.lock:
                     self.goal_active = False
                 self._set_status("goal_reached_hold_requested")
@@ -623,12 +709,16 @@ class SU17Phase1Navigation:
             )
             if abs(yaw_error) > self.yaw_alignment_tolerance:
                 self.yaw_stable_count = 0
-                self._publish_velocity(np.zeros(3), self.navigation_frame_yaw)
+                self._publish_velocity(
+                    np.zeros(3), self.navigation_frame_yaw, goal[2]
+                )
                 self._set_status("aligning_yaw")
                 return
             self.yaw_stable_count += 1
             if self.yaw_stable_count <= self.yaw_settle_cycles:
-                self._publish_velocity(np.zeros(3), self.navigation_frame_yaw)
+                self._publish_velocity(
+                    np.zeros(3), self.navigation_frame_yaw, goal[2]
+                )
                 self._set_status("settling_yaw")
                 return
 
@@ -643,22 +733,52 @@ class SU17Phase1Navigation:
                 command = self._limit_velocity(
                     np.array([0.0, 0.0, vertical]), position[2], goal_distance
                 )
-                self._publish_velocity(command, self.navigation_frame_yaw)
+                self._publish_velocity(
+                    command, self.navigation_frame_yaw, goal[2]
+                )
                 self._set_status("vertical_settle")
                 return
 
+            preparation_done = time.perf_counter()
             raypoints = self._get_raycast(position)
+            raycast_done = time.perf_counter()
             observation, ray_distances = self._build_observation(
                 position, velocity, goal, raypoints
             )
+            observation_done = time.perf_counter()
+            min_ray_index = int(np.argmin(ray_distances))
+            min_clearance = float(ray_distances[min_ray_index])
             if (
                 self.emergency_stop_distance > 0.0
-                and float(np.min(ray_distances)) < self.emergency_stop_distance
+                and min_clearance < self.emergency_stop_distance
             ):
-                self._publish_velocity(np.zeros(3), self.navigation_frame_yaw)
+                closest_hit = raypoints[min_ray_index]
+                relative_hit = closest_hit - position
+                rospy.logwarn_throttle(
+                    1.0,
+                    "[navrl-su17] emergency clearance %.3f m < %.3f m "
+                    "ray=%d hit=[%.3f %.3f %.3f] relative=[%.3f %.3f %.3f] "
+                    "position=[%.3f %.3f %.3f]",
+                    min_clearance,
+                    self.emergency_stop_distance,
+                    min_ray_index,
+                    closest_hit[0],
+                    closest_hit[1],
+                    closest_hit[2],
+                    relative_hit[0],
+                    relative_hit[1],
+                    relative_hit[2],
+                    position[0],
+                    position[1],
+                    position[2],
+                )
+                self._publish_velocity(
+                    np.zeros(3), self.navigation_frame_yaw, goal[2]
+                )
                 self._set_status("emergency_clearance_stop")
                 return
 
+            policy_started = time.perf_counter()
             with torch.inference_mode(), set_exploration_type(ExplorationType.MEAN):
                 output = self.policy(observation)
                 command = (
@@ -669,17 +789,39 @@ class SU17Phase1Navigation:
                     .cpu()
                     .numpy()
                 )
+            policy_ms = (time.perf_counter() - policy_started) * 1000.0
             if command.shape != (3,) or not self._is_finite(command):
                 self._set_status("invalid_policy_output")
                 return
             command = self._limit_velocity(command, position[2], goal_distance)
-            self._publish_velocity(command, self.navigation_frame_yaw)
-            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            publish_started = time.perf_counter()
+            self._publish_velocity(command, self.navigation_frame_yaw, goal[2])
+            published = time.perf_counter()
+            elapsed_ms = (published - started) * 1000.0
+            if elapsed_ms > 50.0:
+                rospy.logwarn_throttle(
+                    1.0,
+                    "[navrl-su17] slow control total=%.1f ms snapshot=%.1f ms "
+                    "prepare=%.1f ms raycast=%.1f ms observation=%.1f ms "
+                    "policy=%.1f ms publish=%.1f ms",
+                    elapsed_ms,
+                    (snapshot_done - started) * 1000.0,
+                    (preparation_done - snapshot_done) * 1000.0,
+                    (raycast_done - preparation_done) * 1000.0,
+                    (observation_done - raycast_done) * 1000.0,
+                    policy_ms,
+                    (published - publish_started) * 1000.0,
+                )
             self._set_status("navigating")
             rospy.loginfo_throttle(
                 1.0,
-                "[navrl-su17] inference/control %.1f ms cmd=[%.2f %.2f %.2f]",
+                "[navrl-su17] inference/control %.1f ms "
+                "raycast=%.1f ms policy=%.1f ms clearance=%.2f m "
+                "cmd=[%.2f %.2f %.2f]",
                 elapsed_ms,
+                self.last_raycast_ms,
+                policy_ms,
+                min_clearance,
                 command[0],
                 command[1],
                 command[2],
@@ -688,8 +830,18 @@ class SU17Phase1Navigation:
             self._set_status("raycast_service_error")
             rospy.logwarn_throttle(1.0, "[navrl-su17] raycast failed: %s", exc)
         except Exception as exc:
+            first_occurrence = self.last_status != "control_exception"
             self._set_status("control_exception")
-            rospy.logerr_throttle(1.0, "[navrl-su17] control error: %s", exc)
+            if first_occurrence:
+                rospy.logerr(
+                    "[navrl-su17] control error: %s\n%s",
+                    exc,
+                    traceback.format_exc(),
+                )
+            else:
+                rospy.logerr_throttle(
+                    1.0, "[navrl-su17] repeated control error: %s", exc
+                )
 
 
 def main():
