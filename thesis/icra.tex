@@ -448,50 +448,9 @@ Policy and outcome learning are integrated through
 	\lambda_{\mathrm{MH}}=0.1.
 	\label{eq:joint_training_loss}
 \end{equation}
-The sampled action and rollout targets are treated as fixed inputs; \(\operatorname{sg}(\cdot)\) in Algorithms~\ref{alg:joint_training} and~\ref{alg:multi_horizon_learning} denotes the stop-gradient operator used for the sampled action. Thus, \(\mathcal{L}_{\mathrm{MH}}\) updates the outcome decoder and shared encoders but has no direct gradient path to the actor or critic output heads. PPO makes \(\mathbf{z}_t\) useful for action selection and value estimation, while outcome supervision simultaneously makes it predictive of near-term collision, trapping, clearance, and progress.
+The sampled action and rollout targets are treated as fixed inputs; \(\operatorname{sg}(\cdot)\) in Algorithm~\ref{alg:multi_horizon_learning} denotes the stop-gradient operator used for the sampled action. Thus, \(\mathcal{L}_{\mathrm{MH}}\) updates the outcome decoder and shared encoders but has no direct gradient path to the actor or critic output heads. PPO makes \(\mathbf{z}_t\) useful for action selection and value estimation, while outcome supervision simultaneously makes it predictive of near-term collision, trapping, clearance, and progress.
 
 This predictive actor--critic representation is neither recurrent nor a generative world model: it reconstructs no future observation and performs no latent rollout for action selection. The decoder is omitted during execution, while its representation-level supervision remains embedded in the shared encoder, adding no online inference cost. PPO uses clipped policy and value objectives, generalized advantage estimation, and entropy regularization~\cite{ppo}. A stage-wise curriculum progressively increases dynamic-interaction density and introduces more challenging large non-convex structures, strengthening both dynamic-obstacle avoidance and navigation around confining geometry while retaining previously acquired behavior.
-
-\begin{algorithm}[t]
-	\caption{TTC-Aware Predictive PPO Training}
-	\label{alg:joint_training}
-	\footnotesize
-	\DontPrintSemicolon
-	\KwIn{stages $\{\mathcal{E}_q\}$, horizons
-	$\mathcal{H}=\{1,3,5\}$, $\lambda_{\mathrm{MH}}$}
-	Initialize $E_{\omega}$, $\pi_{\theta}$, $V_{\psi}$, and
-	$g_{\phi}$\;
-	\ForEach{curriculum stage $\mathcal{E}_q$}{
-		Load the selected stage-$(q-1)$ checkpoint if $q>1$\;
-		\While{stage budget remains}{
-			\ForEach{parallel rollout step $t$}{
-				$\mathbf{z}_t\leftarrow E_{\omega}(\mathbf{o}_t)$,
-				$\tilde{\mathbf{a}}_t\sim\pi_{\theta}(\cdot\mid\mathbf{z}_t)$\;
-				Execute the scaled action and observe the transition\;
-				Evaluate $\rho^{\mathrm{VO}}_{t+1}$ and add
-				$-\lambda_{\mathrm{VO}}\eta(n)\rho^{\mathrm{VO}}_{t+1}$ to $r_t$\;
-				Store the transition and
-				$(c,b_{\mathrm{stuck}},f,\Delta d)_{t+1}$\;
-			}
-			Compute GAE and $\mathcal{L}_{\mathrm{PPO}}$\;
-			\ForEach{$t$ and $h\in\mathcal{H}$}{
-				Build terminal-truncated target
-				$\mathbf{y}^{(h)}_t=(\max c,\max b_{\mathrm{stuck}},
-				\min f,\sum\Delta d)$\;
-				$\hat{\mathbf{y}}^{(h)}_t\leftarrow
-				g^{(h)}_{\phi}(\mathbf{z}_t,
-				\operatorname{sg}(\tilde{\mathbf{a}}_t))$\;
-			}
-			Compute $\mathcal{L}_{\mathrm{MH}}$ (BCE for events;
-			Smooth-L1 for continuous outcomes)\;
-			Update $(\theta,\psi)$ with $\mathcal{L}_{\mathrm{PPO}}$,
-			$\phi$ with $\mathcal{L}_{\mathrm{MH}}$, and $\omega$ with
-			$\mathcal{L}_{\mathrm{PPO}}+\lambda_{\mathrm{MH}}
-			\mathcal{L}_{\mathrm{MH}}$\;
-		}
-	}
-	\KwOut{trained encoder, Beta-policy actor, and critic}
-\end{algorithm}
 
 \begin{algorithm}[t]
 	\caption{Multi-Horizon Outcome Learning}
@@ -539,26 +498,18 @@ In this section, we compare the proposed method with several state-of-the-art ap
 
 \subsection{Training Details and Setup}\label{subsec:Simulation Setup}
 
-The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $50\,\text{m}\times50\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. Fig.~\ref{fig:training_environments} illustrates the progression from the initial dynamic-obstacle setting to the final environment containing large non-convex structures. The corresponding success-rate curves over the five curriculum stages are reported in Fig.~\ref{fig:curriculum_success}. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
+The policy is trained in NVIDIA Isaac Sim using PyTorch. The training scene covers a $50\,\text{m}\times50\,\text{m}$ horizontal workspace with geometry represented up to a height of $4.5\,\text{m}$. The maximum UAV speed is $2.0\,\text{m/s}$. To expose the policy to different obstacle scales, the radii of cylindrical dynamic obstacles are set to $\{0.125,0.25,0.375,0.50\}\,\text{m}$, while their speeds are sampled from $0.5$ to $1.5\,\text{m/s}$. Training is parallelized over $1{,}024$ UAV instances with independently randomized navigation tasks on an NVIDIA GeForce RTX 4090 GPU, and each curriculum stage requires approximately 12 hours. Fig.~\ref{fig:training_environments} illustrates the progression from the initial dynamic-obstacle setting to the final environment containing large non-convex structures. In addition, the hyperparameters used for training are listed in Table~\ref{tab:hyperparameters}; they were selected and tuned based on preliminary experiments to ensure stable and efficient training.
 
 \begin{figure}[t]
     \centering
     \subfigtopskip=1.5pt
     \subfigbottomskip=1.5pt
     \subfigcapskip=2pt
-    \subfigure[Initial stage]{\figureplaceholder{0.48\columnwidth}{0.31\columnwidth}\label{fig:training_initial}}\hfill
-    \subfigure[Final stage]{\figureplaceholder{0.48\columnwidth}{0.31\columnwidth}\label{fig:training_final}}
+    \subfigure[Initial stage]{\includegraphics[width=0.48\columnwidth]{fig_training_initial.png}\label{fig:training_initial}}\hfill
+    \subfigure[Final stage]{\includegraphics[width=0.48\columnwidth]{fig_training_final.png}\label{fig:training_final}}
     \vspace{-1pt}
     \caption{Visualization of the curriculum-training environments in a $50\,\mathrm{m}\times50\,\mathrm{m}$ workspace. Dynamic-obstacle density is progressively increased during training. (a) The initial environment contains 60 dynamic obstacles. (b) The final environment contains multiple large non-convex structures.}
     \label{fig:training_environments}
-    \vspace{-0.35cm}
-\end{figure}
-
-\begin{figure}[t]
-    \centering
-    \figureplaceholder{0.98\columnwidth}{0.50\columnwidth}
-    \caption{Navigation success-rate curves over the five curriculum-training stages.}
-    \label{fig:curriculum_success}
     \vspace{-0.35cm}
 \end{figure}
 
@@ -724,8 +675,6 @@ Enabling the shield consistently increases the success rate and reduces collisio
 \subsection{Physical Flight Tests}\label{subsec:real_world}
 To evaluate zero-shot sim-to-real transfer, we deploy the policy selected in simulation on a quadrotor without additional fine-tuning. The experiments are conducted in a $28\,\mathrm{m}\times15\,\mathrm{m}$ flight area, and the maximum translational velocity is set to $1.2\,\mathrm{m/s}$. The onboard navigation stack supplies the policy with the same local observation schema used during training, comprising proximity measurements, the estimated UAV navigation state, and tracked dynamic-obstacle descriptors. ForesightNav produces three-dimensional velocity commands that are tracked by the low-level flight controller. The multi-horizon outcome predictor and TTC-aware 3D-VO risk computation are used only for training and are not evaluated onboard.
 
-We construct four physical environments to examine complementary navigation capabilities. As shown in Fig.~\ref{fig_real_world}(a)--(d), the first environment contains static obstacles, the second introduces moving obstacles, the third combines static and moving obstacles, and the fourth contains large non-convex structures. These settings respectively examine local clearance maintenance, response to relative obstacle motion, avoidance under simultaneous geometric and motion constraints, and sustained detours around structures that can induce local trapping. The four layouts therefore provide a progressively broader assessment than a single open-space avoidance test.
-
 \begin{figure}[!t]
 	\centering
 	\subfigtopskip=1pt
@@ -745,6 +694,8 @@ We construct four physical environments to examine complementary navigation capa
 	\label{fig_real_world}
 	\vspace{-0.35cm}
 \end{figure}
+
+We construct four physical environments to examine complementary navigation capabilities. As shown in Fig.~\ref{fig_real_world}(a)--(d), the first environment contains static obstacles, the second introduces moving obstacles, the third combines static and moving obstacles, and the fourth contains large non-convex structures. These settings respectively examine local clearance maintenance, response to relative obstacle motion, avoidance under simultaneous geometric and motion constraints, and sustained detours around structures that can induce local trapping. The four layouts therefore provide a progressively broader assessment than a single open-space avoidance test.
 
 Fig.~\ref{fig_real_world}(e) complements the flight scenes by reporting the evolution of UAV linear velocity in all four environments under the common $1.2\,\mathrm{m/s}$ limit. The profiles expose both the acceleration required for goal-directed flight and the speed adjustments made during obstacle interactions, rather than evaluating transferability from final paths alone. Together, the representative flights and velocity histories demonstrate closed-loop operation of the transferred policy under real sensing and control effects. These tests provide qualitative evidence of practical deployment feasibility, while the controlled statistical comparisons remain those reported in the simulation study.
 

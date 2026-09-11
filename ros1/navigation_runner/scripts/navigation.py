@@ -17,7 +17,7 @@ from torchrl.envs.utils import ExplorationType, set_exploration_type
 from navigation_runner.srv import GetPolicyInference
 from utils import vec_to_new_frame
 import math
-from std_srvs.srv import Empty
+from std_srvs.srv import Empty, EmptyResponse
 import tf.transformations
 import time
 import threading
@@ -35,6 +35,7 @@ class Navigation:
 
         self.goal = None
         self.goal_received = False
+        self.external_stop_active = False
         self.target_dir = None
         self.navigation_frame_yaw = None
         self.hold_pose = None
@@ -102,6 +103,9 @@ class Navigation:
         safety_thread.start()
 
         self.takeoff()
+        self.stop_navigation_service = rospy.Service(
+            "/rl_navigation/stop", Empty, self.stop_navigation_callback
+        )
   
     def init_model(self):
         observation_dim = 8
@@ -327,7 +331,33 @@ class Navigation:
         self.target_dir = torch.tensor([dir_x, dir_y, dir_z], device=self.cfg.device)
 
         self.goal_received = True
+        self.external_stop_active = False
         self.stable_times = 0
+
+    def stop_navigation_callback(self, _request):
+        """Cancel the active goal and suppress motion until the next goal."""
+        self.external_stop_active = True
+        self.goal_received = False
+        self.goal = None
+        self.target_dir = None
+        self.stable_times = 0
+
+        if self.odom_received:
+            _, _, current_yaw = tf.transformations.euler_from_quaternion([
+                self.odom.pose.pose.orientation.x,
+                self.odom.pose.pose.orientation.y,
+                self.odom.pose.pose.orientation.z,
+                self.odom.pose.pose.orientation.w,
+            ])
+            self._publish_stop_command(current_yaw)
+            rospy.loginfo(
+                "[nav-ros] active goal cancelled; zero-velocity hold active "
+                "until the next goal"
+            )
+        else:
+            rospy.logwarn("[nav-ros] stop requested before odometry was available")
+
+        return EmptyResponse()
 
     def quaternion_to_rotation_matrix(self, quaternion):
         # w, x, y, z = quaternion
@@ -473,6 +503,11 @@ class Navigation:
             final_cmd_vel.twist.linear.y = 0.0
             final_cmd_vel.twist.linear.z = 0.0
 
+        # A stop service request can arrive while policy inference is running.
+        # Do not let that in-flight callback publish one more stale command.
+        if self.external_stop_active or not self.goal_received:
+            self._publish_stop_command(curr_angle)
+            return
         self.action_pub.publish(final_cmd_vel)
         self.has_action = True
 
@@ -643,6 +678,16 @@ class Navigation:
         control_start_wall = time.perf_counter()
 
         if (not self.odom_received):
+            return
+
+        if self.external_stop_active:
+            _, _, current_yaw = tf.transformations.euler_from_quaternion([
+                self.odom.pose.pose.orientation.x,
+                self.odom.pose.pose.orientation.y,
+                self.odom.pose.pose.orientation.z,
+                self.odom.pose.pose.orientation.w,
+            ])
+            self._publish_stop_command(current_yaw)
             return
 
         if (not self.goal_received or len(self.raypoints) == 0 or len(self.dynamic_obstacles) == 0):

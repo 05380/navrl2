@@ -472,6 +472,13 @@ class worldGenerator:
                             <static>true</static>
                             <pose>{ox} {oy} {oz+height/2.} 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>{ob_size[0]:.1f} {ob_size[1]:.1f} {height:.1f}</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -498,6 +505,14 @@ class worldGenerator:
                             <static>true</static>
                             <pose>{ox} {oy} {oz+height/2.} 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>{ob_size}</radius>
+                                        <length>{height}</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -596,6 +611,13 @@ class worldGenerator:
                             <static>true</static>
                             <pose>{ox} {oy} {oz+height/2.} 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>{ob_size[0]} {ob_size[1]} {height}</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -629,6 +651,14 @@ class worldGenerator:
                             <static>true</static>
                             <pose>{ox} {oy} {oz+height/2.} 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>{ob_size}</radius>
+                                            <length>{height}</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>

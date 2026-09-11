@@ -93,6 +93,14 @@
                             <static>true</static>
                             <pose>0.9762700785464951 4.30378732744839 1.7724415914984484 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3270964398016714</radius>
+                                        <length>3.5448831829968968</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -108,6 +116,14 @@
                             <static>true</static>
                             <pose>2.9178822613331223 -1.2482557747461498 1.9818313802505148 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3150324556477333</radius>
+                                        <length>3.9636627605010295</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -123,6 +139,14 @@
                             <static>true</static>
                             <pose>5.834500761653292 0.5778983950580896 1.9627983191463305 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2213108174593661</radius>
+                                        <length>3.925596638292661</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -138,6 +162,14 @@
                             <static>true</static>
                             <pose>-8.257414005969185 -9.595632051193485 1.8890783754749252 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.46100364447404574</radius>
+                                        <length>3.7781567509498504</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -153,6 +185,14 @@
                             <static>true</static>
                             <pose>9.57236684465528 5.983171284334472 1.8902645881432276 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.23548232776067998</radius>
+                                        <length>3.7805291762864552</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -168,6 +208,14 @@
                             <static>true</static>
                             <pose>2.7984204265504764 -7.132934251819072 1.760924160875036 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3243985819971571</radius>
+                                        <length>3.521848321750072</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -183,6 +231,14 @@
                             <static>true</static>
                             <pose>-4.70888775790746 5.484673788684333 1.7842169744343241 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.20563694013090655</radius>
+                                        <length>3.5684339488686483</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -198,6 +254,14 @@
                             <static>true</static>
                             <pose>2.352709941517541 2.241914454448428 1.9718740392573122 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.404546089731045</radius>
+                                        <length>3.9437480785146244</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -213,6 +277,14 @@
                             <static>true</static>
                             <pose>-2.80984198852428 -1.259360924013171 1.530112735814635 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4000300146337003</radius>
+                                        <length>3.06022547162927</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -228,6 +300,14 @@
                             <static>true</static>
                             <pose>-2.725784581147548 1.4039354083575928 1.994186919029613 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.23061344322440844</radius>
+                                        <length>3.988373838059226</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -243,6 +323,14 @@
                             <static>true</static>
                             <pose>-5.822464878103306 -6.773809642300074 1.626645801269891 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3398932318568919</radius>
+                                        <length>3.253291602539782</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -258,6 +346,14 @@
                             <static>true</static>
                             <pose>-8.057974484138775 6.758898149976078 1.988229732506698 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3405953604943105</radius>
+                                        <length>3.976459465013396</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -273,6 +369,14 @@
                             <static>true</static>
                             <pose>9.535221763806742 2.0969103949009193 1.5195938961271604 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2848420887729229</radius>
+                                        <length>3.039187792254321</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -288,6 +392,14 @@
                             <static>true</static>
                             <pose>-7.596068775736622 -4.077196049557101 1.658991589696988 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.324278898354401</radius>
+                                        <length>3.317983179393976</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -303,6 +415,14 @@
                             <static>true</static>
                             <pose>-8.717050073024312 3.849442387400397 1.6326947454697227 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3569744160400099</radius>
+                                        <length>3.2653894909394454</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -318,6 +438,14 @@
                             <static>true</static>
                             <pose>-8.121189784831166 1.5189299111235854 1.6592844762256618 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4002231139891045</radius>
+                                        <length>3.3185689524513236</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -333,6 +461,14 @@
                             <static>true</static>
                             <pose>1.730258696201663 -9.597849076250128 1.5023477380962735 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.403344961038869</radius>
+                                        <length>3.004695476192547</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -348,6 +484,14 @@
                             <static>true</static>
                             <pose>9.0549802303397 -1.0574924276474529 1.849739637658752 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2892310852565401</radius>
+                                        <length>3.699479275317504</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -363,6 +507,14 @@
                             <static>true</static>
                             <pose>6.275956394049544 -2.069885183060307 1.7906364363179295 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4645206085564558</radius>
+                                        <length>3.581272872635859</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -378,6 +530,14 @@
                             <static>true</static>
                             <pose>3.8506318015553176 4.50508559639281 1.9780418173616119 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.39319705976889124</radius>
+                                        <length>3.9560836347232238</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -393,6 +553,14 @@
                             <static>true</static>
                             <pose>3.2034707498537007 -4.198447855791119 1.714384350472883 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.24064221926673507</radius>
+                                        <length>3.428768700945766</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -408,6 +576,14 @@
                             <static>true</static>
                             <pose>9.976940131357331 -7.011033906840125 1.5812464673381874 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.38466786928515323</radius>
+                                        <length>3.162492934676375</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -423,6 +599,14 @@
                             <static>true</static>
                             <pose>-1.8563340554800067 -8.61666009089724 1.7267713413390344 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4166166798411044</radius>
+                                        <length>3.453542682678069</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -438,6 +622,14 @@
                             <static>true</static>
                             <pose>7.327646518572584 9.510430100057716 1.505857042092501 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.30799341934350916</radius>
+                                        <length>3.011714084185002</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -453,6 +645,14 @@
                             <static>true</static>
                             <pose>-6.000069502071998 -9.62956411078772 1.61196234403019 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.30360550420907084</radius>
+                                        <length>3.22392468806038</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -468,6 +668,14 @@
                             <static>true</static>
                             <pose>8.561625869311818 4.0882880384706555 1.5823470782489564 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3864435204499291</radius>
+                                        <length>3.1646941564979127</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -483,6 +691,14 @@
                             <static>true</static>
                             <pose>-2.0355787556781624 -5.803125020497557 1.9721861949919668 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.42186523851478624</radius>
+                                        <length>3.9443723899839336</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -498,6 +714,14 @@
                             <static>true</static>
                             <pose>-1.3116674888375845 -3.7640823601179485 1.6888759196462404 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.25388110326789043</radius>
+                                        <length>3.377751839292481</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -513,6 +737,14 @@
                             <static>true</static>
                             <pose>0.731584222174444 7.933425860806842 1.608448492199237 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3989234609300302</radius>
+                                        <length>3.216896984398474</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -528,6 +760,14 @@
                             <static>true</static>
                             <pose>7.453013108947905 -4.529159303687285 1.592817972152976 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.48583749709158336</radius>
+                                        <length>3.185635944305952</length>
+                                    </cylinder>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <cylinder>
@@ -543,6 +783,13 @@
                             <static>true</static>
                             <pose>-5.850598491177812 -1.5062906249698749 1.4635754243648107 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.4 2.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -557,6 +804,13 @@
                             <static>true</static>
                             <pose>7.277112118464628 -7.649362880759338 1.1320681063451534 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -571,6 +825,13 @@
                             <static>true</static>
                             <pose>-2.8877452430008876 8.808638905056261 1.7486636198505474 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.2 3.5</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -585,6 +846,13 @@
                             <static>true</static>
                             <pose>4.511887284211575 -9.771450827499379 1.1469466454003752 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.2 2.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -599,6 +867,13 @@
                             <static>true</static>
                             <pose>5.5739079188220675 5.5481512369750625 1.3738131379325615 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -613,6 +888,13 @@
                             <static>true</static>
                             <pose>-6.257382164983105 8.07967909856474 1.4569114216457657 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.3 2.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -627,6 +909,13 @@
                             <static>true</static>
                             <pose>-8.745740959533086 -1.519354962203161 1.849038308428511 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.5 3.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -641,6 +930,13 @@
                             <static>true</static>
                             <pose>9.485124256361006 9.806900031217879 1.1629544260466054 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -655,6 +951,13 @@
                             <static>true</static>
                             <pose>-5.17162759846852 3.250091430653519 1.6658591175591877 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 3.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -669,6 +972,13 @@
                             <static>true</static>
                             <pose>1.0937561732283796 -4.258969601607405 1.4148568693335641 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.4 2.8</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -683,6 +993,13 @@
                             <static>true</static>
                             <pose>4.614181982549523 7.634404246676794 1.3790568960774285 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.4 2.8</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -697,6 +1014,13 @@
                             <static>true</static>
                             <pose>9.255406396804847 -9.662566532599206 1.8136786497018633 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 3.6</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -711,6 +1035,13 @@
                             <static>true</static>
                             <pose>-4.320000464757978 -5.23173438151884 1.3679275805370414 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.3 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -725,6 +1056,13 @@
                             <static>true</static>
                             <pose>-2.962140076139148 4.428133359199049 1.8130538632474607 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.5 3.6</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -739,6 +1077,13 @@
                             <static>true</static>
                             <pose>-0.04446184349316429 1.6216385934412614 1.1690254061291614 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.2 2.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -753,6 +1098,13 @@
                             <static>true</static>
                             <pose>-1.5258729308905439 7.142498350091346 1.271252076761864 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.3 2.5</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -767,6 +1119,13 @@
                             <static>true</static>
                             <pose>6.448134767113807 3.068423222272738 1.5369230010823904 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 3.1</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -781,6 +1140,13 @@
                             <static>true</static>
                             <pose>0.6983370985416792 -1.9151276412148244 1.3650998770600098 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.2 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -795,6 +1161,13 @@
                             <static>true</static>
                             <pose>3.815695523130591 9.746975141479364 1.3645446259967866 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -809,6 +1182,13 @@
                             <static>true</static>
                             <pose>-9.063872905756226 9.414628855412657 1.1785799680576563 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.2 2.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -823,6 +1203,13 @@
                             <static>true</static>
                             <pose>-3.9160261680118436 -8.492818618333192 1.107617705149582 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.2</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -837,6 +1224,13 @@
                             <static>true</static>
                             <pose>-0.24647352923584886 -9.989080702060086 1.0635537748361585 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.5 2.1</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -851,6 +1245,13 @@
                             <static>true</static>
                             <pose>-4.343262956478342 -3.207379116676017 1.96319729526038 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 3.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -865,6 +1266,13 @@
                             <static>true</static>
                             <pose>5.4622010501083835 -5.662594998179187 1.042924190608832 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.2 2.1</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -879,6 +1287,13 @@
                             <static>true</static>
                             <pose>7.476643566694364 6.679632877532635 1.7712254629659103 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 3.5</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -893,6 +1308,13 @@
                             <static>true</static>
                             <pose>9.122463191199198 -3.3911885479431225 1.2808594946322427 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.4 2.6</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -907,6 +1329,13 @@
                             <static>true</static>
                             <pose>-4.467005395816209 0.12685838647608305 1.706410577667011 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.4 3.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -921,6 +1350,13 @@
                             <static>true</static>
                             <pose>7.972753368165324 0.7434025589741489 1.6736532695846353 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.2 3.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -935,6 +1371,13 @@
                             <static>true</static>
                             <pose>-9.152719058171135 -5.44518013305427 1.8369903652886839 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.3 3.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -949,6 +1392,13 @@
                             <static>true</static>
                             <pose>-9.68523520659075 -3.4829031599240756 1.028362934230075 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.5 2.1</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </collision>
                                 <visual name='visual'>
                                 <geometry>
                                     <box>
@@ -1068,6 +1518,14 @@
                             <static>true</static>
                             <pose>1.9133800887739016 -6.518349778926686 1.7166324117502467 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.24081300271355185</radius>
+                                            <length>3.4332648235004934</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1097,6 +1555,14 @@
                             <static>true</static>
                             <pose>-4.486693441602288 -5.208399215121817 1.7831309271400164 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.20545190578287137</radius>
+                                            <length>3.566261854280033</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1126,6 +1592,14 @@
                             <static>true</static>
                             <pose>1.5546188281965123 2.0373595190541693 1.6522857753909816 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.262975997026076</radius>
+                                            <length>3.3045715507819633</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1155,6 +1629,14 @@
                             <static>true</static>
                             <pose>3.999775292537222 1.5938061949046967 1.7161397904256082 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.3627803060360722</radius>
+                                            <length>3.4322795808512163</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1184,6 +1666,14 @@
                             <static>true</static>
                             <pose>0.4382736043699009 -2.645466298643009 1.9483471250854072 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.25169279740929595</radius>
+                                            <length>3.8966942501708144</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1213,6 +1703,14 @@
                             <static>true</static>
                             <pose>8.564167886587523 -6.635534908348594 1.6988336169657772 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.4732950059487519</radius>
+                                            <length>3.3976672339315543</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1242,6 +1740,14 @@
                             <static>true</static>
                             <pose>-9.374149441804525 -6.697837452561595 1.5198916490142225 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.49024821491047754</radius>
+                                            <length>3.039783298028445</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1271,6 +1777,14 @@
                             <static>true</static>
                             <pose>6.571413711453622 4.947635631165372 1.5046235534897643 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.20187132993401313</radius>
+                                            <length>3.0092471069795286</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1300,6 +1814,14 @@
                             <static>true</static>
                             <pose>9.686034553411131 -1.6606559600860304 1.865339533319295 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.4592173075377952</radius>
+                                            <length>3.73067906663859</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1329,6 +1851,14 @@
                             <static>true</static>
                             <pose>1.8114538725348472 9.398220518985394 1.5139318620615527 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.48871902123499805</radius>
+                                            <length>3.0278637241231054</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1358,6 +1888,14 @@
                             <static>true</static>
                             <pose>-7.055046546560206 -1.151683692220038 1.7425484227156454 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.4206228080077576</radius>
+                                            <length>3.4850968454312907</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1387,6 +1925,14 @@
                             <static>true</static>
                             <pose>4.757625678346027 -9.965243464306553 1.6947834242360962 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.3701215564684073</radius>
+                                            <length>3.3895668484721924</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1416,6 +1962,14 @@
                             <static>true</static>
                             <pose>4.127025610673165 7.743973641724569 1.9509205849000373 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.2881973758937145</radius>
+                                            <length>3.9018411698000746</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1445,6 +1999,14 @@
                             <static>true</static>
                             <pose>-5.823467504325313 3.64859146735226 1.5801765726902441 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.3353755884349526</radius>
+                                            <length>3.1603531453804883</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1474,6 +2036,14 @@
                             <static>true</static>
                             <pose>7.730103102084092 2.713545277616838 1.8456554406053973 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.46435030822045165</radius>
+                                            <length>3.6913108812107946</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1503,6 +2073,14 @@
                             <static>true</static>
                             <pose>7.930225241266424 -2.652991997576608 1.9162942589110918 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.22861410559804776</radius>
+                                            <length>3.8325885178221837</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1532,6 +2110,14 @@
                             <static>true</static>
                             <pose>-2.9706258450502987 0.2361312013207395 1.550488139860272 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.4194350747477036</radius>
+                                            <length>3.100976279720544</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1561,6 +2147,14 @@
                             <static>true</static>
                             <pose>-3.2729868940614804 5.30917940664819 1.9476484183770708 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.3118775288784784</radius>
+                                            <length>3.8952968367541416</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1590,6 +2184,14 @@
                             <static>true</static>
                             <pose>0.8501168572447138 -4.728447150995622 1.7730069448263368 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.4432089038004367</radius>
+                                            <length>3.5460138896526736</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1619,6 +2221,14 @@
                             <static>true</static>
                             <pose>-4.756429574118382 -8.07396395778449 1.7693759292218283 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.43641061061009</radius>
+                                            <length>3.5387518584436566</length>
+                                        </cylinder>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <cylinder>
@@ -1648,6 +2258,13 @@
                             <static>true</static>
                             <pose>-9.59026809460131 -3.8944367915790146 1.98426130539906 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.34233598166544 0.4729223803958809 0.5269902914316932</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1676,6 +2293,13 @@
                             <static>true</static>
                             <pose>-2.307403679889213 -4.229499942742145 1.4834047590709418 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.3632213401066679 0.409211247715175 0.6821976449230329</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1704,6 +2328,13 @@
                             <static>true</static>
                             <pose>-3.9853487209369254 7.7398659407576 1.5496704012619382 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.37937631208115075 0.20753286145314295 1.2558082877570287</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1732,6 +2363,13 @@
                             <static>true</static>
                             <pose>-1.4578638308786362 -9.72436190750835 2.670507957357454 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.29941147724810857 0.26957421302425083 1.438075781711365</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1760,6 +2398,13 @@
                             <static>true</static>
                             <pose>-0.7465378984077287 -6.005921436019353 1.4718642153082862 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.39746237390806954 0.4728673705363477 1.471392821735408</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1788,6 +2433,13 @@
                             <static>true</static>
                             <pose>4.359024134140648 4.127436026953961 0.6928156489418174 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.24740689588738393 0.22604258484309508 0.922758693030776</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1816,6 +2468,13 @@
                             <static>true</static>
                             <pose>-6.151059727932761 7.048887729954911 0.41290209360534813 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.3942657297780058 0.36890715101454985 0.7277135901589646</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1844,6 +2503,13 @@
                             <static>true</static>
                             <pose>-7.8976354107438596 0.8316932141724576 1.7932111018089576 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.4092144397052275 0.4686045991524566 1.07530670672029</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1872,6 +2538,13 @@
                             <static>true</static>
                             <pose>6.606073719499896 -6.041847941713517 0.46360810801229974 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.4114046093350249 0.2456422564111857 0.5081991405860741</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1900,6 +2573,13 @@
                             <static>true</static>
                             <pose>-9.963610104389415 6.598347303909784 1.5578137870524584 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.31280520049145094 0.22553177243407163 0.5291137978327144</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1928,6 +2608,13 @@
                             <static>true</static>
                             <pose>9.003849364318405 9.889918627466496 1.2099066023567788 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.3731890134273711 0.21283514274999013 0.9218336068528409</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1956,6 +2643,13 @@
                             <static>true</static>
                             <pose>0.6685587900931655 5.154942508548261 1.149929608292406 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.29765829017678325 0.31717492787993873 0.8218889624998843</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -1984,6 +2678,13 @@
                             <static>true</static>
                             <pose>6.596706673567889 8.833646668125647 1.5382339896711243 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2685855037914425 0.4511606081111436 1.4957326721950959</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2012,6 +2713,13 @@
                             <static>true</static>
                             <pose>-3.1508424471819585 9.584867479560536 2.0483977607084816 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.4014547175698947 0.4225365905371102 0.69752500637671</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2040,6 +2748,13 @@
                             <static>true</static>
                             <pose>-0.842624293147114 6.709187889539281 1.3480607362567003 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.44174924774164664 0.21352094821715026 0.8341776027693687</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2068,6 +2783,13 @@
                             <static>true</static>
                             <pose>-6.534700926482109 -5.607324007022214 2.0114034774451044 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.3620222242358647 0.40284202454417906 0.5520298120050424</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2096,6 +2818,13 @@
                             <static>true</static>
                             <pose>-4.435372206657133 -1.8617218334604635 0.9670281244862998 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.32491016674944845 0.23166490527829411 1.1634571998860077</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2124,6 +2853,13 @@
                             <static>true</static>
                             <pose>-9.330857443588698 -9.227544599441933 0.6262646801713495 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.4120357164589233 0.3635603591495028 0.7840578902278372</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2152,6 +2888,13 @@
                             <static>true</static>
                             <pose>-7.929056113604556 5.432895799480402 1.301762367201903 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.35055090102111525 0.35090461517764443 0.7743682900876313</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>
@@ -2180,6 +2923,13 @@
                             <static>true</static>
                             <pose>-8.178605632557332 9.0141163767595 1.9318750316710656 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
                             <link name='link'>
+                                <collision name='collision'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.3674414020613998 0.22290319242716264 0.9321666051417837</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                </collision>
                                 <visual name='visual'>
                                     <geometry>
                                         <box>

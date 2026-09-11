@@ -16,6 +16,7 @@ from map_manager.srv import RayCast
 from nav_msgs.msg import Odometry
 from onboard_detector.srv import GetDynamicObstacles
 from std_msgs.msg import ColorRGBA, Int32MultiArray
+from std_srvs.srv import Empty
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -34,13 +35,41 @@ class DeploymentEvaluator:
             legacy_boundary_half_size = float(legacy_boundary_half_size)
             self.start_boundary_half_size = float(rospy.get_param("~start_boundary_half_size", legacy_boundary_half_size))
             self.goal_boundary_half_size = float(rospy.get_param("~goal_boundary_half_size", legacy_boundary_half_size))
-        self.boundary_axis = str(rospy.get_param("~boundary_axis", "y")).strip().lower()
-        if self.boundary_axis == "y":
-            self.boundary_sides = (0, 1)
-        elif self.boundary_axis == "x":
-            self.boundary_sides = (2, 3)
-        else:
-            raise ValueError("~boundary_axis must be either 'x' or 'y'")
+        self.eval_style = str(
+            rospy.get_param("~eval_style", "opposite_crossing_eval")
+        ).strip().lower()
+        eval_style_aliases = {
+            "opposite_crossing_eval": "opposite_crossing",
+            "opposite_crossing": "opposite_crossing",
+            "random_crossing_eval": "opposite_crossing",
+            "random_crossing": "opposite_crossing",
+        }
+        self.eval_style = eval_style_aliases.get(self.eval_style, self.eval_style)
+        if self.eval_style != "opposite_crossing":
+            raise ValueError(
+                "~eval_style must be 'opposite_crossing_eval' "
+                "(or the alias 'opposite_crossing')"
+            )
+
+        # Match the training-side opposite_crossing_eval geometry. Side IDs are
+        # 0=top, 1=bottom, 2=right, 3=left, and every goal is placed on the
+        # boundary directly opposite its randomly selected start boundary.
+        self.boundary_sides = (0, 1, 2, 3)
+        self.opposite_boundary_side = {0: 1, 1: 0, 2: 3, 3: 2}
+
+        # The ROS deployment map is approximately half the horizontal size of
+        # the training map. These defaults therefore scale training's
+        # tangent_limit=18 m and target_jitter=4 m to 9 m and 2 m while keeping
+        # the existing ROS boundary coordinate at 11 m.
+        self.tangent_limit = float(rospy.get_param("~tangent_limit", 9.0))
+        self.target_jitter = max(float(rospy.get_param("~target_jitter", 2.0)), 0.0)
+        if not 0.0 < self.tangent_limit <= min(
+            self.start_boundary_half_size, self.goal_boundary_half_size
+        ):
+            raise ValueError(
+                "~tangent_limit must be positive and no larger than both "
+                "start/goal boundary half sizes"
+            )
         self.random_height = bool(rospy.get_param("~random_height", True))
         self.height_min = float(rospy.get_param("~height_min", 0.5))
         self.height_max = float(rospy.get_param("~height_max", 2.5))
@@ -169,6 +198,12 @@ class DeploymentEvaluator:
         self.keep_trajectory_publisher_alive = bool(
             rospy.get_param("~keep_trajectory_publisher_alive", True)
         )
+        self.stop_navigation_service_name = rospy.get_param(
+            "~stop_navigation_service", "/rl_navigation/stop"
+        )
+        self.stop_navigation_service_timeout = float(
+            rospy.get_param("~stop_navigation_service_timeout", 5.0)
+        )
 
         self.latest_odom = None
         self.latest_model_states = None
@@ -209,6 +244,21 @@ class DeploymentEvaluator:
         self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
         rospy.wait_for_service("occupancy_map/raycast")
         self.raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)
+        self.stop_navigation = None
+        try:
+            rospy.wait_for_service(
+                self.stop_navigation_service_name,
+                timeout=self.stop_navigation_service_timeout,
+            )
+            self.stop_navigation = rospy.ServiceProxy(
+                self.stop_navigation_service_name, Empty
+            )
+        except rospy.ROSException:
+            rospy.logwarn(
+                "[deployment-eval] navigation stop service unavailable: %s; "
+                "the active goal cannot be cancelled after a trial",
+                self.stop_navigation_service_name,
+            )
         self.dynamic_obstacle_service = None
         try:
             rospy.wait_for_service("onboard_detector/get_dynamic_obstacles", timeout=5.0)
@@ -720,28 +770,59 @@ class DeploymentEvaluator:
                 self.reset_position_tolerance,
                 self.reset_speed_tolerance,
             )
+        else:
+            rospy.loginfo(
+                "[deployment-eval] reset settled at start=(%.2f, %.2f, %.2f)",
+                start[0],
+                start[1],
+                start[2],
+            )
 
-    def sample_boundary_point(self, side, z, half):
-        offset = self.rng.uniform(-half, half)
+    @staticmethod
+    def boundary_point(side, z, boundary_coordinate, tangent):
         if side == 0:
-            return (offset, half, z)
+            return (tangent, boundary_coordinate, z)
         if side == 1:
-            return (offset, -half, z)
+            return (tangent, -boundary_coordinate, z)
         if side == 2:
-            return (half, offset, z)
-        return (-half, offset, z)
+            return (boundary_coordinate, tangent, z)
+        if side == 3:
+            return (-boundary_coordinate, tangent, z)
+        raise ValueError("boundary side must be one of 0, 1, 2, 3")
 
     def sample_trial_task(self):
         start_side = self.rng.choice(self.boundary_sides)
-        goal_side = self.boundary_sides[1] if start_side == self.boundary_sides[0] else self.boundary_sides[0]
+        goal_side = self.opposite_boundary_side[start_side]
+
+        # As in training, place the target near the point obtained by reflecting
+        # the start through the map centre. Jitter prevents every route from
+        # being exactly centre-symmetric while the clamp keeps it on the valid
+        # portion of the opposite boundary.
+        start_tangent = self.rng.uniform(-self.tangent_limit, self.tangent_limit)
+        target_tangent = -start_tangent + self.rng.uniform(
+            -self.target_jitter, self.target_jitter
+        )
+        target_tangent = max(
+            -self.tangent_limit, min(self.tangent_limit, target_tangent)
+        )
         if self.random_height:
             start_z = self.rng.uniform(self.height_min, self.height_max)
             goal_z = self.rng.uniform(self.height_min, self.height_max)
         else:
             start_z = self.start_z
             goal_z = self.goal_z
-        start = self.sample_boundary_point(start_side, start_z, self.start_boundary_half_size)
-        goal = self.sample_boundary_point(goal_side, goal_z, self.goal_boundary_half_size)
+        start = self.boundary_point(
+            start_side,
+            start_z,
+            self.start_boundary_half_size,
+            start_tangent,
+        )
+        goal = self.boundary_point(
+            goal_side,
+            goal_z,
+            self.goal_boundary_half_size,
+            target_tangent,
+        )
         return start, goal, start_side, goal_side
 
     def publish_goal_for_a_moment(self, goal, trajectory_points=None):
@@ -760,6 +841,25 @@ class DeploymentEvaluator:
         while not rospy.is_shutdown() and self.latest_odom is None:
             rospy.loginfo("[deployment-eval] waiting for /CERLAB/quadcopter/odom ...")
             rate.sleep()
+
+    def stop_navigation_after_trial(self, trial_idx, reason):
+        if self.stop_navigation is None:
+            return False
+        try:
+            self.stop_navigation()
+            rospy.loginfo(
+                "[deployment-eval] trial %02d navigation stopped (%s)",
+                trial_idx + 1,
+                reason,
+            )
+            return True
+        except rospy.ServiceException as exc:
+            rospy.logwarn(
+                "[deployment-eval] failed to stop navigation after trial %02d: %s",
+                trial_idx + 1,
+                exc,
+            )
+            return False
 
     def distance_to_goal(self, odom, goal):
         pos = odom.pose.pose.position
@@ -932,6 +1032,21 @@ class DeploymentEvaluator:
 
     def run_one_trial(self, trial_idx):
         start, goal, start_side, goal_side = self.sample_trial_task()
+        rospy.loginfo(
+            "[deployment-eval] starting trial %02d/%02d | "
+            "start_side=%d start=(%.1f, %.1f, %.1f) | "
+            "goal_side=%d goal=(%.1f, %.1f, %.1f)",
+            trial_idx + 1,
+            self.num_trials,
+            start_side,
+            start[0],
+            start[1],
+            start[2],
+            goal_side,
+            goal[0],
+            goal[1],
+            goal[2],
+        )
         self.reset_robot(start, goal)
         trajectory_points = []
         if self.latest_odom is not None:
@@ -1048,6 +1163,17 @@ class DeploymentEvaluator:
 
             prev_goal_distance = distance
             rate.sleep()
+
+        if collision:
+            termination_reason = "collision:" + collision_type
+        elif timed_out:
+            termination_reason = "timeout"
+        elif success:
+            termination_reason = "success"
+        else:
+            termination_reason = "shutdown"
+        if not rospy.is_shutdown():
+            self.stop_navigation_after_trial(trial_idx, termination_reason)
 
         if self.latest_odom is not None:
             self.append_trajectory_point(trajectory_points, self.latest_odom, force=True)
