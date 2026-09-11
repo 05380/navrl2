@@ -1,6 +1,7 @@
 # ForesightNav 项目交接文档
 
-最后复核：2026-09-11（论文、训练端、ROS1 多副本与运行命令均已重新审计）  
+最后复核：2026-09-11（基于已推送提交 `ba0a7e8` 刷新；本次文档刷新尚未提交）
+
 项目根目录：`/Users/yoloflps/Downloads/study/navrl2`
 
 本文档用于在更换 Codex 账号或开启新会话后恢复项目上下文。它区分以下三类信息：
@@ -13,7 +14,7 @@
 
 ### 本轮对话结论速览
 
-- 论文主稿是 `thesis/icra.tex`；论文方法叙述的指定代码基准是 commit `6e137e9`，当前工作分支/HEAD 则是 `2-14-7-1` / `e0cf610`。
+- 论文主稿是 `thesis/icra.tex`；论文方法叙述的指定代码基准是 commit `6e137e9`，当前工作分支/HEAD 则是 `2-14-7-1` / `ba0a7e8`。
 - 训练端 `opposite_crossing_eval` 是“四边均匀随机起点、目标在正对边且靠近中心对称点”的模式；训练边界为 `±21 m`，切向范围 `±18 m`，目标切向抖动 `±4 m`。
 - 当前最新可见的本地仿真部署快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`。旧的 `/Users/yoloflps/Downloads/ros1 2` 在最后复核时已经不存在，不能继续作为可核验路径引用。
 - Ubuntu 真正运行的代码位于 `/home/wzf/navrl1_ws/src/ros1`。本机修改不会自动同步到 Ubuntu；每次正式评估都必须核对 `rospack find` 和 SHA-256。
@@ -38,7 +39,7 @@
 ### 1.1 当前仓库与版本
 
 - **[当前文件]** 当前分支：`2-14-7-1`
-- **[当前文件]** 当前 HEAD：`e0cf610439b07ec2ca404e51261800d8cd7ef745`
+- **[当前文件]** 当前 HEAD：`ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`
 - **[当前文件]** 当前 upstream：`navrl2/2-14-7-1`；remote URL：`https://github.com/05380/navrl2.git`。
 - **[已确认口径]** 论文的方法描述必须以提交
   `6e137e952fc075b3804c9addadc074691482df02`
@@ -60,7 +61,8 @@
 | `5fe8480` | 2026-08-06 | 在教师版本之后继续修正训练端 |
 | `26f3a6a` | 2026-08-22 | 默认改为四边起点到正对边目标，并增加 wall-crossing/越界规则 |
 | `e045060` | 2026-08-27 | 论文调整并加入 `ros1 real/` 实机部署文档 |
-| `e0cf610` | 2026-09-09 | 当前 HEAD，继续整理 real ROS 目录 |
+| `e0cf610` | 2026-09-09 | 整理 real ROS 目录；上一版交接生成时的 HEAD |
+| `ba0a7e8` | 2026-09-11 | 当前 HEAD；提交论文、ROS1 bug 修改、生成 world、两张训练图和交接文档 |
 
 接手后先执行：
 
@@ -72,31 +74,28 @@ git status --short
 git diff --stat
 ```
 
-### 1.2 当前存在未提交修改
+### 1.2 当前提交与工作树状态
 
-**不要执行 `git reset --hard`、`git checkout -- .` 或其他覆盖命令。** 当前工作树含论文和 ROS1 的重要未提交修改。
+用户已在 2026-09-11 14:15:39 +0800 创建并推送提交：
 
-最近一次核对时的修改文件包括：
+```text
+ba0a7e84249c3ccdd28b1b4e4169354ab90899e7
+修改论文 、ros1bug修改 、交接文档
+```
 
-- `ros1/navigation_runner/package.xml`
-- `ros1/navigation_runner/scripts/deployment_eval.py`
-- `ros1/navigation_runner/scripts/navigation.py`
-- `ros1/uav_simulator/scripts/world_generator.py`
-- `ros1/uav_simulator/worlds/generated_env/generated_env.world`
-- `thesis/figures/fig_foresightnav_architecture.png`
-- `thesis/icra.tex`
-- `thesis/icra_preview.aux`
-- `thesis/icra_preview.fdb_latexmk`
-- `thesis/icra_preview.fls`
-- `thesis/icra_preview.pdf`
+该提交一次性纳入了此前工作树中的 14 个文件，包括：
 
-最近一次核对时的未跟踪文件包括：
+- 新增 `PROJECT_HANDOFF.md`；
+- 提交 `ros1/navigation_runner` 的 evaluator、简单 stop 版 navigation 和 `std_srvs` 依赖；
+- 提交 `world_generator.py` 与带 107 个 collision 的 Git 内 `generated_env.world`；
+- 提交论文主稿、架构图、预览 PDF/辅助文件；
+- 新增并跟踪 `fig_training_initial.png` 与 `fig_training_final.png`。
 
-- `PROJECT_HANDOFF.md`（即本文档）
-- `thesis/figures/fig_training_initial.png`
-- `thesis/figures/fig_training_final.png`
+最后复核时，当前分支与 upstream `navrl2/2-14-7-1` 都指向 `ba0a7e8`，ahead/behind 为 `0/0`。两张训练图不再是 `??`，而是已经存在于当前 HEAD 中。
 
-接手时必须重新运行 `git status --short`，因为用户可能在交接后继续修改文件。
+本节这次状态刷新会再次修改 `PROJECT_HANDOFF.md` 本身，因此刷新完成后的预期工作树是：仅本文档显示 `M`，其他代码、论文和图片文件保持 clean。若要让远程交接文档也包含这次状态更新，需要之后单独提交并推送本文档。
+
+仍然不要使用 `git reset --hard`、`git checkout -- .` 或 `git clean` 来处理状态；先运行 `git status --short` 并确认文件归属。尤其不要为了让文档 clean 而覆盖本次交接更新。
 
 ### 1.3 论文主文件
 
@@ -136,8 +135,8 @@ latexmk -pdf -interaction=nonstopmode -halt-on-error \
 
 | 角色 | 路径 | 状态与用途 | 关键指纹/风险 |
 |---|---|---|---|
-| Git 管理的研究主仓库 | `/Users/yoloflps/Downloads/study/navrl2` | 训练、论文、`ros1/` 参考实现、`ros1 real/` | branch `2-14-7-1`；HEAD `e0cf610439b07ec2ca404e51261800d8cd7ef745`；工作树 dirty |
-| Git 内 ROS1 参考实现 | `.../navrl2/ros1` | 有未提交 opposite-crossing、stop-service、world-generator 修改 | evaluator `ad09030f...`; navigation `6f5f96f3...`；navigation 仍有 stop/rollout 竞态 |
+| Git 管理的研究主仓库 | `/Users/yoloflps/Downloads/study/navrl2` | 训练、论文、`ros1/` 参考实现、`ros1 real/` | branch `2-14-7-1`；HEAD/upstream 均为 `ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`；本次刷新后仅交接文档预计为 `M` |
+| Git 内 ROS1 参考实现 | `.../navrl2/ros1` | opposite-crossing、stop service 和 world-generator 修改已提交于 `ba0a7e8` | evaluator `ad09030f...`; navigation `6f5f96f3...`；navigation 仍有 stop/rollout 竞态 |
 | 旧 ROS1 下载副本 | `/Users/yoloflps/Downloads/ros1` | 仅保留作历史对照 | evaluator `fcbf5ffd...`；目标可落相邻边；无完整 stop 机制 |
 | 对话前段修改路径 | `/Users/yoloflps/Downloads/ros1 2` | 最后复核时不存在 | 不可作为交付源；需人工确认是否被重命名/移动 |
 | 最新仿真部署传输快照 | `/Users/yoloflps/Downloads/ros1 2 18.27.45` | 下一次同步 Ubuntu 时应优先核对的版本 | evaluator `70c284aa...`；navigation `6ff3e0de...`；后者含完整竞态修复 |
@@ -554,7 +553,7 @@ algo:
 
 本轮对话围绕四个问题进行了修改和核对：部署碰撞口径、opposite-crossing 起终点、trial 结束后的停止/复位，以及 Gazebo 障碍物物理 collision。它们落在不同副本，不能笼统写成“ROS1 已全部改好”。
 
-#### Git 主仓库内 `ros1/` 的未提交修改
+#### Git 主仓库内 `ros1/`（已提交于 `ba0a7e8`）
 
 - `deployment_eval.py` 已改成四边随机起点、正对边目标；默认边界 `±11 m`、切向范围 `±9 m`、目标抖动 `±2 m`。
 - evaluator 已接入 `/rl_navigation/stop`，每个 trial 的碰撞、超时或成功终止后都尝试调用。
@@ -1158,11 +1157,11 @@ grep -c '<collision' \
 
 ### P0：先保护和固化当前状态
 
-1. 重新核对 `git status` 和所有未提交 diff。
-2. 先备份 `/Users/yoloflps/Downloads/ros1 2 18.27.45`；确认消失的 `ros1 2` 是否只是被重命名，不要假设二者相同。
-3. 把时间戳副本中最终的 `RLock + navigation_epoch` 修复以可审阅 diff 移植回 Git 管理的 `navrl2/ros1`；在此之前，不得把 Git 内 navigation 当成最终部署版。
-4. 将论文修改、ROS1 修复和生成资源拆成逻辑清晰的提交；不要把 PDF/aux/world 大文件与核心代码混成一个不可审阅提交，除非项目当前惯例要求跟踪它们。
-5. 两张已被 `icra.tex` 引用的未跟踪图片 `fig_training_initial.png`、`fig_training_final.png` 必须随论文纳入版本管理，否则干净 clone 无法编译。
+1. 提交 `ba0a7e8` 已把此前论文、ROS1、生成资源、两张训练图和第一版交接文档一起推送到 upstream；不要仅为重新拆分这份已共享提交而改写历史。后续改动应按论文、代码、生成物等逻辑分别提交。
+2. 本次状态刷新只修改 `PROJECT_HANDOFF.md`；若希望远程仓库中的交接文档同步反映 `ba0a7e8`，应单独提交并推送本文档。
+3. 先备份 `/Users/yoloflps/Downloads/ros1 2 18.27.45`；确认消失的 `ros1 2` 是否只是被重命名，不要假设二者相同。
+4. 把时间戳副本中最终的 `RLock + navigation_epoch` 修复以可审阅 diff 移植回 Git 管理的 `navrl2/ros1`；在此之前，不得把 Git 内 navigation 当成最终部署版。
+5. 两张正文依赖图 `fig_training_initial.png`、`fig_training_final.png` 已由 `ba0a7e8` 纳入版本管理；后续移动或重命名时必须同步更新 `icra.tex`。
 6. 给所有正式实验记录绑定 commit、完整配置、checkpoint、随机种子、world/PCD hash 和 CSV 路径。
 
 ### P0：先完成 Ubuntu 部署闭环
@@ -1232,10 +1231,10 @@ grep -c '<collision' \
 
 ## 14. 本交接文档生成时的验证状态
 
-- 已核对当前分支、HEAD、关键历史 commit、工作树状态和关键文件 SHA-256。
+- 已核对当前分支为 `2-14-7-1`，HEAD 与 upstream 均为 `ba0a7e8`、ahead/behind 为 `0/0`；本次刷新后 `git status --short` 仅显示 `M PROJECT_HANDOFF.md`。
 - 已对照当前 `thesis/icra.tex` 核对图 1--6、Algorithm 1、Table II/III 和主要实验文字；论文为单文件正文，使用本地 IEEEtran class/bst 和 `thesis/ref.bib`。
 - 已检查最近构建日志：TeX Live 2026/pdflatex 成功生成 9 页 `icra_preview.pdf`，未发现 fatal、undefined citation 或 undefined reference；仍有 `No author given` 和若干 underfull box。此次交接没有再次改写论文。
-- 已确认 `fig_training_initial.png` 与 `fig_training_final.png` 已被正文引用却未跟踪，属于必须保护并纳入后续提交的依赖。
+- 已确认 `fig_training_initial.png` 与 `fig_training_final.png` 均被正文引用，并已由 `ba0a7e8` 跟踪；通过 `git cat-file -e HEAD:<path>` 核验两者确实存在于当前 HEAD。
 - 已核对训练端 opposite-crossing 采样公式、128 次净空筛选、静态/动态碰撞、成功、越界和超时源代码。
 - 已核对默认 ROS launch 实际选择 `no_map.yaml`，以及 occupancy map 的 `robot_size`、分辨率、膨胀公式和 `RayCast` 使用 inflated map 的 C++ 实现。
 - 已核对时间戳 evaluator 的采样、碰撞、成功、deadlock、stop service 和 trial 循环；Python AST 语法检查通过。
@@ -1250,7 +1249,7 @@ grep -c '<collision' \
 
 可把下面内容作为新会话第一条消息：
 
-> 请先完整阅读 `/Users/yoloflps/Downloads/study/navrl2/PROJECT_HANDOFF.md`，再核对 `git status`、HEAD、论文主稿和所有 ROS1 路径。论文方法描述以 commit `6e137e952fc075b3804c9addadc074691482df02` 为依据，Git 工作树还有用户未提交成果。最新可见的仿真部署传输快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`，完整 `RLock + navigation_epoch` 修复只在该快照的 `navigation.py`；Ubuntu 真正运行的是 `/home/wzf/navrl1_ws/src/ros1`，必须先核对 `rospack find` 和 SHA-256。不要 reset、clean 或覆盖现有修改，也不要把 Git 内 ROS1、下载副本、Ubuntu 运行树和 `ros1 real/` 混成一个版本。
+> 请先完整阅读 `/Users/yoloflps/Downloads/study/navrl2/PROJECT_HANDOFF.md`，再核对 `git status`、HEAD、论文主稿和所有 ROS1 路径。论文方法描述以 commit `6e137e952fc075b3804c9addadc074691482df02` 为依据。当前代码基线是已推送的 `ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`；该提交已包含论文、ROS1 修改、生成 world、两张训练图和第一版交接文档，本次状态刷新后预计只有 `PROJECT_HANDOFF.md` 尚未提交。最新可见的仿真部署传输快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`，完整 `RLock + navigation_epoch` 修复只在该快照的 `navigation.py`；Ubuntu 真正运行的是 `/home/wzf/navrl1_ws/src/ros1`，必须先核对 `rospack find` 和 SHA-256。不要 reset、clean 或覆盖现有修改，也不要把 Git 内 ROS1、下载副本、Ubuntu 运行树和 `ros1 real/` 混成一个版本。
 
 ## 16. 接手时推荐先阅读的文件
 
