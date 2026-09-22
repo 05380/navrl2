@@ -1,6 +1,6 @@
 # ForesightNav 项目交接文档
 
-最后复核：2026-09-11（基于已推送提交 `ba0a7e8` 刷新；本次文档刷新尚未提交）
+最后复核：2026-09-11（HEAD/upstream 为 `5e6540b`；当前 8 页论文与本次文档刷新尚未提交）
 
 项目根目录：`/Users/yoloflps/Downloads/study/navrl2`
 
@@ -14,7 +14,8 @@
 
 ### 本轮对话结论速览
 
-- 论文主稿是 `thesis/icra.tex`；论文方法叙述的指定代码基准是 commit `6e137e9`，当前工作分支/HEAD 则是 `2-14-7-1` / `ba0a7e8`。
+- 论文主稿是 `thesis/icra.tex`；论文方法叙述的指定代码基准是 commit `6e137e9`，当前工作分支/HEAD 则是 `2-14-7-1` / `5e6540b`。
+- 当前工作树中的论文已压缩到 8 页，正文无 Algorithm；这批论文精简和最新预览尚未提交，不能只检出 HEAD 就认为拿到了当前稿。
 - 训练端 `opposite_crossing_eval` 是“四边均匀随机起点、目标在正对边且靠近中心对称点”的模式；训练边界为 `±21 m`，切向范围 `±18 m`，目标切向抖动 `±4 m`。
 - 当前最新可见的本地仿真部署快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`。旧的 `/Users/yoloflps/Downloads/ros1 2` 在最后复核时已经不存在，不能继续作为可核验路径引用。
 - Ubuntu 真正运行的代码位于 `/home/wzf/navrl1_ws/src/ros1`。本机修改不会自动同步到 Ubuntu；每次正式评估都必须核对 `rospack find` 和 SHA-256。
@@ -39,7 +40,7 @@
 ### 1.1 当前仓库与版本
 
 - **[当前文件]** 当前分支：`2-14-7-1`
-- **[当前文件]** 当前 HEAD：`ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`
+- **[当前文件]** 当前 HEAD：`5e6540bbd822f73b2ff5ae076c9f561d9fef1086`
 - **[当前文件]** 当前 upstream：`navrl2/2-14-7-1`；remote URL：`https://github.com/05380/navrl2.git`。
 - **[已确认口径]** 论文的方法描述必须以提交
   `6e137e952fc075b3804c9addadc074691482df02`
@@ -62,7 +63,8 @@
 | `26f3a6a` | 2026-08-22 | 默认改为四边起点到正对边目标，并增加 wall-crossing/越界规则 |
 | `e045060` | 2026-08-27 | 论文调整并加入 `ros1 real/` 实机部署文档 |
 | `e0cf610` | 2026-09-09 | 整理 real ROS 目录；上一版交接生成时的 HEAD |
-| `ba0a7e8` | 2026-09-11 | 当前 HEAD；提交论文、ROS1 bug 修改、生成 world、两张训练图和交接文档 |
+| `ba0a7e8` | 2026-09-11 | 提交论文、ROS1 bug 修改、生成 world、两张训练图和第一版交接文档 |
+| `5e6540b` | 2026-09-11 | 当前 HEAD/upstream；更新交接文档，位于 `ba0a7e8` 之后 |
 
 接手后先执行：
 
@@ -91,16 +93,23 @@ ba0a7e84249c3ccdd28b1b4e4169354ab90899e7
 - 提交论文主稿、架构图、预览 PDF/辅助文件；
 - 新增并跟踪 `fig_training_initial.png` 与 `fig_training_final.png`。
 
-最后复核时，当前分支与 upstream `navrl2/2-14-7-1` 都指向 `ba0a7e8`，ahead/behind 为 `0/0`。两张训练图不再是 `??`，而是已经存在于当前 HEAD 中。
+随后又创建并推送了提交：
 
-本节这次状态刷新会再次修改 `PROJECT_HANDOFF.md` 本身，因此刷新完成后的预期工作树是：仅本文档显示 `M`，其他代码、论文和图片文件保持 clean。若要让远程交接文档也包含这次状态更新，需要之后单独提交并推送本文档。
+```text
+5e6540bbd822f73b2ff5ae076c9f561d9fef1086
+更新交接文档
+```
+
+最后复核时，当前分支与 upstream `navrl2/2-14-7-1` 都指向 `5e6540b`，ahead/behind 为 `0/0`。两张训练图已经存在于当前 HEAD 中。
+
+当前工作树并非 clean。尚未提交的有效论文改动包括 `thesis/icra.tex`、Fig. 2 的 TikZ/PDF 和最新的 `thesis/icra.pdf`；原 `thesis/icra_preview.pdf` 已按用户要求删除，只保留 `icra.pdf` 作为论文输出。两套 jobname 产生的辅助文件仍可能存在，提交前应区分正文、正式 PDF 和构建产物，不要把辅助文件误当成研究数据。
 
 仍然不要使用 `git reset --hard`、`git checkout -- .` 或 `git clean` 来处理状态；先运行 `git status --short` 并确认文件归属。尤其不要为了让文档 clean 而覆盖本次交接更新。
 
 ### 1.3 论文主文件
 
 - **[当前文件]** 主 LaTeX：`/Users/yoloflps/Downloads/study/navrl2/thesis/icra.tex`
-- **[当前文件]** 当前预览：`/Users/yoloflps/Downloads/study/navrl2/thesis/icra_preview.pdf`
+- **[当前文件]** 当前论文 PDF：`/Users/yoloflps/Downloads/study/navrl2/thesis/icra.pdf`
 - **[当前文件]** 参考文献数据库：`thesis/ref.bib`；图片目录：`thesis/figures/`。正文目前是单体 `icra.tex`，没有通过 `\input` / `\include` 拆分章节。
 - **[当前文件]** IEEE 模板：
   - `thesis/support/IEEEtran.cls`：IEEE 论文版式类文件。
@@ -124,10 +133,10 @@ ba0a7e84249c3ccdd28b1b4e4169354ab90899e7
 ```bash
 cd /Users/yoloflps/Downloads/study/navrl2/thesis
 latexmk -pdf -interaction=nonstopmode -halt-on-error \
-  -jobname=icra_preview icra.tex
+  icra.tex
 ```
 
-最近一次编译状态：成功，9 页，无未解析交叉引用。仍有非致命问题，例如作者信息未填写和少量 underfull box。
+最近一次编译状态：成功，8 页；未发现未解析引用、未解析文献或 overfull box。仍有非致命问题：作者信息尚未填写，并存在少量 underfull box。补入正式作者与单位后可能改变分页，必须重新检查是否仍满足 8 页限制。
 
 ### 1.4 代码副本、职责与版本指纹
 
@@ -135,7 +144,7 @@ latexmk -pdf -interaction=nonstopmode -halt-on-error \
 
 | 角色 | 路径 | 状态与用途 | 关键指纹/风险 |
 |---|---|---|---|
-| Git 管理的研究主仓库 | `/Users/yoloflps/Downloads/study/navrl2` | 训练、论文、`ros1/` 参考实现、`ros1 real/` | branch `2-14-7-1`；HEAD/upstream 均为 `ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`；本次刷新后仅交接文档预计为 `M` |
+| Git 管理的研究主仓库 | `/Users/yoloflps/Downloads/study/navrl2` | 训练、论文、`ros1/` 参考实现、`ros1 real/` | branch `2-14-7-1`；HEAD/upstream 均为 `5e6540bbd822f73b2ff5ae076c9f561d9fef1086`；当前论文、预览、辅助文件和交接文档有未提交修改 |
 | Git 内 ROS1 参考实现 | `.../navrl2/ros1` | opposite-crossing、stop service 和 world-generator 修改已提交于 `ba0a7e8` | evaluator `ad09030f...`; navigation `6f5f96f3...`；navigation 仍有 stop/rollout 竞态 |
 | 旧 ROS1 下载副本 | `/Users/yoloflps/Downloads/ros1` | 仅保留作历史对照 | evaluator `fcbf5ffd...`；目标可落相邻边；无完整 stop 机制 |
 | 对话前段修改路径 | `/Users/yoloflps/Downloads/ros1 2` | 最后复核时不存在 | 不可作为交付源；需人工确认是否被重命名/移动 |
@@ -170,8 +179,8 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 时间戳 package.xml:  c36a91429a5146bc217c63ac0f3b45e4d4b952b99d59dd75d6c0db966082b9df
 时间戳 world 生成器: 0b58f2654a84ce50097ec1bd08810d1aaf16933ce07d563a4cba13df265d3db4
 时间戳旧 world:      b5827e180bc749c2b59334d21e8ad400902b65beaec8e9224e12031926dfdfaf
-论文 icra.tex:       beaaadceec0cfb00cee22557e763d67ccd6649e2369b3ad4a13114cb7ee36ce4
-论文预览 PDF:        4eb193d47c74851f4c667e19d971608aa7395cfb0e02148fe63214681ddd9d78
+论文 icra.tex:       478d4c0712dce77a076810e39df801ed41bcef803c34001ff98e6b4dc5fe6203
+论文 PDF:             51275da743aa4561dbe2bf2edee700c000b32993a095a27e7035b595e00f3ddc
 论文架构图:          e7ee61f8b54ee9a8171772f90d62713df9a202d0c4e2436d3bdeb26819d80c17
 训练初始场景图:      131c25540662d5ba93f8cd1dd34ba0e185fa764319547b13fdbec6a1868dca6c
 训练最终场景图:      ac096b70707e73aa0bad0575c9bd1f71fad54dc027becf91be779d76d2270178
@@ -245,7 +254,7 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 3. **Fig. 3：课程训练环境**，标签 `fig:training_environments`
    - 文件：`thesis/figures/fig_training_initial.png`、`fig_training_final.png`
    - 半栏图，(a) 初始环境包含 60 个动态障碍物；(b) 最终阶段包含多个大型非凸结构。
-   - 图注说明训练环境为 50 m x 50 m，并概括课程中逐步提升动态密度和非凸结构复杂度。
+   - 图注将 `map_range=[20,20,4.5]` 对应的障碍核心区表述为 40 m x 40 m，并概括课程中逐步提升动态密度和非凸结构复杂度；含每侧 5 m border 的总地形仍约为 50 m x 50 m。
 
 4. **Fig. 4：四类仿真轨迹**，标签 `fig_sim_trajectories`
    - (a) 静态障碍物；(b) 动态障碍物；(c) 混合障碍物；(d) 大型非凸结构。
@@ -269,10 +278,9 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 
 ### 3.3 当前算法框
 
-- **Algorithm 1：Multi-Horizon Outcome Learning**
-- 标签：`alg:multi_horizon_learning`
-- 原来的 Algorithm 1 “TTC-Aware Predictive PPO Training” 已删除，其正文引用也已删除。
-- 原 Algorithm 2 已自动改号为 Algorithm 1，正文引用已同步。
+- 当前正文中没有 Algorithm 环境、算法编号或算法引用。
+- Multi-Horizon Outcome Learning 仍由预测输出、目标聚合和多任务损失公式完整描述，不再保留重复的伪代码图。
+- `algorithm2e` 依赖以及相关辅助命令已经从 `icra.tex` 删除。
 
 ### 3.4 当前表格
 
@@ -280,7 +288,8 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 - **Table II**：四种环境中的仿真定量结果。
 - **Table III**：混合环境中的 safety-shield 消融。
 - Table II、III 的最优值已加粗。
-- Table II 方法顺序固定为：PE-Planner、NavRL、ForesightNav w/o 3D-VO、ForesightNav。
+- Table II 方法顺序固定为：PE-Planner、NavRL、ForesightNav w/o TTC-aware 3D-VO reward、ForesightNav。
+- Table III 的 Success、Collision 和 Timeout 为互斥终止统计；当前四行 Timeout Rate 均为 `0`，不再写 `N/A`。
 - Ego-Planner 已由 PE-Planner 替换。相关论文历史文件：
   `/Users/yoloflps/Desktop/2403.12865v1.pdf`。
 
@@ -311,8 +320,8 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 
 - **[待完成]** Fig. 4 尚未加入多方法轨迹对比，这是师兄意见中用户明确暂缓的一项。
 - **[待验证]** 投稿前需再次逐条对照师兄原始注释副本，确认没有在后续压缩篇幅和图编号调整中发生回退。
-- **[待完成]** 论文仍为 9 页；ICRA 目标为 8 页，用户暂时接受先精简到 9 页，后续仍可能需要进一步压缩。
-- **[待完成]** 作者信息和最终投稿元数据尚未补齐。
+- **[当前完成]** 当前无作者信息的预览已经压缩到 8 页。
+- **[待完成]** 作者信息和最终投稿元数据尚未补齐；加入后可能重新溢出到第 9 页，需要再次排版。
 
 ## 5. 以 `6e137e9` 为准的训练端方法定义
 
@@ -776,7 +785,7 @@ post_deadlock_success_rate
 ### 9.1 训练设置
 
 - Isaac Sim + PyTorch。
-- `env.py` 中障碍核心区由 `map_range=[20,20,4.5]` 生成，即 `40 m x 40 m`；TerrainGenerator 另设每侧 `5 m` border，因此包含边界的总水平地形约为 `50 m x 50 m`。论文写 50 m x 50 m，生成器注释有时写 40 m x 40 m，两者分别指“含 border 总场景”和“核心障碍区”，不要再当成互相矛盾的两个实验。
+- `env.py` 中障碍核心区由 `map_range=[20,20,4.5]` 生成，即 `40 m x 40 m`；TerrainGenerator 另设每侧 `5 m` border，因此包含边界的总水平地形约为 `50 m x 50 m`。当前论文和 Fig. 3 使用 40 m x 40 m，明确指 obstacle workspace；不要把它与含 border 的总地形混为一谈。
 - 论文和正式训练命令使用并行 UAV 数 1,024；当前 `train.yaml` 文件里的开发默认值却是 `env.num_envs: 2`，必须通过命令行显式覆盖并保存 resolved config，不能只根据 YAML 默认声称运行了 1,024。
 - 训练最大速度：2.0 m/s。
 - 动态圆柱半径集合：`{0.125, 0.25, 0.375, 0.50} m`。
@@ -794,7 +803,7 @@ post_deadlock_success_rate
 - 论文当前写作口径：工作空间 20 m x 20 m。
 - 时间戳 Gazebo YAML 的静态障碍物采样核心区是 `x,y in [-10,10]`，确实为 20 m x 20 m；但时间戳 evaluator 的默认起点/目标边界是 `±12.5 m`，任务端点横跨 25 m。Git 内 evaluator 默认又是 `±11 m`。因此“工作空间”可能分别指障碍核心区、可飞区或起终点边界；正式复现实验必须保存实际参数并明确论文采用哪个定义，不能只写 20 m x 20 m 后默认所有几何都一致。
 - 每个方法、每个环境：1,000 次独立试验。
-- 方法：PE-Planner、NavRL、ForesightNav w/o 3D-VO、ForesightNav。
+- 方法：PE-Planner、NavRL、ForesightNav w/o TTC-aware 3D-VO reward、ForesightNav。
 - 环境：
   1. Static obstacles，`N_stat=70`；
   2. Dynamic obstacles，`N_dyn=60`；
@@ -807,24 +816,24 @@ post_deadlock_success_rate
 |---|---|---:|---:|---:|---:|---:|
 | Static | PE-Planner | 85.5 | 14.5 | 0.0 | 0 | N/A |
 | Static | NavRL | 94.1 | 5.9 | 0.0 | 0 | N/A |
-| Static | ForesightNav w/o 3D-VO | 92.7 | 7.3 | 0.0 | 0 | N/A |
+| Static | ForesightNav w/o TTC-aware 3D-VO reward | 92.7 | 7.3 | 0.0 | 0 | N/A |
 | Static | ForesightNav | 94.4 | 5.6 | 0.0 | 0 | N/A |
 | Dynamic | PE-Planner | 65.6 | 34.4 | 0.0 | 0 | N/A |
 | Dynamic | NavRL | 69.9 | 30.1 | 0.0 | 0 | N/A |
-| Dynamic | ForesightNav w/o 3D-VO | 71.2 | 28.8 | 0.0 | 0 | N/A |
+| Dynamic | ForesightNav w/o TTC-aware 3D-VO reward | 71.2 | 28.8 | 0.0 | 0 | N/A |
 | Dynamic | ForesightNav | 83.3 | 16.7 | 0.0 | 0 | N/A |
 | Mixed | PE-Planner | 63.2 | 36.8 | 0.0 | 0 | N/A |
 | Mixed | NavRL | 61.8 | 38.2 | 0.0 | 0 | N/A |
-| Mixed | ForesightNav w/o 3D-VO | 60.3 | 39.7 | 0.0 | 0 | N/A |
+| Mixed | ForesightNav w/o TTC-aware 3D-VO reward | 60.3 | 39.7 | 0.0 | 0 | N/A |
 | Mixed | ForesightNav | 76.5 | 23.5 | 0.0 | 0 | N/A |
 | Large non-convex | PE-Planner | 58.9 | 15.9 | 25.2 | 127 | 21/127 (16.5%) |
 | Large non-convex | NavRL | 66.7 | 13.6 | 19.7 | 93 | 23/93 (24.7%) |
-| Large non-convex | ForesightNav w/o 3D-VO | 77.5 | 14.0 | 8.5 | 42 | 18/42 (42.9%) |
+| Large non-convex | ForesightNav w/o TTC-aware 3D-VO reward | 77.5 | 14.0 | 8.5 | 42 | 18/42 (42.9%) |
 | Large non-convex | ForesightNav | 78.1 | 15.6 | 6.3 | 53 | 24/53 (45.3%) |
 
 这些数字满足 `success + collision + timeout = 100%`。但表格合理性不等于数据真实性，投稿前必须保留每组 1,000 次试验的 CSV/日志和统计脚本以便复核。
 
-**重要写作要求：** 不要强调完整 ForesightNav 在 Env. 4 优于 `w/o 3D-VO`。两者在成功率、碰撞率、死锁数等指标上呈现混合差异。当前正文应把结论限制为整体预测设计在大型结构环境中改善持续导航和恢复能力，不能将所有优势单独归因于 3D-VO。
+**重要写作要求：** 不要强调完整 ForesightNav 在 Env. 4 优于 `w/o TTC-aware 3D-VO reward`。两者在成功率、碰撞率、死锁数等指标上呈现混合差异。当前正文应把结论限制为整体预测设计在大型结构环境中改善持续导航和恢复能力，不能将所有优势单独归因于 TTC-aware 3D-VO reward。
 
 ### 9.4 Table III 当前数据
 
@@ -832,16 +841,16 @@ Table III 位于混合静态/动态环境，1,000 次试验：
 
 | Method | Shield | Success % | Collision % | Timeout |
 |---|---|---:|---:|---:|
-| NavRL | Off | 57.4 | 42.6 | N/A |
-| NavRL | On | 62.7 | 37.3 | N/A |
-| ForesightNav | Off | 64.2 | 35.8 | N/A |
-| ForesightNav | On | 75.3 | 24.7 | N/A |
+| NavRL | Off | 57.4 | 42.6 | 0 |
+| NavRL | On | 62.7 | 37.3 | 0 |
+| ForesightNav | Off | 64.2 | 35.8 | 0 |
+| ForesightNav | On | 75.3 | 24.7 | 0 |
 
-这组数据曾被误填成 NavRL 与 ForesightNav 对调，当前表格已按上述顺序纠正。
+这组数据曾被误填成 NavRL 与 ForesightNav 对调，当前表格已按上述顺序纠正。由于每行 Success 与 Collision 之和为 100%，Timeout Rate 按互斥终止定义记为 `0`。
 
 ### 9.5 物理飞行实验
 
-- 场地：28 m x 15 m。
+- 总实验场地：28 m x 15 m；Fig. 6(a)--(d) 中每个障碍课程布置在 5 m x 15 m 的测试区域内。
 - 最大速度：1.2 m/s。
 - 四类环境：静态、动态、混合、大型非凸结构。
 - Fig. 6(e) 显示各环境三维线速度随时间变化。
@@ -1111,7 +1120,7 @@ grep -c '<collision' \
 3. **动作缩放不一致**：Beta 动作映射、速度上限、z 控制方式、控制频率和加速度限制不同。
 4. **时延和动态学差异**：ROS topic 延迟、地图更新、控制器响应、Gazebo 动力学和 Isaac 简化动力学不同。
 5. **动态目标语义不一致**：真值检测器输出的尺寸、速度、排序、坐标系或 padding 与训练端 5x10 描述符不完全一致。
-6. **地图和任务尺度不一致**：训练为 50 m x 50 m、边界约 ±21 m；用户的 Gazebo 定量地图为 20 m x 20 m。即使障碍密度相同，视野/路程/边界效应仍不同。
+6. **地图和任务尺度不一致**：训练障碍核心区为 40 m x 40 m（含 border 总地形约 50 m x 50 m）、任务边界约 ±21 m；用户的 Gazebo 定量地图为 20 m x 20 m。即使障碍密度相同，视野/路程/边界效应仍不同。
 7. **碰撞和超时定义不一致**：碰撞半径、模型 collision 几何、成功半径、timeout 和 deadlock 检测频率可能不同。
 8. **静态/动态模型生成物只有 visual 无 collision**：生成器模板已补 collision，但时间戳部署快照正在被 `start.launch` 加载的 world 仍是 `71 visual / 1 collision`，必须重新生成才生效。
 9. **试验切换残留控制命令**：时间戳 evaluator 与 navigation 已加入 stop/zero-velocity 和并发 epoch 修复，但尚需 Ubuntu 端实测；仓库内 navigation 仍不是最终并发安全版。
@@ -1132,7 +1141,11 @@ grep -c '<collision' \
 - 重写 Simulation Results，使其更接近 IEEE 论文的概括式结果分析，避免逐行堆数据。
 - 编写 Physical Flight Tests，加入场地、速度上限、四类环境和速度曲线解释。
 - 多轮插入、替换、裁剪和重新排版 Fig. 1--6。
-- 删除旧 Fig. 4 和旧 Algorithm 1，并完成编号/引用修正。
+- 删除历史上的旧 Fig. 4 和全部伪代码 Algorithm，完成图表编号及正文引用修正；当前正文没有 Algorithm 环境或算法编号。
+- 将 Observation 的三组公式合并为一个紧凑公式，同时保留三类观测维度、navigation state 和动态障碍物描述符定义。
+- 压缩 3D-VO 的球堆构造与预筛选细节，保留障碍物近似、各向异性膨胀、有限时域 VO、TTC 和风险函数。
+- 压缩 Multi-Horizon Outcome Learning 的重复说明，并将联合优化目标改为行内公式；保留预测输出、目标构造、多任务损失、共享编码器更新和部署时移除预测器的说明。
+- 精简 deadlock 指标说明、Physical Flight Tests 和 Conclusion；当前无作者版本已从 9 页压缩到 8 页。
 - 按师兄意见修正引用归属、术语、图引用和表格加粗。
 
 ### 12.2 训练端
@@ -1157,8 +1170,8 @@ grep -c '<collision' \
 
 ### P0：先保护和固化当前状态
 
-1. 提交 `ba0a7e8` 已把此前论文、ROS1、生成资源、两张训练图和第一版交接文档一起推送到 upstream；不要仅为重新拆分这份已共享提交而改写历史。后续改动应按论文、代码、生成物等逻辑分别提交。
-2. 本次状态刷新只修改 `PROJECT_HANDOFF.md`；若希望远程仓库中的交接文档同步反映 `ba0a7e8`，应单独提交并推送本文档。
+1. 当前分支、HEAD 和 upstream 均为 `2-14-7-1` / `5e6540bbd822f73b2ff5ae076c9f561d9fef1086`，ahead/behind 为 `0/0`；不要为拆分已共享历史而改写提交。
+2. 当前 8 页论文源文件、`icra.pdf`、Fig. 2 源文件/输出、部分构建辅助文件和本交接文档均有未提交修改；提交前分别审阅，不要把临时构建文件盲目纳入版本管理。
 3. 先备份 `/Users/yoloflps/Downloads/ros1 2 18.27.45`；确认消失的 `ros1 2` 是否只是被重命名，不要假设二者相同。
 4. 把时间戳副本中最终的 `RLock + navigation_epoch` 修复以可审阅 diff 移植回 Git 管理的 `navrl2/ros1`；在此之前，不得把 Git 内 navigation 当成最终部署版。
 5. 两张正文依赖图 `fig_training_initial.png`、`fig_training_final.png` 已由 `ba0a7e8` 纳入版本管理；后续移动或重命名时必须同步更新 `icra.tex`。
@@ -1213,9 +1226,9 @@ grep -c '<collision' \
 
 ### P1：投稿前论文收尾
 
-1. 将 9 页继续压缩到 ICRA 允许的最终篇幅。
-2. 补作者、单位、致谢和最终元数据。
-3. 再次编译并检查所有引用、图号、表号、算法号、字体和图片分辨率。
+1. 当前无作者版本为 8 页；补作者、单位、致谢和最终元数据后重新检查分页，必要时再做小幅压缩。
+2. 再次编译并检查所有引用、图号、表号、字体和图片分辨率，并确认正文仍无残留 Algorithm 引用或编号。
+3. 核对 ICRA 当年投稿模板、页数及补充材料要求，避免以当前占位作者版本直接投稿。
 4. 决定是否按师兄建议把 Fig. 4 改成多方法轨迹对比。
 5. 清理正文中的 TODO 注释：
    - finalized ablation-study statement；
@@ -1231,10 +1244,11 @@ grep -c '<collision' \
 
 ## 14. 本交接文档生成时的验证状态
 
-- 已核对当前分支为 `2-14-7-1`，HEAD 与 upstream 均为 `ba0a7e8`、ahead/behind 为 `0/0`；本次刷新后 `git status --short` 仅显示 `M PROJECT_HANDOFF.md`。
-- 已对照当前 `thesis/icra.tex` 核对图 1--6、Algorithm 1、Table II/III 和主要实验文字；论文为单文件正文，使用本地 IEEEtran class/bst 和 `thesis/ref.bib`。
-- 已检查最近构建日志：TeX Live 2026/pdflatex 成功生成 9 页 `icra_preview.pdf`，未发现 fatal、undefined citation 或 undefined reference；仍有 `No author given` 和若干 underfull box。此次交接没有再次改写论文。
-- 已确认 `fig_training_initial.png` 与 `fig_training_final.png` 均被正文引用，并已由 `ba0a7e8` 跟踪；通过 `git cat-file -e HEAD:<path>` 核验两者确实存在于当前 HEAD。
+- 已核对当前分支为 `2-14-7-1`，HEAD 与 upstream 均为 `5e6540bbd822f73b2ff5ae076c9f561d9fef1086`，ahead/behind 为 `0/0`；当前工作树另有论文、Fig. 2、正式 PDF/构建产物和本交接文档的未提交修改。
+- 已对照当前 `thesis/icra.tex` 核对 Fig. 1--6、Table I--III 和主要实验文字；当前没有 Algorithm 环境、算法编号或正文算法引用。论文为单文件正文，使用本地 IEEEtran class/bst 和 `thesis/ref.bib`。
+- 已检查最近构建日志：TeX Live 2026/pdflatex 成功生成 8 页 `icra.pdf`，未发现 fatal、undefined citation、undefined reference 或 overfull box；仍有 `No author given` 和若干 underfull box。加入作者和单位后可能重新增至 9 页。
+- 当前文件校验值：`thesis/icra.tex` 为 `478d4c0712dce77a076810e39df801ed41bcef803c34001ff98e6b4dc5fe6203`，`thesis/icra.pdf` 为 `51275da743aa4561dbe2bf2edee700c000b32993a095a27e7035b595e00f3ddc`。
+- 已确认 `fig_training_initial.png` 与 `fig_training_final.png` 均被正文引用并受 Git 跟踪。
 - 已核对训练端 opposite-crossing 采样公式、128 次净空筛选、静态/动态碰撞、成功、越界和超时源代码。
 - 已核对默认 ROS launch 实际选择 `no_map.yaml`，以及 occupancy map 的 `robot_size`、分辨率、膨胀公式和 `RayCast` 使用 inflated map 的 C++ 实现。
 - 已核对时间戳 evaluator 的采样、碰撞、成功、deadlock、stop service 和 trial 循环；Python AST 语法检查通过。
@@ -1249,7 +1263,7 @@ grep -c '<collision' \
 
 可把下面内容作为新会话第一条消息：
 
-> 请先完整阅读 `/Users/yoloflps/Downloads/study/navrl2/PROJECT_HANDOFF.md`，再核对 `git status`、HEAD、论文主稿和所有 ROS1 路径。论文方法描述以 commit `6e137e952fc075b3804c9addadc074691482df02` 为依据。当前代码基线是已推送的 `ba0a7e84249c3ccdd28b1b4e4169354ab90899e7`；该提交已包含论文、ROS1 修改、生成 world、两张训练图和第一版交接文档，本次状态刷新后预计只有 `PROJECT_HANDOFF.md` 尚未提交。最新可见的仿真部署传输快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`，完整 `RLock + navigation_epoch` 修复只在该快照的 `navigation.py`；Ubuntu 真正运行的是 `/home/wzf/navrl1_ws/src/ros1`，必须先核对 `rospack find` 和 SHA-256。不要 reset、clean 或覆盖现有修改，也不要把 Git 内 ROS1、下载副本、Ubuntu 运行树和 `ros1 real/` 混成一个版本。
+> 请先完整阅读 `/Users/yoloflps/Downloads/study/navrl2/PROJECT_HANDOFF.md`，再核对 `git status`、HEAD、论文主稿和所有 ROS1 路径。论文方法描述以 commit `6e137e952fc075b3804c9addadc074691482df02` 为依据；当前分支和 upstream 基线是 `5e6540bbd822f73b2ff5ae076c9f561d9fef1086`。当前无作者论文为 8 页、正文没有 Algorithm，并统一以 `thesis/icra.pdf` 为论文输出；`thesis/icra.tex`、Fig. 2、PDF/构建产物和交接文档仍有未提交修改。最新可见的仿真部署传输快照是 `/Users/yoloflps/Downloads/ros1 2 18.27.45`，完整 `RLock + navigation_epoch` 修复只在该快照的 `navigation.py`；Ubuntu 真正运行的是 `/home/wzf/navrl1_ws/src/ros1`，必须先核对 `rospack find` 和 SHA-256。不要 reset、clean 或覆盖现有修改，也不要把 Git 内 ROS1、下载副本、Ubuntu 运行树和 `ros1 real/` 混成一个版本。
 
 ## 16. 接手时推荐先阅读的文件
 
@@ -1295,6 +1309,12 @@ grep -c '<collision' \
 12. **出现停止竞态**：stop 日志已经打印，但 timer 线程在 rollout 中访问被清空的 `target_dir`，触发 `NoneType.clone()`。
 13. **完成并发安全修复**：在时间戳 `navigation.py` 引入锁、epoch、状态快照和发布前校验，阻止取消 trial 的旧命令/rollout 泄漏到新 trial。
 14. **最后答复边界**：针对这次异常本身，只更新 `navigation.py` 即可；但完整评估功能仍依赖配套 evaluator，且所有修改必须真正同步到 Ubuntu 并重启进程。
+15. **按师兄批注系统修订论文**：调整标题、摘要、Introduction、Related Work、Methodology 和 Experiment Results 的逻辑、引用归属、术语及图表引用；明确论文方法仍以 `6e137e9` 为解释基准。
+16. **图表结构定稿**：当前保留 Fig. 1--6 和 Table I--III；删除历史旧 Fig. 4 后重新编号，并将仿真轨迹、走廊轨迹和实飞图分别归入对应实验段落。
+17. **删除全部伪代码**：先删除旧 Algorithm 1 并重编号，随后为压缩篇幅删除剩余 Multi-Horizon 伪代码及相关引用；当前正文没有 Algorithm。
+18. **统一实验命名与数值语义**：Table II 的消融统一为 `ForesightNav w/o TTC-aware 3D-VO reward`；Table III 的 Timeout Rate 由 `N/A` 改为 `0`；deadlock trial、deadlock event 和 event recovery 的分母保持区分。
+19. **方法与实验文字压缩**：合并 Observation 公式，压缩 3D-VO 球堆/预筛选、Multi-Horizon 后续说明、deadlock 指标、Physical Flight Tests 和 Conclusion，同时保留核心公式及定义。
+20. **当前分页结果**：最新 `icra.pdf` 为 8 页，引用和文献均解析、无 overfull box；作者/单位仍为空，补齐元数据后必须重新检查分页。`icra_preview.pdf` 已删除，后续只维护 `icra.pdf`。
 
 ## 18. 下一位接手者的最短执行清单
 

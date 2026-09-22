@@ -1,3 +1,4 @@
+\pdfminorversion=4
 \documentclass[tikz,border=2pt]{standalone}
 
 \usepackage{amsmath,amssymb}
@@ -25,13 +26,7 @@
   vector/.style={->, draw=navy, line width=1.2pt},
   point/.style={circle, inner sep=1.6pt}
 ]
-  \path[use as bounding box] (-0.15,-0.25) rectangle (16.20,6.95);
-
-  % Panel headings.
-  \node[font=\bfseries] at (3.92,6.64)
-    {(a) Relative-space TTC test};
-  \node[font=\bfseries] at (12.08,6.64)
-    {(b) Finite-horizon 3D velocity obstacle};
+  \path[use as bounding box] (-0.15,-0.65) rectangle (16.20,6.10);
 
   % --------------------------------------------------------------------------
   % Panel (a): anisotropic inflated region and relative trajectory.
@@ -77,15 +72,15 @@
   \node[align=center, font=\scriptsize, cyanblue!45!black]
     at (2.72,1.74)
     {inflated safety region $\mathcal E_{i,j}$\\[-1pt]
-     $\|\mathbf D_{i,j}^{-1}\mathbf r\|_2\leq 1$};
+     $\|\mathbf Q_{i,j}^{-1}\mathbf r\|_2\leq 1$};
 
   % Safety semiaxes, measured from the ellipsoid center to its boundary.
   \draw[->, draw=cyanblue!65!black, line width=0.55pt]
     (C) -- ($(C)+(1.40,0.20)$)
-    node[pos=0.60, below=3pt, font=\scriptsize] {$d^{xy}_{i,j}$};
+    node[pos=0.68, above=5pt, font=\scriptsize] {$b_i+m_{xy}$};
   \draw[->, draw=cyanblue!65!black, line width=0.55pt]
     (C) -- ($(C)+(0,0.93)$)
-    node[pos=0.60, right=3pt, font=\scriptsize] {$d^{z}_{i,j}$};
+    node[pos=0.78, left=4pt, font=\scriptsize] {$b_i+m_z$};
 
   % Relative trajectory under constant relative velocity.
   \coordinate (Rzero) at (6.72,5.77);
@@ -106,7 +101,7 @@
     {first contact: $\mathbf r(T_{i,j,t+1})$};
   \node[anchor=north west, midgray, align=left]
     at ($(Rh)+(0.08,-0.05)$)
-    {$\mathbf r(H)$\\[-2pt]\scriptsize $s=H$};
+    {$\mathbf r(H_{\mathrm{VO}})$\\[-2pt]\scriptsize $s=H_{\mathrm{VO}}$};
   \node[navy, rotate=34.5, inner sep=0.8pt, font=\scriptsize]
     at (4.82,5.03)
     {$\mathbf u_{i,j,t+1}=\mathbf v^o_{i,t+1}-\mathbf v_{t+1}$};
@@ -114,7 +109,7 @@
   \node[font=\scriptsize, align=center] at (4.02,0.28)
     {$\begin{gathered}
       \mathbf r(s)=\mathbf r_{i,j,t+1}+s\mathbf u_{i,j,t+1},\\[-1pt]
-      T_{i,j,t+1}=\min\{s\in(0,H]:\mathbf r(s)\in\mathcal E_{i,j}\}
+      T_{i,j,t+1}=\min\{s\in(0,H_{\mathrm{VO}}]:\mathbf r(s)\in\mathcal E_{i,j}\}
     \end{gathered}$};
 
   % --------------------------------------------------------------------------
@@ -138,7 +133,7 @@
   \draw[guide] (Apex) -- (CapL);
   \draw[guide] (Apex) -- (11.20,3.30);
 
-  % The finite-horizon VO starts at the s=H cap and remains unbounded.
+  % The finite-horizon VO starts at the s=H_VO cap and remains unbounded.
   \begin{scope}
     \clip (10.55,0.72) rectangle (16.20,6.05);
     \path[fill=voorange!18]
@@ -166,14 +161,14 @@
   \node[anchor=north, inner sep=1.0pt, font=\scriptsize]
     at ($(Apex)+(0.03,-0.11)$) {$\mathbf v^o_{i,t+1}$};
   \node[font=\scriptsize, midgray, align=center] at (11.00,1.43)
-    {excluded by horizon $H$\\(no conflict within $H$)};
+    {excluded by horizon $H_{\mathrm{VO}}$\\(no conflict within $H_{\mathrm{VO}}$)};
   \node[font=\scriptsize, voorange!80!black, align=center]
     at (13.70,3.07)
-    {$\mathcal{VO}^{H}_{i,j,t+1}$\\forbidden velocities};
+    {$\mathcal{VO}^{H_{\mathrm{VO}}}_{i,j,t+1}$\\forbidden velocities};
   \draw[voorange!75!black, line width=0.5pt]
     ($(CapU)+(-0.02,0.02)$) -- (10.64,4.72);
   \node[font=\scriptsize, voorange!80!black, anchor=east]
-    at (10.58,4.77) {$s=H$ cap};
+    at (10.58,4.77) {$s=H_{\mathrm{VO}}$ cap};
 
   % Realized conflicting velocity and a non-conflicting comparison velocity.
   \coordinate (Vin) at (13.48,3.83);
@@ -182,19 +177,26 @@
   \node[point, fill=navy] at (Vin) {};
   \node[navy, anchor=south, font=\scriptsize]
     at ($(Vin)+(0.12,0.05)$)
-    {$\mathbf v_{t+1}\in\mathcal{VO}^{H}_{i,j,t+1}$};
+    {$\mathbf v_{t+1}\in\mathcal{VO}^{H_{\mathrm{VO}}}_{i,j,t+1}$};
 
   \draw[->, draw=safe, line width=1.05pt] (Ov) -- (Vout);
   \node[point, fill=safe] at (Vout) {};
   \node[safe!70!black, anchor=south, font=\scriptsize]
     at ($(Vout)+(0.18,0.12)$)
-    {$\mathbf v'\notin\mathcal{VO}^{H}_{i,j,t+1}$};
+    {$\mathbf v'\notin\mathcal{VO}^{H_{\mathrm{VO}}}_{i,j,t+1}$};
 
   \node[font=\scriptsize, align=center] at (12.27,0.25)
     {$\begin{gathered}
-      \mathbf v\in\mathcal{VO}^{H}_{i,j,t+1}\iff\exists s\in(0,H]:\\[-1pt]
-      \left\|\mathbf D_{i,j}^{-1}
+      \mathbf v\in\mathcal{VO}^{H_{\mathrm{VO}}}_{i,j,t+1}\iff
+      \exists s\in(0,H_{\mathrm{VO}}]:\\[-1pt]
+      \left\|\mathbf Q_{i,j}^{-1}
       [\mathbf r_{i,j,t+1}+s(\mathbf v^o_{i,t+1}-\mathbf v)]\right\|_2\leq1
     \end{gathered}$};
+
+  % Panel captions are placed below their respective subfigures.
+  \node[font={\footnotesize\bfseries}] at (3.92,-0.50)
+    {(a) Relative-space TTC test};
+  \node[font={\footnotesize\bfseries}] at (12.08,-0.50)
+    {(b) Finite-horizon 3D velocity obstacle};
 \end{tikzpicture}
 \end{document}

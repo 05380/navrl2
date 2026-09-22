@@ -116,14 +116,16 @@ def main() -> None:
     plt.rcParams.update(
         {
             "font.family": "DejaVu Sans",
-            "font.size": 14,
-            "axes.labelsize": 18,
-            "xtick.labelsize": 14,
-            "ytick.labelsize": 14,
-            "legend.fontsize": 16,
+            # Embed a subsetted TrueType font in vector PDF output.
+            "pdf.fonttype": 42,
+            "font.size": 7,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 5.6,
         }
     )
-    fig, ax = plt.subplots(figsize=(18.5, 5.8), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(3.45, 1.30), constrained_layout=True)
 
     for spec, elapsed, speed in traces:
         ax.plot(
@@ -131,22 +133,26 @@ def main() -> None:
             speed,
             color=spec.color,
             linestyle="-",
-            linewidth=1.4,
+            linewidth=0.9,
             alpha=0.92,
             label=spec.label,
         )
 
     # Intentionally no title or subtitle: the user requested a title-free plot.
-    ax.set_xlabel("Time(s)")
-    ax.set_ylabel("Linear velocity(m/s)")
+    ax.set_xlabel("Time (s)", fontsize=6.5)
+    ax.set_ylabel("Linear velocity (m/s)", fontsize=6.5)
     ax.set_xlim(left=0.0)
     ax.set_ylim(bottom=0.0)
-    ax.grid(True, color="#D9D9D9", linewidth=0.7, alpha=0.65)
+    ax.set_yticks(
+        [0.0, 0.5, 1.0, 1.5, 2.0],
+        labels=["0.0", "0.3", "0.6", "0.9", "1.2"],
+    )
+    ax.grid(True, color="#D9D9D9", linewidth=0.5, alpha=0.65)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_color("#333333")
-        spine.set_linewidth(1.0)
+        spine.set_linewidth(0.7)
     ax.legend(
         loc="upper right",
         ncol=1,
@@ -154,16 +160,29 @@ def main() -> None:
         facecolor="white",
         edgecolor="#777777",
         framealpha=0.95,
-        handlelength=2.6,
-        borderpad=0.65,
-        labelspacing=0.45,
+        handlelength=1.6,
+        handletextpad=0.45,
+        borderpad=0.22,
+        borderaxespad=0.3,
+        labelspacing=0.18,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.output, dpi=240, bbox_inches="tight", facecolor="white")
+    fig.savefig(
+        args.output,
+        dpi=240,
+        bbox_inches="tight",
+        pad_inches=0.02,
+        facecolor="white",
+    )
     if args.pdf:
         args.pdf.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(args.pdf, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            args.pdf,
+            bbox_inches="tight",
+            pad_inches=0.02,
+            facecolor="white",
+        )
     plt.close(fig)
 
     for spec, elapsed, speed in traces:
