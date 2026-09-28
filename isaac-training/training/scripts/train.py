@@ -158,7 +158,9 @@ def main(cfg):
         "auxiliary_future_progress_loss",
         "auxiliary_future_clearance_loss",
         "auxiliary_future_collision_loss",
-        "auxiliary_future_stuck_loss",
+        "auxiliary_future_trap_loss",
+        "auxiliary_mature_samples",
+        "auxiliary_pending_samples",
         "behavior_cloning_loss",
         "behavior_cloning_nll",
         "behavior_cloning_confidence",
@@ -180,7 +182,25 @@ def main(cfg):
     transformed_env = TransformedEnv(env, Compose(*transforms)).train()
     transformed_env.set_seed(cfg.seed)    
     # PPO Policy
-    policy = PPO(cfg.algo, transformed_env.observation_spec, transformed_env.action_spec, cfg.device)
+    policy = PPO(
+        cfg.algo,
+        transformed_env.observation_spec,
+        transformed_env.action_spec,
+        cfg.device,
+        step_dt=float(env.dt * env.substeps),
+    )
+    if policy.auxiliary_sequence_buffer is not None:
+        horizon_pairs = ", ".join(
+            f"{seconds:g}s={steps} steps"
+            for seconds, steps in zip(
+                policy.auxiliary_horizon_seconds,
+                policy.auxiliary_future_horizons,
+            )
+        )
+        print(
+            "[NavRL]: multi-horizon outcome targets "
+            f"(control_dt={policy.auxiliary_dt:.6f}s): {horizon_pairs}"
+        )
 
     if cfg.get("checkpoint", None) is not None:
         checkpoint_path = os.path.expanduser(str(cfg.checkpoint))

@@ -92,7 +92,13 @@ def main(cfg):
     transformed_env = TransformedEnv(env, Compose(vel_transform)).eval()
     transformed_env.set_seed(cfg.seed)
 
-    policy = PPO(cfg.algo, transformed_env.observation_spec, transformed_env.action_spec, cfg.device)
+    policy = PPO(
+        cfg.algo,
+        transformed_env.observation_spec,
+        transformed_env.action_spec,
+        cfg.device,
+        step_dt=float(env.dt * env.substeps),
+    )
     if checkpoint_path is not None:
         checkpoint_state = torch.load(checkpoint_path, map_location=cfg.device)
         missing_keys, unexpected_keys = policy.load_state_dict(checkpoint_state, strict=False)

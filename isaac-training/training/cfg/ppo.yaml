@@ -6,11 +6,15 @@ algo:
       enabled: true
       loss_weight: 0.1
       hidden_dim: 128
-      future_horizons: [1, 3, 5]
+      future_horizons_seconds: [0.25, 1.0, 2.0]
       future_collision_weight: 1.0
-      future_stuck_weight: 1.0
+      future_trap_weight: 1.0
       future_clearance_weight: 1.0
       future_progress_weight: 1.0
+      blockage_distance: 1.5
+      blockage_ratio: 0.8
+      max_net_speed: 0.15
+      max_progress_speed: 0.10
     behavior_cloning:
       enabled: true
       loss_weight: 0.05

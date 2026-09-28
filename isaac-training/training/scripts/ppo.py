@@ -6,10 +6,11 @@ from tensordict.nn import TensorDictModuleBase, TensorDictSequential, TensorDict
 from einops.layers.torch import Rearrange
 from torchrl.modules import ProbabilisticActor
 from torchrl.envs.transforms import CatTensors
+from multi_horizon import MultiHorizonSequenceBuffer, horizon_seconds_to_steps
 from utils import ValueNorm, make_mlp, IndependentNormal, Actor, GAE, make_batch, IndependentBeta, BetaActor, vec_to_world
 
 class PPO(TensorDictModuleBase):
-    def __init__(self, cfg, observation_spec, action_spec, device):
+    def __init__(self, cfg, observation_spec, action_spec, device, step_dt=None):
         super().__init__()
         self.cfg = cfg
         self.device = device
@@ -42,15 +43,37 @@ class PPO(TensorDictModuleBase):
         auxiliary_cfg = cfg.feature_extractor.get("auxiliary", {})
         self.auxiliary_enabled = bool(auxiliary_cfg.get("enabled", False))
         self.auxiliary_loss_weight = float(auxiliary_cfg.get("loss_weight", 0.0))
+        self.auxiliary_dt = float(
+            step_dt if step_dt is not None else auxiliary_cfg.get("step_dt", 0.016)
+        )
+        if self.auxiliary_dt <= 0.0:
+            raise ValueError("algo.feature_extractor.auxiliary.step_dt must be positive.")
+        self.auxiliary_horizon_seconds = []
         self.auxiliary_future_horizons = []
-        for horizon in auxiliary_cfg.get("future_horizons", [1]):
-            horizon = int(horizon)
-            if horizon >= 1 and horizon not in self.auxiliary_future_horizons:
-                self.auxiliary_future_horizons.append(horizon)
+        configured_horizon_seconds = auxiliary_cfg.get("future_horizons_seconds", None)
+        if configured_horizon_seconds is not None:
+            for seconds in configured_horizon_seconds:
+                seconds = float(seconds)
+                horizon = horizon_seconds_to_steps(seconds, self.auxiliary_dt)
+                if horizon not in self.auxiliary_future_horizons:
+                    self.auxiliary_horizon_seconds.append(seconds)
+                    self.auxiliary_future_horizons.append(horizon)
+        else:
+            for horizon in auxiliary_cfg.get("future_horizons", [1]):
+                horizon = int(horizon)
+                if horizon >= 1 and horizon not in self.auxiliary_future_horizons:
+                    self.auxiliary_horizon_seconds.append(horizon * self.auxiliary_dt)
+                    self.auxiliary_future_horizons.append(horizon)
         if self.auxiliary_enabled and not self.auxiliary_future_horizons:
+            self.auxiliary_horizon_seconds = [self.auxiliary_dt]
             self.auxiliary_future_horizons = [1]
         self.auxiliary_future_collision_weight = float(auxiliary_cfg.get("future_collision_weight", 1.0))
-        self.auxiliary_future_stuck_weight = float(auxiliary_cfg.get("future_stuck_weight", 1.0))
+        self.auxiliary_future_trap_weight = float(
+            auxiliary_cfg.get(
+                "future_trap_weight",
+                auxiliary_cfg.get("future_stuck_weight", 1.0),
+            )
+        )
         self.auxiliary_future_clearance_weight = float(auxiliary_cfg.get("future_clearance_weight", 1.0))
         self.auxiliary_future_progress_weight = float(auxiliary_cfg.get("future_progress_weight", 1.0))
         self.auxiliary_output_dim = 4 * len(self.auxiliary_future_horizons)
@@ -64,6 +87,17 @@ class PPO(TensorDictModuleBase):
             ).to(self.device)
         else:
             self.auxiliary_predictor = None
+        if self.auxiliary_predictor is not None:
+            self.auxiliary_sequence_buffer = MultiHorizonSequenceBuffer(
+                horizons=self.auxiliary_future_horizons,
+                dt=self.auxiliary_dt,
+                blockage_distance=float(auxiliary_cfg.get("blockage_distance", 1.5)),
+                blockage_ratio=float(auxiliary_cfg.get("blockage_ratio", 0.8)),
+                max_net_speed=float(auxiliary_cfg.get("max_net_speed", 0.15)),
+                max_progress_speed=float(auxiliary_cfg.get("max_progress_speed", 0.10)),
+            )
+        else:
+            self.auxiliary_sequence_buffer = None
 
         behavior_cloning_cfg = cfg.feature_extractor.get("behavior_cloning", {})
         self.behavior_cloning_enabled = bool(behavior_cloning_cfg.get("enabled", False))
@@ -160,126 +194,48 @@ class PPO(TensorDictModuleBase):
         action = action.reshape(*features.shape[:-1], -1)
         return torch.cat([features, action], dim=-1)
 
-    def _future_within_horizon(self, signal, done, horizon):
-        target = torch.zeros_like(signal, dtype=torch.bool)
-        valid_for_offset = torch.ones_like(done, dtype=torch.bool)
-        signal_bool = signal >= 0.5
-        done_bool = done.bool()
-
-        for offset in range(horizon):
-            shifted_signal = torch.zeros_like(signal_bool)
-            if offset == 0:
-                shifted_signal = signal_bool
-            else:
-                prev_done = torch.ones_like(done_bool)
-                prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
-                valid_for_offset = valid_for_offset & (~prev_done)
-                shifted_signal[:, :-offset] = signal_bool[:, offset:]
-            target = target | (shifted_signal & valid_for_offset)
-        return target.float()
-
-    def _multi_step_sum(self, signal, done, horizon):
-        target = torch.zeros_like(signal)
-        valid_for_offset = torch.ones_like(done, dtype=torch.bool)
-        done_bool = done.bool()
-
-        for offset in range(horizon):
-            shifted_signal = torch.zeros_like(signal)
-            if offset == 0:
-                shifted_signal = signal
-            else:
-                prev_done = torch.ones_like(done_bool)
-                prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
-                valid_for_offset = valid_for_offset & (~prev_done)
-                shifted_signal[:, :-offset] = signal[:, offset:]
-            target = target + torch.where(valid_for_offset, shifted_signal, torch.zeros_like(shifted_signal))
-        return target
-
-    def _multi_step_min(self, signal, done, horizon):
-        fill_value = signal.detach().max()
-        target = torch.full_like(signal, fill_value)
-        valid_for_offset = torch.ones_like(done, dtype=torch.bool)
-        done_bool = done.bool()
-
-        for offset in range(horizon):
-            shifted_signal = torch.full_like(signal, fill_value)
-            if offset == 0:
-                shifted_signal = signal
-            else:
-                prev_done = torch.ones_like(done_bool)
-                prev_done[:, :-offset] = done_bool[:, offset - 1:-1]
-                valid_for_offset = valid_for_offset & (~prev_done)
-                shifted_signal[:, :-offset] = signal[:, offset:]
-            target = torch.minimum(target, torch.where(valid_for_offset, shifted_signal, torch.full_like(signal, fill_value)))
-        return target
-
-    def _add_multi_step_auxiliary_targets(self, tensordict):
-        if self.auxiliary_predictor is None or not self.auxiliary_future_horizons:
-            return
-
-        next_stats = tensordict["next", "stats"]
-        collision = next_stats["collision"].detach().squeeze(-1)
-        stuck = next_stats["stuck_active"].detach().squeeze(-1)
-        front_clearance = next_stats["front_clearance"].detach().squeeze(-1)
-        goal_progress = next_stats["goal_progress"].detach().squeeze(-1)
-        done = tensordict["next", "done"].detach().squeeze(-1)
-
-        future_collision = []
-        future_stuck = []
-        future_clearance = []
-        future_progress = []
-        for horizon in self.auxiliary_future_horizons:
-            future_collision.append(self._future_within_horizon(collision, done, horizon))
-            future_stuck.append(self._future_within_horizon(stuck, done, horizon))
-            future_clearance.append(self._multi_step_min(front_clearance, done, horizon))
-            future_progress.append(self._multi_step_sum(goal_progress, done, horizon))
-
-        tensordict.set("_aux_future_collision", torch.stack(future_collision, dim=-1))
-        tensordict.set("_aux_future_stuck", torch.stack(future_stuck, dim=-1))
-        tensordict.set("_aux_future_clearance", torch.stack(future_clearance, dim=-1))
-        tensordict.set("_aux_future_progress", torch.stack(future_progress, dim=-1))
-
-    def _compute_auxiliary_loss(self, tensordict):
-        if self.auxiliary_predictor is None:
-            zero = tensordict["_feature"].sum() * 0.0
+    def _compute_auxiliary_loss(self, auxiliary_batch, reference_feature):
+        if self.auxiliary_predictor is None or auxiliary_batch is None:
+            zero = reference_feature.sum() * 0.0
             return zero, TensorDict({
                 "auxiliary_loss": zero.detach(),
                 "auxiliary_future_progress_loss": zero.detach(),
                 "auxiliary_future_clearance_loss": zero.detach(),
                 "auxiliary_future_collision_loss": zero.detach(),
-                "auxiliary_future_stuck_loss": zero.detach(),
+                "auxiliary_future_trap_loss": zero.detach(),
             }, [])
 
-        predictions = self.auxiliary_predictor(self._auxiliary_input(tensordict))
+        self.feature_extractor(auxiliary_batch)
+        predictions = self.auxiliary_predictor(self._auxiliary_input(auxiliary_batch))
         future_predictions = predictions.reshape(
             *predictions.shape[:-1],
             len(self.auxiliary_future_horizons),
             4,
         )
         pred_future_collision = future_predictions[..., 0]
-        pred_future_stuck = future_predictions[..., 1]
+        pred_future_trap = future_predictions[..., 1]
         pred_future_clearance = future_predictions[..., 2]
         pred_future_progress = future_predictions[..., 3]
 
-        target_future_collision = tensordict["_aux_future_collision"].detach().clamp(0.0, 1.0)
-        target_future_stuck = tensordict["_aux_future_stuck"].detach().clamp(0.0, 1.0)
-        target_future_clearance = self._symlog(tensordict["_aux_future_clearance"].detach())
-        target_future_progress = self._symlog(tensordict["_aux_future_progress"].detach())
+        target_future_collision = auxiliary_batch["_aux_future_collision"].detach().clamp(0.0, 1.0)
+        target_future_trap = auxiliary_batch["_aux_future_trap"].detach().clamp(0.0, 1.0)
+        target_future_clearance = self._symlog(auxiliary_batch["_aux_future_clearance"].detach())
+        target_future_progress = self._symlog(auxiliary_batch["_aux_future_progress"].detach())
 
         future_collision_loss = F.binary_cross_entropy_with_logits(
             pred_future_collision,
             target_future_collision,
         )
-        future_stuck_loss = F.binary_cross_entropy_with_logits(
-            pred_future_stuck,
-            target_future_stuck,
+        future_trap_loss = F.binary_cross_entropy_with_logits(
+            pred_future_trap,
+            target_future_trap,
         )
         future_clearance_loss = F.smooth_l1_loss(pred_future_clearance, target_future_clearance)
         future_progress_loss = F.smooth_l1_loss(pred_future_progress, target_future_progress)
 
         raw_auxiliary_loss = (
             self.auxiliary_future_collision_weight * future_collision_loss
-            + self.auxiliary_future_stuck_weight * future_stuck_loss
+            + self.auxiliary_future_trap_weight * future_trap_loss
             + self.auxiliary_future_clearance_weight * future_clearance_loss
             + self.auxiliary_future_progress_weight * future_progress_loss
         )
@@ -290,7 +246,7 @@ class PPO(TensorDictModuleBase):
             "auxiliary_future_progress_loss": future_progress_loss.detach(),
             "auxiliary_future_clearance_loss": future_clearance_loss.detach(),
             "auxiliary_future_collision_loss": future_collision_loss.detach(),
-            "auxiliary_future_stuck_loss": future_stuck_loss.detach(),
+            "auxiliary_future_trap_loss": future_trap_loss.detach(),
         }, [])
 
     def _compute_behavior_cloning_loss(self, demonstration_batch, reference_feature):
@@ -330,6 +286,18 @@ class PPO(TensorDictModuleBase):
             "behavior_cloning_active": active,
         }, [])
 
+    @staticmethod
+    def _make_auxiliary_batches(auxiliary_batch, num_minibatches):
+        if auxiliary_batch is None or auxiliary_batch.batch_size[0] == 0:
+            return [None] * num_minibatches
+        sample_count = int(auxiliary_batch.batch_size[0])
+        indices = torch.randperm(sample_count, device=auxiliary_batch.device)
+        chunks = torch.tensor_split(indices, num_minibatches)
+        return [
+            auxiliary_batch[chunk] if chunk.numel() > 0 else None
+            for chunk in chunks
+        ]
+
     def train(self, tensordict, demonstration_buffer=None):
         # tensordict: (num_env, num_frames, dim), batchsize = num_env * num_frames
         next_tensordict = tensordict["next"]
@@ -352,7 +320,17 @@ class PPO(TensorDictModuleBase):
         ret = self.value_norm.normalize(ret)  # normalize return
         tensordict.set("adv", adv)
         tensordict.set("ret", ret)
-        self._add_multi_step_auxiliary_targets(tensordict)
+        auxiliary_batch = None
+        if self.auxiliary_sequence_buffer is not None:
+            auxiliary_batch = self.auxiliary_sequence_buffer.append(tensordict)
+        auxiliary_mature_samples = (
+            int(auxiliary_batch.batch_size[0]) if auxiliary_batch is not None else 0
+        )
+        auxiliary_pending_samples = (
+            self.auxiliary_sequence_buffer.pending_count
+            if self.auxiliary_sequence_buffer is not None
+            else 0
+        )
 
         # Training
         infos = []
@@ -370,7 +348,14 @@ class PPO(TensorDictModuleBase):
         update_index = 0
         for epoch in range(self.cfg.training_epoch_num):
             batch = make_batch(tensordict, self.cfg.num_minibatches)
-            for minibatch in batch:
+            auxiliary_batches = self._make_auxiliary_batches(
+                auxiliary_batch,
+                self.cfg.num_minibatches,
+            )
+            for minibatch, auxiliary_minibatch in zip(
+                batch,
+                auxiliary_batches,
+            ):
                 demonstration_batch = None
                 if (
                     update_index in bc_update_indices
@@ -382,15 +367,29 @@ class PPO(TensorDictModuleBase):
                         self.behavior_cloning_batch_size,
                         self.device,
                     )
-                infos.append(self._update(minibatch, demonstration_batch))
+                infos.append(
+                    self._update(
+                        minibatch,
+                        demonstration_batch,
+                        auxiliary_minibatch,
+                    )
+                )
                 update_index += 1
         infos = torch.stack(infos).to_tensordict()
         
         infos = infos.apply(torch.mean, batch_size=[])
-        return {k: v.item() for k, v in infos.items()}    
+        result = {k: v.item() for k, v in infos.items()}
+        result["auxiliary_mature_samples"] = auxiliary_mature_samples
+        result["auxiliary_pending_samples"] = auxiliary_pending_samples
+        return result
 
     
-    def _update(self, tensordict, demonstration_batch=None): # tensordict shape (batch_size, )
+    def _update(
+        self,
+        tensordict,
+        demonstration_batch=None,
+        auxiliary_batch=None,
+    ): # tensordict shape (batch_size, )
         self.feature_extractor(tensordict)
 
         # Get action from the current policy
@@ -416,7 +415,10 @@ class PPO(TensorDictModuleBase):
         critic_loss_clipped = self.critic_loss_fn(ret, value_clipped)
         critic_loss_original = self.critic_loss_fn(ret, value)
         critic_loss = torch.max(critic_loss_clipped, critic_loss_original)
-        auxiliary_loss, auxiliary_info = self._compute_auxiliary_loss(tensordict)
+        auxiliary_loss, auxiliary_info = self._compute_auxiliary_loss(
+            auxiliary_batch,
+            tensordict["_feature"],
+        )
         behavior_cloning_loss, behavior_cloning_info = self._compute_behavior_cloning_loss(
             demonstration_batch,
             tensordict["_feature"],

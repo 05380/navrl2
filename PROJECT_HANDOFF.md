@@ -365,14 +365,14 @@ Git ROS 生成 world:  2ea25da8f5884bcd8794466a4e1b606b66cba57b4ae7c45d590f3e37c
 - 动态障碍物分支：展平后经 MLP，形成约 64 维表示。
 - 两种感知特征与 8 维导航状态拼接后进入共享 MLP，主干隐藏层为 `[256, 256]`。
 - Actor 输出 Beta 分布参数，Critic 输出状态价值。
-- Outcome predictor 接收共享特征与采样动作，隐藏层约 128，分别预测 `h={1,3,5}` 的结果。
+- Outcome predictor 接收共享特征与采样动作，隐藏层约 128，分别预测 `\tau={0.25,1.0,2.0}\,\mathrm{s}` 的结果；在当前 `dt=0.016 s` 下对应 `{16,63,125}` 步。
 
 ### 5.4 Multi-Horizon Outcome Learning
 
 每个预测时域聚合四类训练目标：
 
 - `collision`：窗口内是否发生碰撞，取最大值；
-- `stuck`：窗口内是否停滞，取最大值；
+- `trapping`：窗口内高阻塞比例、低净水平速度和低目标进展速度是否同时成立；
 - `clearance`：窗口内前方最小净空；
 - `progress`：窗口内累计目标进度。
 
@@ -796,7 +796,8 @@ post_deadlock_success_rate
 - 每个课程阶段约 12 小时。
 - rollout length：32；PPO epochs：4；mini-batches：16。
 - `gamma=0.99`，`GAE lambda=0.95`。
-- multi-horizon：`{1,3,5}`，辅助损失权重 `0.1`。
+- multi-horizon：`{0.25,1.0,2.0} s`，在 `dt=0.016 s` 下为 `{16,63,125}` 步；辅助损失权重 `0.1`。超过 32 步 rollout 的目标由 episode-aware 跨 rollout 缓冲生成，episode 结束时截断且不会跨 reset。
+- 旧 checkpoint 和既有实验表格可能来自早期 `{1,3,5}` 步实现；使用当前版本时需重新训练并复评完整方法及相关消融。
 
 ### 9.2 仿真评估设置
 
